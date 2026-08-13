@@ -8,14 +8,6 @@ import type { LibraryItem } from "@/services/types";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/library")({
-  head: () => ({
-    meta: [
-      { title: "Company knowledge library — EAAWP" },
-      { name: "description", content: "Documents, policies, SOPs and datasets that form the company AI employee's knowledge base." },
-      { property: "og:title", content: "Company knowledge library — EAAWP" },
-      { property: "og:description", content: "Manage the knowledge sources available to your AI employee." },
-    ],
-  }),
   component: LibraryPage,
 });
 

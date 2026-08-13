@@ -6,14 +6,6 @@ import { auditService, departmentName } from "@/services";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/audit")({
-  head: () => ({
-    meta: [
-      { title: "Audit & activity log — EAAWP" },
-      { name: "description", content: "Every AI and human action in the company workspace, with actor, department, time and outcome." },
-      { property: "og:title", content: "Audit & activity log — EAAWP" },
-      { property: "og:description", content: "Full enterprise audit trail of AI and human actions." },
-    ],
-  }),
   component: AuditPage,
 });
 

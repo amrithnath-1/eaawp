@@ -4,21 +4,6 @@ import { authService } from "@/services";
 import { useSession } from "@/state/session";
 
 export const Route = createFileRoute("/")({
-  head: () => ({
-    meta: [
-      { title: "EAAWP — Enterprise Agentic AI Workforce Platform" },
-      {
-        name: "description",
-        content:
-          "Sign in to EAAWP, the enterprise workspace where your company's AI employee works 24×7 across Finance, Sales, HR and Operations.",
-      },
-      { property: "og:title", content: "EAAWP — Enterprise Agentic AI Workforce Platform" },
-      {
-        property: "og:description",
-        content: "Enterprise workspace for a continuously operating AI employee.",
-      },
-    ],
-  }),
   component: LoginPage,
 });
 

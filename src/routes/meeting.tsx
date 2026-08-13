@@ -10,18 +10,6 @@ import { cn } from "@/lib/utils";
 import { useAgentStatus } from "@/state/useAgentStatus";
 
 export const Route = createFileRoute("/meeting")({
-  head: () => ({
-    meta: [
-      { title: "Meeting Room — company AI network | EAAWP" },
-      {
-        name: "description",
-        content:
-          "Observe how the single company AI employee communicates with Finance, Sales, Customer Service, HR and other internal systems in real time.",
-      },
-      { property: "og:title", content: "Meeting Room — company AI network | EAAWP" },
-      { property: "og:description", content: "Live view of AI-to-department system interactions." },
-    ],
-  }),
   component: MeetingRoom,
 });
 

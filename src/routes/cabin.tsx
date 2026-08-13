@@ -11,20 +11,6 @@ import { useSession } from "@/state/session";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/cabin")({
-  head: () => ({
-    meta: [
-      { title: "Cabin — talk to your AI employee | EAAWP" },
-      {
-        name: "description",
-        content:
-          "The Cabin is the focused workspace where you prompt, assign and review work with your company's role-specific AI employee.",
-      },
-      { property: "og:title", content: "Cabin — talk to your AI employee | EAAWP" },
-      { property: "og:description", content: "Prompt, assign and review work with your 24×7 AI employee." },
-      { property: "og:type", content: "website" },
-      { name: "twitter:card", content: "summary_large_image" },
-    ],
-  }),
   component: CabinPage,
 });
 

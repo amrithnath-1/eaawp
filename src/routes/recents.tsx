@@ -4,14 +4,6 @@ import { PageHeader } from "@/components/eaawp/Panel";
 import { recentService } from "@/services";
 
 export const Route = createFileRoute("/recents")({
-  head: () => ({
-    meta: [
-      { title: "Recents — EAAWP" },
-      { name: "description", content: "Recently accessed AI tasks, reports, documents and department interactions in the workspace." },
-      { property: "og:title", content: "Recents — EAAWP" },
-      { property: "og:description", content: "Your recent workspace items." },
-    ],
-  }),
   component: RecentsPage,
 });
 

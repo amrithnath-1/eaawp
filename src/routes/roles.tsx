@@ -8,14 +8,6 @@ import type { RoleDefinition } from "@/services/types";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/roles")({
-  head: () => ({
-    meta: [
-      { title: "User roles & permissions — EAAWP" },
-      { name: "description", content: "Create roles and control workspace, AI configuration, approval and document permissions across the company." },
-      { property: "og:title", content: "User roles & permissions — EAAWP" },
-      { property: "og:description", content: "Permission matrix for company admins, managers, employees and AI administrators." },
-    ],
-  }),
   component: RolesPage,
 });
 

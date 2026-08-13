@@ -6,14 +6,6 @@ import type { Company, UserRole } from "@/services/types";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/company")({
-  head: () => ({
-    meta: [
-      { title: "Select company environment — EAAWP" },
-      { name: "description", content: "Choose the company environment and your role inside the EAAWP agentic workspace." },
-      { property: "og:title", content: "Select company environment — EAAWP" },
-      { property: "og:description", content: "Choose the company environment and role for your AI workforce workspace." },
-    ],
-  }),
   component: CompanySelect,
 });
 

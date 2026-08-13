@@ -8,14 +8,6 @@ import type { Schedule } from "@/services/types";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/scheduled")({
-  head: () => ({
-    meta: [
-      { title: "Scheduled AI tasks — EAAWP" },
-      { name: "description", content: "Recurring work the company AI employee runs automatically: frequency, next execution, owner and status." },
-      { property: "og:title", content: "Scheduled AI tasks — EAAWP" },
-      { property: "og:description", content: "Recurring agent schedules with owners, next run and controls." },
-    ],
-  }),
   component: ScheduledPage,
 });
 

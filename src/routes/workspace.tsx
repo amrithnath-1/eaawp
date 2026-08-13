@@ -11,18 +11,6 @@ import { knowledgeService } from "@/services";
 import { useAgentStatus } from "@/state/useAgentStatus";
 
 export const Route = createFileRoute("/workspace")({
-  head: () => ({
-    meta: [
-      { title: "AI workspace command center — EAAWP" },
-      {
-        name: "description",
-        content:
-          "Live command center showing what the company AI employee is doing, what it discovered, which tasks run and what needs approval.",
-      },
-      { property: "og:title", content: "AI workspace command center — EAAWP" },
-      { property: "og:description", content: "See the AI employee's live activity, tasks, insights and approvals." },
-    ],
-  }),
   component: WorkspacePage,
 });
 

@@ -9,14 +9,6 @@ import { useTheme } from "@/state/theme";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/settings")({
-  head: () => ({
-    meta: [
-      { title: "Workspace settings — EAAWP" },
-      { name: "description", content: "Company details, departments, AI configuration summary, security controls and notification preferences." },
-      { property: "og:title", content: "Workspace settings — EAAWP" },
-      { property: "og:description", content: "Company, AI, security and notification settings." },
-    ],
-  }),
   component: SettingsPage,
 });
 

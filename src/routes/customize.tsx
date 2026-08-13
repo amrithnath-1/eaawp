@@ -8,14 +8,6 @@ import type { AgentConfig, AutonomyLevel } from "@/services/types";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/customize")({
-  head: () => ({
-    meta: [
-      { title: "Customize the AI employee — EAAWP" },
-      { name: "description", content: "Configure AI identity, capabilities, connected tools, permissions and autonomy level for your company agent." },
-      { property: "og:title", content: "Customize the AI employee — EAAWP" },
-      { property: "og:description", content: "Company-controlled identity, tools, permissions and autonomy." },
-    ],
-  }),
   component: CustomizePage,
 });
 
