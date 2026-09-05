@@ -6,6 +6,7 @@ import type {
   Company,
   Department,
   DepartmentExchange,
+  ExecutionTrace,
   Insight,
   KnowledgeStatus,
   LibraryItem,
@@ -14,6 +15,7 @@ import type {
   RoleDefinition,
   Schedule,
   SessionUser,
+  ToolScopeEntry,
 } from "./types";
 
 export const companies: Company[] = [
@@ -248,16 +250,18 @@ export const schedules: Schedule[] = [
 ];
 
 export const libraryItems: LibraryItem[] = [
-  { id: "d1", name: "Company Sales Policy.pdf", category: "Policies", size: "412 KB", updated: "2d ago", access: "All staff", indexed: true },
-  { id: "d2", name: "Q2 Revenue Report.xlsx", category: "Reports", size: "1.8 MB", updated: "6h ago", access: "Managers", indexed: true },
-  { id: "d3", name: "Customer Service SOP.pdf", category: "SOPs", size: "230 KB", updated: "1w ago", access: "All staff", indexed: true },
-  { id: "d4", name: "Hub Logistics Manual.pdf", category: "Manuals", size: "3.4 MB", updated: "3w ago", access: "Managers", indexed: true },
-  { id: "d5", name: "CSAT_Q3.csv", category: "Datasets", size: "780 KB", updated: "1d ago", access: "AI only", indexed: true },
-  { id: "d6", name: "Board Update — August.docx", category: "Documents", size: "96 KB", updated: "4d ago", access: "Admins", indexed: false },
-  { id: "d7", name: "Supplier Correspondence 2026.mbox", category: "Communications", size: "22 MB", updated: "5d ago", access: "Admins", indexed: true },
-  { id: "d8", name: "Industry Benchmark 2026.pdf", category: "Reference", size: "5.1 MB", updated: "2w ago", access: "All staff", indexed: true },
-  { id: "d9", name: "Finance Close Policy.pdf", category: "Policies", size: "188 KB", updated: "1m ago", access: "Managers", indexed: true },
-  { id: "d10", name: "Retention Playbook.pdf", category: "SOPs", size: "540 KB", updated: "3d ago", access: "Managers", indexed: true },
+  { id: "d1", name: "Company Sales Policy.pdf", category: "Policies", size: "412 KB", updated: "2d ago", access: "All staff", indexed: true, roleScope: "Sales Agent Only" },
+  { id: "d2", name: "Q2 Revenue Report.xlsx", category: "Reports", size: "1.8 MB", updated: "6h ago", access: "Managers", indexed: true, roleScope: "Finance Agent Only" },
+  { id: "d3", name: "Customer Service SOP.pdf", category: "SOPs", size: "230 KB", updated: "1w ago", access: "All staff", indexed: true, roleScope: "Customer Service Agent Only" },
+  { id: "d4", name: "Hub Logistics Manual.pdf", category: "Manuals", size: "3.4 MB", updated: "3w ago", access: "Managers", indexed: true, roleScope: "Operations Agent Only" },
+  { id: "d5", name: "CSAT_Q3.csv", category: "Datasets", size: "780 KB", updated: "1d ago", access: "AI only", indexed: true, roleScope: "Customer Service Agent Only" },
+  { id: "d6", name: "Board Update — August.docx", category: "Documents", size: "96 KB", updated: "4d ago", access: "Admins", indexed: false, roleScope: "Global / Shared" },
+  { id: "d7", name: "Supplier Correspondence 2026.mbox", category: "Communications", size: "22 MB", updated: "5d ago", access: "Admins", indexed: true, roleScope: "Operations Agent Only" },
+  { id: "d8", name: "Industry Benchmark 2026.pdf", category: "Reference", size: "5.1 MB", updated: "2w ago", access: "All staff", indexed: true, roleScope: "Global / Shared" },
+  { id: "d9", name: "Finance Close Policy.pdf", category: "Policies", size: "188 KB", updated: "1m ago", access: "Managers", indexed: true, roleScope: "Finance Agent Only" },
+  { id: "d10", name: "Retention Playbook.pdf", category: "SOPs", size: "540 KB", updated: "3d ago", access: "Managers", indexed: true, roleScope: "Customer Service Agent Only" },
+  { id: "d11", name: "HR Headcount Policy.pdf", category: "Policies", size: "210 KB", updated: "2w ago", access: "Admins", indexed: true, roleScope: "HR Agent Only" },
+  { id: "d12", name: "Enterprise Sales Playbook.pdf", category: "Documents", size: "1.1 MB", updated: "1w ago", access: "Managers", indexed: true, roleScope: "Sales Agent Only" },
 ];
 
 export const knowledgeStatus: KnowledgeStatus = {
@@ -317,6 +321,20 @@ export const agentConfig: AgentConfig = {
     Analytics: true,
     "External APIs": false,
   },
+  toolScopes: [
+    { name: "Query Sales DB", governance: "enabled", description: "Read-only access to CRM and Pipeline DB" },
+    { name: "Read Knowledge Base", governance: "enabled", description: "Vector search across indexed documents" },
+    { name: "Query Finance ERP", governance: "enabled", description: "Read-only ledger and revenue access" },
+    { name: "Generate Report", governance: "enabled", description: "Produce structured documents from data" },
+    { name: "Send Internal Email", governance: "enabled", description: "Distribute reports to internal recipients" },
+    { name: "Send External Email", governance: "requires_approval", description: "Outbound emails require human approval" },
+    { name: "Update Financial ERP", governance: "requires_approval", description: "Any ERP write-back requires approval gate" },
+    { name: "Modify CRM Records", governance: "requires_approval", description: "CRM mutations need manager sign-off" },
+    { name: "Create Calendar Events", governance: "requires_approval", description: "Scheduling requires calendar owner approval" },
+    { name: "Direct DB Write API", governance: "disabled", description: "Raw database writes are permanently blocked" },
+    { name: "HR Records Access", governance: "disabled", description: "HR data is outside this agent's scope" },
+    { name: "External API Calls", governance: "disabled", description: "Outbound third-party integrations disabled" },
+  ] satisfies ToolScopeEntry[],
   permissions: [
     { action: "Read commercial data", mode: "auto" },
     { action: "Read HR records", mode: "restricted" },
@@ -408,5 +426,120 @@ export const mailThread: MailMessage[] = [
     text: "Added Operations throughput comparison. Report v2 ready for approval.",
     time: "10:52",
     delivery: "approval",
+  },
+];
+
+export const executionTraces: ExecutionTrace[] = [
+  {
+    id: "tr1",
+    title: "Weekly Sales Drop Detection",
+    triggeredAt: "10:00:02",
+    department: "sales",
+    steps: [
+      {
+        id: "tr1-s1",
+        time: "10:00:02",
+        kind: "trigger",
+        label: "Trigger Fired: Weekly Sales Drop",
+        detail: "Threshold exceeded — sales variance > 15% detected in Region A.",
+        meta: { durationMs: 12 },
+      },
+      {
+        id: "tr1-s2",
+        time: "10:00:04",
+        kind: "tool_call",
+        label: "Tool Executed: query_sales_db",
+        detail: 'query_sales_db(region="Region A", period="trailing_6w")',
+        meta: { durationMs: 1840, tokenCost: 312, payload: { region: "Region A", period: "trailing_6w", rows_returned: 42180 } },
+      },
+      {
+        id: "tr1-s3",
+        time: "10:00:07",
+        kind: "vector_search",
+        label: "Vector Search: Logistics and Fulfilment policy",
+        detail: 'query="Logistics and Fulfillment policy" → 2 chunks returned (score > 0.82)',
+        meta: { durationMs: 620, tokenCost: 88, payload: { query: "Logistics and Fulfillment policy", chunks_returned: 2, top_score: 0.91 } },
+      },
+      {
+        id: "tr1-s4",
+        time: "10:00:09",
+        kind: "tool_call",
+        label: "Tool Executed: query_sales_db (Customer Service join)",
+        detail: 'query_sales_db(department="customer_service", metric="complaint_volume")',
+        meta: { durationMs: 960, tokenCost: 144, payload: { metric: "complaint_volume", result: "+23%" } },
+      },
+      {
+        id: "tr1-s5",
+        time: "10:00:10",
+        kind: "approval_queued",
+        label: "Approval Queued: Distribute Regional Sales Report",
+        detail: "Action: send_email(to=management_list, subject='Region A Sales Report') — Status: Pending",
+        meta: { durationMs: 5, payload: { action: "send_email", recipient_group: "management_list", status: "pending" } },
+      },
+    ],
+  },
+  {
+    id: "tr2",
+    title: "Monthly Revenue Close",
+    triggeredAt: "Yesterday 18:00",
+    department: "finance",
+    steps: [
+      {
+        id: "tr2-s1",
+        time: "18:00:00",
+        kind: "trigger",
+        label: "Trigger Fired: Monthly Schedule — Finance Close",
+        detail: "Scheduled trigger: 1st of month, 18:00.",
+        meta: { durationMs: 8 },
+      },
+      {
+        id: "tr2-s2",
+        time: "18:00:03",
+        kind: "tool_call",
+        label: "Tool Executed: query_finance_erp",
+        detail: 'query_finance_erp(period="Aug", type="ledger_export")',
+        meta: { durationMs: 2210, tokenCost: 420, payload: { period: "Aug", rows: 18402, anomalies_flagged: 2 } },
+      },
+      {
+        id: "tr2-s3",
+        time: "18:00:08",
+        kind: "vector_search",
+        label: "Vector Search: Finance close policy checklist",
+        detail: 'query="month end finance close checklist" → 3 chunks returned',
+        meta: { durationMs: 540, tokenCost: 72, payload: { chunks_returned: 3, top_score: 0.88 } },
+      },
+      {
+        id: "tr2-s4",
+        time: "18:00:12",
+        kind: "result",
+        label: "Result: Revenue report generated",
+        detail: "Finance Close Report Aug v1 generated. Two anomalies explained. Delivered to Finance list.",
+        meta: { durationMs: 1100, tokenCost: 680, payload: { report_version: "v1", anomalies: 2, delivery: "auto" } },
+      },
+    ],
+  },
+  {
+    id: "tr3",
+    title: "HR Record Access Blocked",
+    triggeredAt: "11:44",
+    department: "hr",
+    steps: [
+      {
+        id: "tr3-s1",
+        time: "11:44:01",
+        kind: "trigger",
+        label: "Trigger Fired: Staffing gap correlation check",
+        detail: "Agent attempted to cross-reference Hub 2 staffing with operations shortfall.",
+        meta: { durationMs: 6 },
+      },
+      {
+        id: "tr3-s2",
+        time: "11:44:02",
+        kind: "error",
+        label: "Tool Blocked: read_hr_records",
+        detail: 'read_hr_records(scope="hub_2_staffing") — DENIED. Tool outside agent permission scope.',
+        meta: { durationMs: 3, payload: { tool: "read_hr_records", reason: "scope_violation", policy: "HR data restricted" } },
+      },
+    ],
   },
 ];

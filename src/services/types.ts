@@ -121,6 +121,7 @@ export interface LibraryItem {
   updated: string;
   access: "All staff" | "Managers" | "Admins" | "AI only";
   indexed: boolean;
+  roleScope: "Global / Shared" | "Sales Agent Only" | "Finance Agent Only" | "HR Agent Only" | "Operations Agent Only" | "Customer Service Agent Only";
 }
 
 export interface KnowledgeStatus {
@@ -155,8 +156,48 @@ export interface AgentConfig {
   tone: "Formal" | "Concise" | "Consultative";
   capabilities: Record<string, boolean>;
   tools: Record<string, boolean>;
+  toolScopes: ToolScopeEntry[];
   permissions: { action: string; mode: "auto" | "approval" | "restricted" }[];
   autonomy: AutonomyLevel;
+}
+
+export type ToolGovernance = "enabled" | "requires_approval" | "disabled";
+
+export interface ToolScopeEntry {
+  name: string;
+  governance: ToolGovernance;
+  description: string;
+}
+
+export type ExecutionStepKind =
+  | "trigger"
+  | "tool_call"
+  | "vector_search"
+  | "approval_queued"
+  | "result"
+  | "error";
+
+export interface ExecutionStepDetail {
+  tokenCost?: number;
+  durationMs?: number;
+  payload?: Record<string, unknown>;
+}
+
+export interface ExecutionTraceStep {
+  id: string;
+  time: string;
+  kind: ExecutionStepKind;
+  label: string;
+  detail: string;
+  meta: ExecutionStepDetail;
+}
+
+export interface ExecutionTrace {
+  id: string;
+  title: string;
+  triggeredAt: string;
+  department?: DepartmentKey;
+  steps: ExecutionTraceStep[];
 }
 
 export interface RoleDefinition {

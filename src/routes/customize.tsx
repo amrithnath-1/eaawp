@@ -1,10 +1,11 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
 import { toast } from "sonner";
+import { Check, Lock, X, ChevronDown } from "lucide-react";
 import { AppShell } from "@/components/eaawp/AppShell";
 import { PageHeader, Panel } from "@/components/eaawp/Panel";
 import { agentConfigService } from "@/services";
-import type { AgentConfig, AutonomyLevel } from "@/services/types";
+import type { AgentConfig, AutonomyLevel, ToolGovernance, ToolScopeEntry } from "@/services/types";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/customize")({
@@ -17,6 +18,8 @@ const AUTONOMY: { level: AutonomyLevel; name: string; detail: string }[] = [
   { level: 3, name: "Execute with approval", detail: "Prepares and executes work after a human approves." },
   { level: 4, name: "Authorized autonomous execution", detail: "Executes pre-authorized action classes and reports afterwards." },
 ];
+
+const GOVERNANCE_CYCLE: ToolGovernance[] = ["enabled", "requires_approval", "disabled"];
 
 function Toggle({ on, onClick, label }: { on: boolean; onClick: () => void; label: string }) {
   return (
@@ -32,8 +35,54 @@ function Toggle({ on, onClick, label }: { on: boolean; onClick: () => void; labe
   );
 }
 
+function GovernanceBadge({ governance }: { governance: ToolGovernance }) {
+  if (governance === "enabled") {
+    return (
+      <span className="inline-flex items-center gap-1 border border-success/40 bg-success/10 px-1.5 py-0.5 font-mono text-[10px] tracking-[0.1em] text-success">
+        <Check className="size-2.5" strokeWidth={2.5} /> ENABLED
+      </span>
+    );
+  }
+  if (governance === "requires_approval") {
+    return (
+      <span className="inline-flex items-center gap-1 border border-warning/40 bg-warning/10 px-1.5 py-0.5 font-mono text-[10px] tracking-[0.1em] text-warning">
+        <Lock className="size-2.5" strokeWidth={2.5} /> REQUIRES APPROVAL
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex items-center gap-1 border border-destructive/40 bg-destructive/10 px-1.5 py-0.5 font-mono text-[10px] tracking-[0.1em] text-destructive">
+      <X className="size-2.5" strokeWidth={2.5} /> DISABLED
+    </span>
+  );
+}
+
+function blueprintJSON(cfg: AgentConfig): string {
+  return JSON.stringify(
+    {
+      agent: { name: cfg.name, role: cfg.role, tone: cfg.tone, autonomy: cfg.autonomy },
+      capabilities: cfg.capabilities,
+      toolScopes: cfg.toolScopes.map((t) => ({ name: t.name, governance: t.governance })),
+      permissions: cfg.permissions,
+    },
+    null,
+    2,
+  );
+}
+
 function CustomizePage() {
   const [cfg, setCfg] = useState<AgentConfig>(() => agentConfigService.get());
+  const [blueprintOpen, setBlueprintOpen] = useState(false);
+
+  function cycleGovernance(idx: number) {
+    setCfg((prev) => {
+      const scopes = [...prev.toolScopes];
+      const current = scopes[idx]!.governance;
+      const next = GOVERNANCE_CYCLE[(GOVERNANCE_CYCLE.indexOf(current) + 1) % GOVERNANCE_CYCLE.length]!;
+      scopes[idx] = { ...scopes[idx]!, governance: next };
+      return { ...prev, toolScopes: scopes };
+    });
+  }
 
   return (
     <AppShell>
@@ -52,6 +101,7 @@ function CustomizePage() {
         />
 
         <div className="mt-4 grid grid-cols-1 gap-4 xl:grid-cols-3">
+          {/* AI Identity */}
           <Panel title="AI identity">
             <label className="label-xs">Agent name</label>
             <input
@@ -89,6 +139,7 @@ function CustomizePage() {
             </div>
           </Panel>
 
+          {/* Capabilities */}
           <Panel title="Capabilities">
             {Object.entries(cfg.capabilities).map(([k, v]) => (
               <Toggle
@@ -100,12 +151,58 @@ function CustomizePage() {
             ))}
           </Panel>
 
+          {/* Tools & systems */}
           <Panel title="Tools & systems">
             {Object.entries(cfg.tools).map(([k, v]) => (
               <Toggle key={k} label={k} on={v} onClick={() => setCfg({ ...cfg, tools: { ...cfg.tools, [k]: !v } })} />
             ))}
           </Panel>
 
+          {/* ── Feature 1: Tool Scope & Governance ── */}
+          <Panel title="Tool scope & governance" className="xl:col-span-3">
+            <p className="mb-3 text-[12px] text-muted-foreground">
+              Controls what this agent is permitted to call. Click a badge to cycle its governance state.
+              Changes are reflected in the Blueprint JSON below.
+            </p>
+            <div className="grid grid-cols-1 gap-px border border-border bg-border md:grid-cols-2 xl:grid-cols-3">
+              {cfg.toolScopes.map((tool: ToolScopeEntry, idx: number) => (
+                <div key={tool.name} className="flex items-start justify-between gap-3 bg-surface px-3 py-2.5">
+                  <div className="min-w-0">
+                    <p className="truncate text-[13px] font-medium">{tool.name}</p>
+                    <p className="mt-0.5 text-[11px] text-muted-foreground">{tool.description}</p>
+                  </div>
+                  <button
+                    onClick={() => cycleGovernance(idx)}
+                    title="Click to cycle governance state"
+                    className="mt-0.5 shrink-0"
+                  >
+                    <GovernanceBadge governance={tool.governance} />
+                  </button>
+                </div>
+              ))}
+            </div>
+
+            {/* Blueprint JSON output */}
+            <div className="mt-4">
+              <button
+                onClick={() => setBlueprintOpen((o) => !o)}
+                className="flex items-center gap-1.5 font-mono text-[10px] tracking-[0.14em] text-primary"
+              >
+                <ChevronDown
+                  className={cn("size-3 transition-transform", blueprintOpen && "rotate-180")}
+                  strokeWidth={2}
+                />
+                {blueprintOpen ? "HIDE" : "SHOW"} AGENT BLUEPRINT JSON
+              </button>
+              {blueprintOpen && (
+                <pre className="mt-2 max-h-64 overflow-y-auto border border-border bg-surface-2 p-3 font-mono text-[11px] text-muted-foreground">
+                  {blueprintJSON(cfg)}
+                </pre>
+              )}
+            </div>
+          </Panel>
+
+          {/* Permissions */}
           <Panel title="Permissions" className="xl:col-span-2">
             <div className="grid grid-cols-[1fr_auto] gap-2">
               {cfg.permissions.map((p, idx) => (
@@ -141,6 +238,7 @@ function CustomizePage() {
             </div>
           </Panel>
 
+          {/* Autonomy */}
           <Panel title="Autonomy">
             <p className="mb-3 text-xs text-muted-foreground">
               Autonomy is granted by the company and can be revoked at any time. Every action stays in the audit trail.

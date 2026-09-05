@@ -22,6 +22,11 @@ function WorkspacePage() {
     <AppShell>
       <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_360px]">
         <div className="min-w-0 border-b border-border xl:border-b-0 xl:border-r">
+          {/* Feature 4: sub-header guidance */}
+          <div className="border-b border-border px-4 py-2">
+            <p className="text-[13px] font-semibold tracking-tight">Interactive Workspace — Direct Chat &amp; Ad-Hoc Agent Execution</p>
+            <p className="label-xs mt-0.5">Live environment overview · agent activity · tasks · insights</p>
+          </div>
           <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_300px]">
             <div className="grid-canvas relative border-b border-border lg:border-b-0 lg:border-r">
               <AgentOrganism status={status} withNetwork height={300} />

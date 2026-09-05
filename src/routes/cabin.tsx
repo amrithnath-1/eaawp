@@ -87,6 +87,11 @@ function CabinPage() {
             size={104}
             className="absolute right-4 top-3 z-10 hidden xl:block"
           />
+          {/* Feature 4: sub-header guidance */}
+          <div className="shrink-0 border-b border-border px-4 py-2">
+            <p className="text-[13px] font-semibold tracking-tight">Agent Control Center — Autonomous Operations &amp; Approval Gateways</p>
+            <p className="label-xs mt-0.5">Direct interaction with your company AI employee · all actions are audited</p>
+          </div>
 
           <div className="min-h-0 flex-1 overflow-y-auto">
             {empty ? (

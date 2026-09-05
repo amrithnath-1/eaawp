@@ -12,6 +12,7 @@ import type {
   Company,
   Department,
   DepartmentExchange,
+  ExecutionTrace,
   Insight,
   KnowledgeStatus,
   LibraryItem,
@@ -75,6 +76,7 @@ export const knowledgeService = {
 
 export const auditService = {
   list: (): AuditEntry[] => mock.auditEntries,
+  traces: () => mock.executionTraces,
 };
 
 export const recentService = {

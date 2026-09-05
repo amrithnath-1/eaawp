@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { AppShell } from "@/components/eaawp/AppShell";
 import { AgentOrganism } from "@/components/eaawp/AgentOrganism";
 import { Panel } from "@/components/eaawp/Panel";
@@ -8,6 +8,7 @@ import { departments } from "@/services/mockData";
 import type { DepartmentExchange, DepartmentKey } from "@/services/types";
 import { cn } from "@/lib/utils";
 import { useAgentStatus } from "@/state/useAgentStatus";
+import { SendHorizonal } from "lucide-react";
 
 export const Route = createFileRoute("/meeting")({
   component: MeetingRoom,
@@ -18,6 +19,17 @@ function MeetingRoom() {
   const [dept, setDept] = useState<DepartmentKey>("finance");
   const [live, setLive] = useState(true);
   const [feed, setFeed] = useState<DepartmentExchange[]>([]);
+  const [promptInput, setPromptInput] = useState("");
+  const [latestPrompt, setLatestPrompt] = useState("");
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  function submitPrompt() {
+    const trimmed = promptInput.trim();
+    if (!trimmed) return;
+    setLatestPrompt(trimmed);
+    setPromptInput("");
+    inputRef.current?.focus();
+  }
 
   useEffect(() => {
     if (!live) return;
@@ -73,6 +85,37 @@ function MeetingRoom() {
                 {d.name.toUpperCase()}
               </button>
             ))}
+          </div>
+
+          {/* Latest submitted prompt display */}
+          <div className="mx-4 mb-2 min-h-[40px] border border-border bg-surface px-3 py-2">
+            {latestPrompt ? (
+              <p className="text-[13px] leading-snug text-foreground">{latestPrompt}</p>
+            ) : (
+              <p className="text-[13px] text-muted-foreground">No prompt submitted yet…</p>
+            )}
+          </div>
+
+          {/* Prompt input area */}
+          <div className="mx-4 mb-4 flex items-center gap-2 border border-border bg-surface px-3 py-2">
+            <input
+              ref={inputRef}
+              value={promptInput}
+              onChange={(e) => setPromptInput(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") submitPrompt(); }}
+              placeholder="Type a prompt…"
+              className="flex-1 bg-transparent text-[13px] outline-none placeholder:text-muted-foreground"
+            />
+            <button
+              onClick={submitPrompt}
+              aria-label="Send prompt"
+              className={cn(
+                "grid size-7 shrink-0 place-items-center border border-border text-muted-foreground",
+                promptInput.trim() && "border-foreground bg-foreground text-background",
+              )}
+            >
+              <SendHorizonal className="size-3.5" strokeWidth={1.5} />
+            </button>
           </div>
         </div>
 
