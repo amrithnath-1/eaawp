@@ -1,0 +1,1 @@
+# EAAWP Backend — FastAPI application
