@@ -1,0 +1,77 @@
+"""
+EAAWP Application Configuration
+
+All settings are read from environment variables / .env file.
+Never hardcode credentials here.
+"""
+
+from __future__ import annotations
+
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class Settings(BaseSettings):
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        case_sensitive=False,
+        extra="ignore",
+    )
+
+    # ── App ───────────────────────────────────────────────────────────────────
+    environment: str = "development"
+    app_name: str = "EAAWP API"
+    app_version: str = "0.2.0"
+
+    # ── Database ──────────────────────────────────────────────────────────────
+    database_url: str = "sqlite+aiosqlite:///./eaawp.db"
+
+    # ── Security ──────────────────────────────────────────────────────────────
+    secret_key: str = "dev-insecure-key-replace-in-production"
+    algorithm: str = "HS256"
+    access_token_expire_minutes: int = 480
+    refresh_token_expire_days: int = 30
+
+    # ── LLM ───────────────────────────────────────────────────────────────────
+    openai_api_key: str = ""
+    # Default model used by the LLM Gateway when no role-specific model is set.
+    # Must be an entry in app.llm.config.ALLOWED_MODELS[LLMProvider.OPENAI].
+    llm_default_model: str = "gpt-4o-mini"
+    # Embedding model for RAG. Must match OpenAI text-embedding model names.
+    # Changing this after documents are indexed requires full re-indexing.
+    embedding_model: str = "text-embedding-3-small"
+
+    # ── Google Gemini API ─────────────────────────────────────────────────────
+    # Get from https://aistudio.google.com/app/apikey
+    # Used by LLMProvider.GOOGLE (GeminiProvider).
+    # If set, Gemini models are available alongside OpenAI models.
+    gemini_api_key: str = ""
+    # Default Gemini model — used when llm_default_provider=google
+    # Override via GEMINI_DEFAULT_MODEL env var.
+    # gemini-3.5-flash-lite is the current default: low-latency, cost-effective.
+    gemini_default_model: str = "gemini-3.5-flash-lite"
+    # Set to "google" to make Gemini the default provider for all agents
+    # Leave empty or "openai" to keep OpenAI as default
+    llm_default_provider: str = "openai"
+
+    # ── Google OAuth 2.0 (Phase 4 — Google Search Console) ────────────────────
+    # Register at https://console.cloud.google.com/ → APIs & Services → Credentials
+    # Required scope: https://www.googleapis.com/auth/webmasters.readonly
+    google_client_id: str = ""
+    google_client_secret: str = ""
+    # Must match exactly what is registered in the Google Cloud Console.
+    google_redirect_uri: str = "http://localhost:8000/api/v1/oauth/google/callback"
+
+    # ── CORS ──────────────────────────────────────────────────────────────────
+    cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
+
+    @property
+    def cors_origins_list(self) -> list[str]:
+        return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
+
+    @property
+    def is_sqlite(self) -> bool:
+        return self.database_url.startswith("sqlite")
+
+
+settings = Settings()

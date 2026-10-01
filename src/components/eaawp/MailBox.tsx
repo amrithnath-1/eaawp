@@ -1,38 +1,93 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Mic, Paperclip, SendHorizonal } from "lucide-react";
 import { toast } from "sonner";
 import { mailService } from "@/services";
 import type { MailMessage } from "@/services/types";
 import { cn } from "@/lib/utils";
+import { useAgentExecute, DEFAULT_BLUEPRINT } from "@/hooks/use-api";
+import { USE_REAL_API } from "@/lib/api-client";
 
 const MODES = ["auto", "approval", "restricted"] as const;
-const MODE_LABEL = { auto: "AUTO SEND", approval: "HUMAN APPROVAL", restricted: "RESTRICTED" } as const;
+const MODE_LABEL = {
+  auto: "AUTO SEND",
+  approval: "HUMAN APPROVAL",
+  restricted: "RESTRICTED",
+} as const;
 
 export function MailBox() {
   const [thread, setThread] = useState<MailMessage[]>(() => mailService.thread());
   const [text, setText] = useState("");
   const [mode, setMode] = useState<(typeof MODES)[number]>("approval");
+  const [sessionId] = useState(() => `session-${Date.now()}`);
+  const bottomRef = useRef<HTMLDivElement>(null);
+
+  const agentExecute = useAgentExecute();
 
   async function send() {
     if (!text.trim()) return;
-    const msg = await mailService.send(text.trim());
-    setThread((t) => [...t, msg]);
+
+    const userMsg: MailMessage = {
+      id: `m-${Date.now()}`,
+      from: "user",
+      text: text.trim(),
+      time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+    };
+    setThread((t) => [...t, userMsg]);
+    const prompt = text.trim();
     setText("");
-    setTimeout(() => {
-      setThread((t) => [
-        ...t,
+
+    if (USE_REAL_API) {
+      // Call the real backend with the full blueprint
+      agentExecute.mutate(
         {
-          id: `ai-${Date.now()}`,
-          from: "ai",
-          text:
-            mode === "auto"
-              ? "Instruction accepted. Executing under Level 3 autonomy and logging to the audit trail."
-              : "Instruction accepted. Draft prepared — awaiting your approval before any external action.",
-          time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-          delivery: mode,
+          blueprint: DEFAULT_BLUEPRINT,
+          user_prompt: prompt,
+          session_id: sessionId,
         },
-      ]);
-    }, 900);
+        {
+          onSuccess: (res) => {
+            const aiMsg: MailMessage = {
+              id: `ai-${Date.now()}`,
+              from: "ai",
+              text: res.requires_approval
+                ? `[Approval required] ${res.message}`
+                : res.message,
+              time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+              delivery: res.requires_approval ? "approval" : mode,
+            };
+            setThread((t) => [...t, aiMsg]);
+            setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: "smooth" }), 50);
+          },
+          onError: (err) => {
+            const errMsg: MailMessage = {
+              id: `err-${Date.now()}`,
+              from: "ai",
+              text: `Error: ${err.message}`,
+              time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+            };
+            setThread((t) => [...t, errMsg]);
+          },
+        },
+      );
+    } else {
+      // Mock path — simulate agent response locally
+      setTimeout(() => {
+        setThread((t) => [
+          ...t,
+          {
+            id: `ai-${Date.now()}`,
+            from: "ai",
+            text:
+              mode === "auto"
+                ? "Instruction accepted. Executing under Level 3 autonomy and logging to the audit trail."
+                : "Instruction accepted. Draft prepared — awaiting your approval before any external action.",
+            time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+            delivery: mode,
+          },
+        ]);
+        setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: "smooth" }), 50);
+      }, 900);
+    }
   }
 
   return (
@@ -56,6 +111,13 @@ export function MailBox() {
             <p className="mt-0.5 text-[13px] leading-snug">{m.text}</p>
           </div>
         ))}
+        {agentExecute.isPending && (
+          <div className="border-l-2 border-primary pl-2.5">
+            <div className="font-mono text-[10px] text-primary">AI</div>
+            <p className="mt-0.5 animate-pulse text-[13px] text-muted-foreground">Thinking…</p>
+          </div>
+        )}
+        <div ref={bottomRef} />
       </div>
 
       <div className="shrink-0 border-t border-border">
@@ -68,7 +130,9 @@ export function MailBox() {
                 onClick={() => setMode(m)}
                 className={cn(
                   "border px-2 py-0.5 font-mono text-[10px] tracking-[0.1em]",
-                  mode === m ? "border-primary text-primary" : "border-border text-muted-foreground",
+                  mode === m
+                    ? "border-primary text-primary"
+                    : "border-border text-muted-foreground",
                 )}
               >
                 {MODE_LABEL[m]}
@@ -89,16 +153,24 @@ export function MailBox() {
             rows={2}
             placeholder="Send something to your AI — instruction, document or question…"
             className="min-h-[38px] flex-1 resize-none bg-transparent text-[13px] outline-none placeholder:text-muted-foreground"
+            disabled={agentExecute.isPending}
           />
-          <button onClick={() => toast("Attach file — connect storage service")} aria-label="Attach file">
+          <button
+            onClick={() => toast("Attach file — connect storage service")}
+            aria-label="Attach file"
+          >
             <Paperclip className="size-4 text-muted-foreground hover:text-foreground" />
           </button>
-          <button onClick={() => toast("Voice capture — connect speech service")} aria-label="Record voice">
+          <button
+            onClick={() => toast("Voice capture — connect speech service")}
+            aria-label="Record voice"
+          >
             <Mic className="size-4 text-muted-foreground hover:text-foreground" />
           </button>
           <button
             onClick={() => void send()}
-            className="flex items-center gap-1 border border-primary px-2.5 py-1.5 font-mono text-[10px] tracking-[0.14em] text-primary hover:bg-primary/10"
+            disabled={agentExecute.isPending || !text.trim()}
+            className="flex items-center gap-1 border border-primary px-2.5 py-1.5 font-mono text-[10px] tracking-[0.14em] text-primary hover:bg-primary/10 disabled:opacity-40"
           >
             SEND <SendHorizonal className="size-3" />
           </button>

@@ -10,21 +10,36 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as ActivityRouteImport } from './routes/activity'
+import { Route as ApprovalsRouteImport } from './routes/approvals'
 import { Route as AuditRouteImport } from './routes/audit'
 import { Route as CabinRouteImport } from './routes/cabin'
 import { Route as CompanyRouteImport } from './routes/company'
 import { Route as CustomizeRouteImport } from './routes/customize'
+import { Route as EmployeesRouteImport } from './routes/employees'
+import { Route as IntegrationsRouteImport } from './routes/integrations'
 import { Route as LibraryRouteImport } from './routes/library'
 import { Route as MeetingRouteImport } from './routes/meeting'
 import { Route as RecentsRouteImport } from './routes/recents'
 import { Route as RolesRouteImport } from './routes/roles'
 import { Route as ScheduledRouteImport } from './routes/scheduled'
 import { Route as SettingsRouteImport } from './routes/settings'
+import { Route as WorkflowsRouteImport } from './routes/workflows'
 import { Route as WorkspaceRouteImport } from './routes/workspace'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ActivityRoute = ActivityRouteImport.update({
+  id: '/activity',
+  path: '/activity',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApprovalsRoute = ApprovalsRouteImport.update({
+  id: '/approvals',
+  path: '/approvals',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AuditRoute = AuditRouteImport.update({
@@ -45,6 +60,16 @@ const CompanyRoute = CompanyRouteImport.update({
 const CustomizeRoute = CustomizeRouteImport.update({
   id: '/customize',
   path: '/customize',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const EmployeesRoute = EmployeesRouteImport.update({
+  id: '/employees',
+  path: '/employees',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const IntegrationsRoute = IntegrationsRouteImport.update({
+  id: '/integrations',
+  path: '/integrations',
   getParentRoute: () => rootRouteImport,
 } as any)
 const LibraryRoute = LibraryRouteImport.update({
@@ -77,6 +102,11 @@ const SettingsRoute = SettingsRouteImport.update({
   path: '/settings',
   getParentRoute: () => rootRouteImport,
 } as any)
+const WorkflowsRoute = WorkflowsRouteImport.update({
+  id: '/workflows',
+  path: '/workflows',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const WorkspaceRoute = WorkspaceRouteImport.update({
   id: '/workspace',
   path: '/workspace',
@@ -85,104 +115,139 @@ const WorkspaceRoute = WorkspaceRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/activity': typeof ActivityRoute
+  '/approvals': typeof ApprovalsRoute
   '/audit': typeof AuditRoute
   '/cabin': typeof CabinRoute
   '/company': typeof CompanyRoute
   '/customize': typeof CustomizeRoute
+  '/employees': typeof EmployeesRoute
+  '/integrations': typeof IntegrationsRoute
   '/library': typeof LibraryRoute
   '/meeting': typeof MeetingRoute
   '/recents': typeof RecentsRoute
   '/roles': typeof RolesRoute
   '/scheduled': typeof ScheduledRoute
   '/settings': typeof SettingsRoute
+  '/workflows': typeof WorkflowsRoute
   '/workspace': typeof WorkspaceRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/activity': typeof ActivityRoute
+  '/approvals': typeof ApprovalsRoute
   '/audit': typeof AuditRoute
   '/cabin': typeof CabinRoute
   '/company': typeof CompanyRoute
   '/customize': typeof CustomizeRoute
+  '/employees': typeof EmployeesRoute
+  '/integrations': typeof IntegrationsRoute
   '/library': typeof LibraryRoute
   '/meeting': typeof MeetingRoute
   '/recents': typeof RecentsRoute
   '/roles': typeof RolesRoute
   '/scheduled': typeof ScheduledRoute
   '/settings': typeof SettingsRoute
+  '/workflows': typeof WorkflowsRoute
   '/workspace': typeof WorkspaceRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/activity': typeof ActivityRoute
+  '/approvals': typeof ApprovalsRoute
   '/audit': typeof AuditRoute
   '/cabin': typeof CabinRoute
   '/company': typeof CompanyRoute
   '/customize': typeof CustomizeRoute
+  '/employees': typeof EmployeesRoute
+  '/integrations': typeof IntegrationsRoute
   '/library': typeof LibraryRoute
   '/meeting': typeof MeetingRoute
   '/recents': typeof RecentsRoute
   '/roles': typeof RolesRoute
   '/scheduled': typeof ScheduledRoute
   '/settings': typeof SettingsRoute
+  '/workflows': typeof WorkflowsRoute
   '/workspace': typeof WorkspaceRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/activity'
+    | '/approvals'
     | '/audit'
     | '/cabin'
     | '/company'
     | '/customize'
+    | '/employees'
+    | '/integrations'
     | '/library'
     | '/meeting'
     | '/recents'
     | '/roles'
     | '/scheduled'
     | '/settings'
+    | '/workflows'
     | '/workspace'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/activity'
+    | '/approvals'
     | '/audit'
     | '/cabin'
     | '/company'
     | '/customize'
+    | '/employees'
+    | '/integrations'
     | '/library'
     | '/meeting'
     | '/recents'
     | '/roles'
     | '/scheduled'
     | '/settings'
+    | '/workflows'
     | '/workspace'
   id:
     | '__root__'
     | '/'
+    | '/activity'
+    | '/approvals'
     | '/audit'
     | '/cabin'
     | '/company'
     | '/customize'
+    | '/employees'
+    | '/integrations'
     | '/library'
     | '/meeting'
     | '/recents'
     | '/roles'
     | '/scheduled'
     | '/settings'
+    | '/workflows'
     | '/workspace'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  ActivityRoute: typeof ActivityRoute
+  ApprovalsRoute: typeof ApprovalsRoute
   AuditRoute: typeof AuditRoute
   CabinRoute: typeof CabinRoute
   CompanyRoute: typeof CompanyRoute
   CustomizeRoute: typeof CustomizeRoute
+  EmployeesRoute: typeof EmployeesRoute
+  IntegrationsRoute: typeof IntegrationsRoute
   LibraryRoute: typeof LibraryRoute
   MeetingRoute: typeof MeetingRoute
   RecentsRoute: typeof RecentsRoute
   RolesRoute: typeof RolesRoute
   ScheduledRoute: typeof ScheduledRoute
   SettingsRoute: typeof SettingsRoute
+  WorkflowsRoute: typeof WorkflowsRoute
   WorkspaceRoute: typeof WorkspaceRoute
 }
 
@@ -193,6 +258,20 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/activity': {
+      id: '/activity'
+      path: '/activity'
+      fullPath: '/activity'
+      preLoaderRoute: typeof ActivityRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/approvals': {
+      id: '/approvals'
+      path: '/approvals'
+      fullPath: '/approvals'
+      preLoaderRoute: typeof ApprovalsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/audit': {
@@ -221,6 +300,20 @@ declare module '@tanstack/react-router' {
       path: '/customize'
       fullPath: '/customize'
       preLoaderRoute: typeof CustomizeRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/employees': {
+      id: '/employees'
+      path: '/employees'
+      fullPath: '/employees'
+      preLoaderRoute: typeof EmployeesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/integrations': {
+      id: '/integrations'
+      path: '/integrations'
+      fullPath: '/integrations'
+      preLoaderRoute: typeof IntegrationsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/library': {
@@ -265,6 +358,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SettingsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/workflows': {
+      id: '/workflows'
+      path: '/workflows'
+      fullPath: '/workflows'
+      preLoaderRoute: typeof WorkflowsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/workspace': {
       id: '/workspace'
       path: '/workspace'
@@ -277,16 +377,21 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  ActivityRoute: ActivityRoute,
+  ApprovalsRoute: ApprovalsRoute,
   AuditRoute: AuditRoute,
   CabinRoute: CabinRoute,
   CompanyRoute: CompanyRoute,
   CustomizeRoute: CustomizeRoute,
+  EmployeesRoute: EmployeesRoute,
+  IntegrationsRoute: IntegrationsRoute,
   LibraryRoute: LibraryRoute,
   MeetingRoute: MeetingRoute,
   RecentsRoute: RecentsRoute,
   RolesRoute: RolesRoute,
   ScheduledRoute: ScheduledRoute,
   SettingsRoute: SettingsRoute,
+  WorkflowsRoute: WorkflowsRoute,
   WorkspaceRoute: WorkspaceRoute,
 }
 export const routeTree = rootRouteImport

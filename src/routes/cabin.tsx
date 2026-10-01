@@ -1,13 +1,18 @@
+import type { ReactElement } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
-import { Mic, Paperclip, SendHorizonal } from "lucide-react";
+import { Mic, Paperclip, SendHorizonal, CheckCircle, Clock, XCircle, RefreshCw, Mail } from "lucide-react";
 import { toast } from "sonner";
 import { AppShell } from "@/components/eaawp/AppShell";
 import { AmoebaButton } from "@/components/eaawp/AmoebaButton";
 import { useAgentStatus } from "@/state/useAgentStatus";
 import { ContextPanel } from "@/components/eaawp/ContextPanel";
 import { useSession } from "@/state/session";
-import { useAgentExecute } from "@/hooks/use-api";
+import { EmailDraftPreview, parseDraftPreview } from "@/components/eaawp/EmailDraftPreview";
+import {
+  useAgentExecute, DEFAULT_BLUEPRINT, useRoleConfig, roleConfigToBlueprint,
+  useResumePlan, type PlanStatus,
+} from "@/hooks/use-api";
 import { USE_REAL_API } from "@/lib/api-client";
 import { cn } from "@/lib/utils";
 
@@ -20,8 +25,11 @@ interface Turn {
   from: "user" | "ai";
   text: string;
   time: string;
-  sources?: string[];
-  requiresApproval?: boolean;
+  sources: string[];
+  requiresApproval: boolean;
+  planId?: string | null;
+  planStatus?: string | null;
+  stepSummaries?: string[];
 }
 
 function getRoleQuickPrompts(agentRole: string | undefined): string[] {
@@ -58,17 +66,102 @@ function getRoleQuickPrompts(agentRole: string | undefined): string[] {
   };
 
   const match = agentRole ? Object.keys(roleMap).find((k) => agentRole.includes(k.split(" ")[0]!)) : undefined;
-  return (match && roleMap[match]) ?? roleMap["Data Intelligence Agent"]!;
+  return (match !== undefined && match in roleMap ? roleMap[match] : undefined) ?? roleMap["Data Intelligence Agent"]!;
 }
 
 function clock() {
   return new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
 
+// ── Plan progress display ─────────────────────────────────────────────────────
+
+const PLAN_STATUS_ICON: Record<string, ReactElement> = {
+  completed: <CheckCircle className="size-3 text-success" />,
+  failed: <XCircle className="size-3 text-destructive" />,
+  rejected: <XCircle className="size-3 text-destructive" />,
+  awaiting_approval: <Clock className="size-3 text-warning animate-pulse" />,
+  running: <RefreshCw className="size-3 text-primary animate-spin" />,
+  planning: <RefreshCw className="size-3 text-muted-foreground animate-spin" />,
+};
+
+const STEP_STATUS_COLOUR: Record<string, string> = {
+  completed: "text-success",
+  failed: "text-destructive",
+  rejected: "text-destructive",
+  skipped: "text-muted-foreground opacity-50",
+  awaiting_approval: "text-warning",
+  running: "text-primary",
+  pending: "text-muted-foreground",
+  approved: "text-success",
+};
+
+function PlanProgress({
+  planId,
+  planStatus,
+  stepSummaries,
+}: {
+  planId: string | null;
+  planStatus: string | null;
+  stepSummaries: string[];
+}) {
+  const resumePlan = useResumePlan();
+
+  if (!stepSummaries.length) return null;
+
+  const statusIcon = planStatus ? (PLAN_STATUS_ICON[planStatus] ?? null) : null;
+
+  return (
+    <div className="mt-2 w-full border border-border bg-surface px-3 py-2 text-left">
+      <div className="flex items-center gap-1.5 mb-1.5">
+        {statusIcon}
+        <span className="font-mono text-[10px] tracking-[0.12em] text-muted-foreground">
+          {planStatus ? planStatus.replace(/_/g, " ").toUpperCase() : "PLAN"}
+        </span>
+        {planId && USE_REAL_API && (
+          <span className="ml-auto font-mono text-[9px] text-muted-foreground opacity-60">
+            {planId.slice(0, 8)}
+          </span>
+        )}
+      </div>
+      <ul className="space-y-0.5">
+        {stepSummaries.map((s, i) => {
+          const parts = s.match(/^\[(\w+)\] (.*?) → (\w+)$/);
+          const type = parts?.[1] ?? "";
+          const desc = parts?.[2] ?? s;
+          const status = parts?.[3] ?? "";
+          return (
+            <li key={i} className={cn("font-mono text-[10px]", STEP_STATUS_COLOUR[status] ?? "text-muted-foreground")}>
+              <span className="opacity-60">{i + 1}. [{type}]</span> {desc}
+            </li>
+          );
+        })}
+      </ul>
+      {planStatus === "awaiting_approval" && planId && USE_REAL_API && (
+        <button
+          onClick={() =>
+            resumePlan.mutate(
+              { planId },
+              {
+                onSuccess: () => toast.success("Plan resumed after approval."),
+                onError: (err) => toast.error(err.message),
+              },
+            )
+          }
+          disabled={resumePlan.isPending}
+          className="mt-2 flex items-center gap-1.5 border border-success/50 px-2 py-1 font-mono text-[10px] text-success hover:bg-success/10 disabled:opacity-40"
+        >
+          {resumePlan.isPending ? <><RefreshCw className="size-3 animate-spin" /> RESUMING…</> : "RESUME AFTER APPROVAL"}
+        </button>
+      )}
+    </div>
+  );
+}
+
 function CabinPage() {
   const { user, company } = useSession();
   const { status } = useAgentStatus();
   const agentExecute = useAgentExecute();
+  const { data: roleConfig } = useRoleConfig("DIGITAL_MARKETING_MANAGER");
 
   const [turns, setTurns] = useState<Turn[]>([]);
   const [text, setText] = useState("");
@@ -76,7 +169,8 @@ function CabinPage() {
   const boxRef = useRef<HTMLTextAreaElement>(null);
   const endRef = useRef<HTMLDivElement>(null);
 
-  const quickPrompts = getRoleQuickPrompts(company?.agentRole);
+  // Use quick prompts from the live role config when available, fall back to local map
+  const quickPrompts = roleConfig?.quick_prompts ?? getRoleQuickPrompts(company?.agentRole);
 
   useEffect(() => {
     boxRef.current?.focus();
@@ -95,12 +189,28 @@ function CabinPage() {
       from: "user",
       text: prompt,
       time: clock(),
+      sources: [],
+      requiresApproval: false,
     };
     setTurns((t) => [...t, userTurn]);
     setText("");
 
     try {
+      // Build blueprint: use live role config if available,
+      // always inject the real tenant_id from session/localStorage
+      const realTenantId =
+        (typeof window !== "undefined"
+          ? window.localStorage.getItem("eaawp.last_company_id")
+          : null) ??
+        user?.companyId ??
+        "default-tenant";
+
+      const blueprint = roleConfig
+        ? { ...roleConfigToBlueprint(roleConfig, realTenantId), tenant_id: realTenantId }
+        : { ...DEFAULT_BLUEPRINT, tenant_id: realTenantId };
+
       const result = await agentExecute.mutateAsync({
+        blueprint,
         user_prompt: prompt,
         session_id: sessionId,
       });
@@ -109,11 +219,14 @@ function CabinPage() {
         ...t,
         {
           id: `a-${Date.now()}`,
-          from: "ai",
+          from: "ai" as const,
           time: clock(),
           text: result.message,
-          sources: result.sources,
-          requiresApproval: result.requires_approval,
+          sources: result.sources ?? [],
+          requiresApproval: result.requires_approval ?? false,
+          planId: result.plan_id ?? null,
+          planStatus: result.plan_status ?? null,
+          stepSummaries: result.step_summaries ?? [],
         },
       ]);
     } catch (err) {
@@ -124,9 +237,11 @@ function CabinPage() {
         ...t,
         {
           id: `err-${Date.now()}`,
-          from: "ai",
+          from: "ai" as const,
           time: clock(),
           text: `Error: ${errorMessage}`,
+          sources: [],
+          requiresApproval: false,
         },
       ]);
     }
@@ -215,11 +330,24 @@ function CabinPage() {
                     >
                       {t.text}
                     </p>
+                    {/* Email draft preview — shown when the agent prepared a draft */}
+                    {t.from === "ai" && (() => {
+                      const draft = parseDraftPreview(t.text);
+                      return draft ? <EmailDraftPreview draft={draft} /> : null;
+                    })()}
                     {t.sources && t.sources.length > 0 && (
                       <ul className="mt-2 flex flex-wrap gap-x-4 gap-y-1">
                         {t.sources.map((s) => (
-                          <li key={s} className="font-mono text-[10px] text-muted-foreground">
-                            SOURCE · {s}
+                          <li
+                            key={s}
+                            className={cn(
+                              "font-mono text-[10px]",
+                              s.startsWith("Company data")
+                                ? "text-primary"
+                                : "text-muted-foreground",
+                            )}
+                          >
+                            {s.startsWith("Company data") ? "● " : "SOURCE · "}{s}
                           </li>
                         ))}
                       </ul>
@@ -238,6 +366,14 @@ function CabinPage() {
                           </button>
                         ))}
                       </div>
+                    )}
+                    {/* Plan progress display */}
+                    {t.stepSummaries && t.stepSummaries.length > 0 && (
+                      <PlanProgress
+                        planId={t.planId ?? null}
+                        planStatus={t.planStatus ?? null}
+                        stepSummaries={t.stepSummaries}
+                      />
                     )}
                   </article>
                 ))}

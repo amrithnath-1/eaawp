@@ -2,7 +2,9 @@ import { useState, type ReactNode } from "react";
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import {
   Bell,
+  BotMessageSquare,
   CalendarClock,
+  CheckSquare,
   Clock3,
   Home,
   LayoutGrid,
@@ -11,10 +13,13 @@ import {
   Mail,
   Menu,
   MoreHorizontal,
+  Plug,
   ScrollText,
   Settings,
   ShieldCheck,
   SlidersHorizontal,
+  Users,
+  Workflow,
   X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -24,21 +29,24 @@ import { AmoebaButton } from "./AmoebaButton";
 import { LetterBoxDrawer } from "./LetterBoxDrawer";
 
 const NAV = [
-  { to: "/cabin", label: "Cabin", icon: Home },
-  { to: "/workspace", label: "Workspace", icon: LayoutGrid },
-  { to: "/scheduled", label: "Scheduled", icon: CalendarClock },
-  { to: "/library", label: "Library", icon: Library },
-  { to: "/customize", label: "Customize", icon: SlidersHorizontal },
-  { to: "/roles", label: "Roles", icon: ShieldCheck },
-  { to: "/audit", label: "Audit", icon: ScrollText },
-  { to: "/recents", label: "Recents", icon: Clock3 },
-  { to: "/settings", label: "Settings", icon: Settings },
+  { to: "/cabin",       label: "Cabin",       icon: Home },
+  { to: "/workspace",   label: "Workspace",   icon: LayoutGrid },
+  { to: "/integrations",label: "Integrations",icon: Plug },
+  { to: "/employees",   label: "Employees",   icon: Users },
+  { to: "/approvals",   label: "Approvals",   icon: CheckSquare },
+  { to: "/workflows",   label: "Workflows",   icon: Workflow },
+  { to: "/activity",    label: "Activity",    icon: BotMessageSquare },
+  { to: "/scheduled",   label: "Scheduled",   icon: CalendarClock },
+  { to: "/library",     label: "Library",     icon: Library },
+  { to: "/customize",   label: "Customize",   icon: SlidersHorizontal },
+  { to: "/audit",       label: "Audit",       icon: ScrollText },
+  { to: "/settings",    label: "Settings",    icon: Settings },
 ] as const;
 
 const MOBILE_NAV = [
-  { to: "/cabin", label: "Cabin", icon: Home },
-  { to: "/workspace", label: "Workspace", icon: LayoutGrid },
-  { to: "/scheduled", label: "Scheduled", icon: CalendarClock },
+  { to: "/cabin",       label: "Cabin",       icon: Home },
+  { to: "/workspace",   label: "Workspace",   icon: LayoutGrid },
+  { to: "/integrations",label: "Integrations",icon: Plug },
 ] as const;
 
 export function AppShell({ children, contentClassName }: { children: ReactNode; contentClassName?: string }) {

@@ -33,6 +33,14 @@ class AgentBlueprint(BaseModel):
         description="Tool keys that require human approval before execution.",
     )
     tenant_id: str = Field(..., min_length=1, description="Tenant / organisation identifier")
+    # LLM model override for this blueprint.  Optional — falls back to the
+    # application default (settings.llm_default_model) if not set.
+    # Must be a value in app.llm.config.ALLOWED_MODELS when provided.
+    llm_model: str | None = Field(
+        default=None,
+        description="Model name override for this agent (e.g. 'gpt-4o'). "
+                    "Must be in the application ALLOWED_MODELS list.",
+    )
 
     @field_validator("allowed_tools", "guarded_tools", mode="before")
     @classmethod
@@ -74,3 +82,14 @@ class AgentExecutionResponse(BaseModel):
         description="True when the agent's proposed action requires human approval",
     )
     session_id: str = Field(description="Session ID for conversation continuity")
+    # ── Planning metadata (populated when multi-step planning was used) ───────
+    plan_id: str | None = Field(
+        default=None, description="ID of the execution plan, if a multi-step plan was created"
+    )
+    plan_status: str | None = Field(
+        default=None, description="Status of the plan: planning/running/awaiting_approval/completed/failed"
+    )
+    step_summaries: list[str] = Field(
+        default_factory=list,
+        description="Safe user-visible step descriptions (no chain-of-thought)",
+    )

@@ -9,6 +9,7 @@ import type { DepartmentExchange, DepartmentKey } from "@/services/types";
 import { cn } from "@/lib/utils";
 import { useAgentStatus } from "@/state/useAgentStatus";
 import { SendHorizonal } from "lucide-react";
+import { useAgentExecute, DEFAULT_BLUEPRINT } from "@/hooks/use-api";
 
 export const Route = createFileRoute("/meeting")({
   component: MeetingRoom,
@@ -21,14 +22,27 @@ function MeetingRoom() {
   const [feed, setFeed] = useState<DepartmentExchange[]>([]);
   const [promptInput, setPromptInput] = useState("");
   const [latestPrompt, setLatestPrompt] = useState("");
+  const [agentReply, setAgentReply] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
+  const [sessionId] = useState(() => `meeting-${Date.now()}`);
+
+  const agentExecute = useAgentExecute();
 
   function submitPrompt() {
     const trimmed = promptInput.trim();
-    if (!trimmed) return;
+    if (!trimmed || agentExecute.isPending) return;
     setLatestPrompt(trimmed);
+    setAgentReply("");
     setPromptInput("");
     inputRef.current?.focus();
+
+    agentExecute.mutate(
+      { blueprint: DEFAULT_BLUEPRINT, user_prompt: trimmed, session_id: sessionId },
+      {
+        onSuccess: (res) => setAgentReply(res.message),
+        onError: (err) => setAgentReply(`Error: ${err.message}`),
+      },
+    );
   }
 
   useEffect(() => {
@@ -96,6 +110,17 @@ function MeetingRoom() {
             )}
           </div>
 
+          {/* Agent reply display */}
+          {(agentExecute.isPending || agentReply) && (
+            <div className="mx-4 mb-2 border border-primary/40 bg-surface px-3 py-2">
+              {agentExecute.isPending ? (
+                <p className="animate-pulse text-[13px] text-muted-foreground">Agent thinking…</p>
+              ) : (
+                <p className="text-[13px] leading-snug text-primary">{agentReply}</p>
+              )}
+            </div>
+          )}
+
           {/* Prompt input area */}
           <div className="mx-4 mb-4 flex items-center gap-2 border border-border bg-surface px-3 py-2">
             <input
@@ -105,13 +130,15 @@ function MeetingRoom() {
               onKeyDown={(e) => { if (e.key === "Enter") submitPrompt(); }}
               placeholder="Type a prompt…"
               className="flex-1 bg-transparent text-[13px] outline-none placeholder:text-muted-foreground"
+              disabled={agentExecute.isPending}
             />
             <button
               onClick={submitPrompt}
+              disabled={agentExecute.isPending || !promptInput.trim()}
               aria-label="Send prompt"
               className={cn(
-                "grid size-7 shrink-0 place-items-center border border-border text-muted-foreground",
-                promptInput.trim() && "border-foreground bg-foreground text-background",
+                "grid size-7 shrink-0 place-items-center border border-border text-muted-foreground disabled:opacity-40",
+                promptInput.trim() && !agentExecute.isPending && "border-foreground bg-foreground text-background",
               )}
             >
               <SendHorizonal className="size-3.5" strokeWidth={1.5} />

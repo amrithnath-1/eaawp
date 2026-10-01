@@ -9,8 +9,8 @@
  * to mock data so the UI keeps working without a backend running.
  */
 
-export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000";
-export const USE_REAL_API = import.meta.env.VITE_USE_REAL_API === "true";
+export const API_BASE_URL = import.meta.env["VITE_API_BASE_URL"] ?? "http://localhost:8000";
+export const USE_REAL_API = import.meta.env["VITE_USE_REAL_API"] === "true";
 
 export class ApiError extends Error {
   constructor(
@@ -31,14 +31,26 @@ async function request<T>(
 ): Promise<T> {
   const url = `${API_BASE_URL}${path}`;
 
+  // Inject JWT access token and tenant ID from session if available
+  const accessToken = typeof window !== "undefined"
+    ? window.localStorage.getItem("eaawp.access_token")
+    : null;
+  const tenantId = typeof window !== "undefined"
+    ? window.localStorage.getItem("eaawp.last_company_id")
+    : null;
+
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    Accept: "application/json",
+  };
+  if (accessToken) headers["Authorization"] = `Bearer ${accessToken}`;
+  if (tenantId) headers["X-Tenant-ID"] = tenantId;
+
   const res = await fetch(url, {
     method,
-    headers: {
-      "Content-Type": "application/json",
-      Accept: "application/json",
-    },
-    body: body !== undefined ? JSON.stringify(body) : undefined,
-    signal,
+    headers,
+    ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
+    ...(signal !== undefined ? { signal } : {}),
   });
 
   if (!res.ok) {

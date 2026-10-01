@@ -45,9 +45,27 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     () => ({
       user,
       hydrated,
-      company: user?.companyId ? (companyService.get(user.companyId) ?? null) : null,
+      company: user?.companyId
+        ? (companyService.get(user.companyId) ?? {
+            // For real companies not in mock data, provide minimal stub so app doesn't break
+            id: user.companyId,
+            name: user.companyId,
+            industry: "",
+            region: "",
+            employees: 0,
+            agentRole: "Digital Marketing Manager",
+            agentName: "Marketing Intelligence Agent",
+          })
+        : null,
       signIn: (u) => persist(u),
-      signOut: () => persist(null),
+      signOut: () => {
+        persist(null);
+        // Clear JWT tokens on sign out
+        try {
+          window.localStorage.removeItem("eaawp.access_token");
+          window.localStorage.removeItem("eaawp.refresh_token");
+        } catch { /* ignore */ }
+      },
       selectCompany: (companyId) => user && persist({ ...user, companyId }),
       setRole: (role) => user && persist({ ...user, role }),
     }),

@@ -8,3 +8,15 @@ venv/
 *.egg-info/
 dist/
 build/
+
+# Databases — never commit live data
+*.db
+*.sqlite
+*.sqlite3
+
+# Alembic generated files (keep migrations/, not generated artefacts)
+*.pyc
+
+# Coverage reports
+.coverage
+htmlcov/

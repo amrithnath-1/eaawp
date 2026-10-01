@@ -4,6 +4,7 @@
  * (LLM → orchestrator → RAG → tools) without touching components.
  */
 import * as mock from "./mockData";
+import { USE_REAL_API } from "@/lib/api-client";
 import type {
   ActivityEvent,
   AgentConfig,
@@ -28,8 +29,44 @@ const latency = <T,>(value: T, ms = 120): Promise<T> =>
   new Promise((resolve) => setTimeout(() => resolve(value), ms));
 
 export const authService = {
-  async signIn(email: string, _password: string): Promise<SessionUser> {
-    void _password;
+  async signIn(email: string, password: string, companyId?: string): Promise<SessionUser> {
+    // Real API mode: call the JWT auth endpoint
+    if (USE_REAL_API) {
+      const { API_BASE_URL } = await import("@/lib/api-client");
+      // Use companyId if provided, otherwise try to find from email or use a default
+      const company_id = companyId || window.localStorage.getItem("eaawp.last_company_id") || "demo-company-001";
+      const res = await fetch(`${API_BASE_URL}/api/v1/auth/token`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password, company_id }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ detail: "Login failed" })) as { detail?: string };
+        throw new Error(err.detail ?? "Invalid credentials");
+      }
+      const data = await res.json() as {
+        access_token: string;
+        refresh_token: string;
+        tenant_id: string;
+        user_id: string;
+        user_name: string;
+        role: string;
+      };
+      // Store tokens securely in localStorage
+      window.localStorage.setItem("eaawp.access_token", data.access_token);
+      window.localStorage.setItem("eaawp.refresh_token", data.refresh_token);
+      window.localStorage.setItem("eaawp.last_company_id", data.tenant_id);
+      return {
+        id: data.user_id,
+        name: data.user_name,
+        email,
+        role: data.role as UserRole,
+        companyId: data.tenant_id,
+        status: "Active",
+      };
+    }
+    // Mock mode: accepts any credentials
+    void password;
     return latency({
       ...mock.sessionUserSeed,
       email: email || mock.sessionUserSeed.email,
@@ -37,11 +74,23 @@ export const authService = {
       role: "Company Admin" as UserRole,
     });
   },
+
+  signOut() {
+    window.localStorage.removeItem("eaawp.access_token");
+    window.localStorage.removeItem("eaawp.refresh_token");
+  },
+
+  getAccessToken(): string | null {
+    return window.localStorage.getItem("eaawp.access_token");
+  },
 };
 
 export const companyService = {
   list: (): Promise<Company[]> => latency(mock.companies),
-  get: (id: string) => mock.companies.find((c) => c.id === id) ?? mock.companies[0],
+  get: (id: string) => {
+    // Try mock companies first, then fall back to null
+    return mock.companies.find((c) => c.id === id) ?? null;
+  },
   departments: (): Department[] => mock.departments,
 };
 

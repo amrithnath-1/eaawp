@@ -45,3 +45,8 @@ pnpm-lock.yaml
 # ── Misc ─────────────────────────────────────────────────────────────────────
 *.local
 .cache/
+
+# ── Databases — never commit live data ───────────────────────────────────────
+*.db
+*.sqlite
+*.sqlite3
