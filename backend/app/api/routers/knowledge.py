@@ -86,11 +86,15 @@ async def upload_document(
             detail=f"Unsupported file type '{ext}'. Allowed: {sorted(ALLOWED_EXTENSIONS)}",
         )
 
-    # Enforce size limit while streaming — reject before buffering the entire
-    # payload into memory.  This prevents a large upload from exhausting RAM.
+    # Enforce size limit — read in chunks to avoid buffering entire file.
+    # Python 3.14 removed __aiter__ from UploadFile; use read(chunk_size) loop instead.
     chunks: list[bytes] = []
     received = 0
-    async for chunk in file:
+    chunk_size = 65536  # 64 KB
+    while True:
+        chunk = await file.read(chunk_size)
+        if not chunk:
+            break
         received += len(chunk)
         if received > MAX_FILE_SIZE:
             raise HTTPException(

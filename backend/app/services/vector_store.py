@@ -53,9 +53,9 @@ logger = logging.getLogger(__name__)
 from app.config import settings as _settings
 
 GEMINI_EMBEDDING_MODEL: str = getattr(
-    _settings, "gemini_embedding_model", "models/gemini-embedding-001"
+    _settings, "gemini_embedding_model", "models/gemini-embedding-2"
 )
-EMBEDDING_DIM = 3072  # dimensions for gemini-embedding-001
+EMBEDDING_DIM = 3072  # dimensions for gemini-embedding-2 and gemini-embedding-001
 
 # Keep EMBEDDING_MODEL alias for backwards compatibility with any code that
 # imports the old name.
@@ -118,22 +118,108 @@ async def embed_texts_gemini(texts: list[str]) -> list[list[float]]:
     return vectors
 
 
-async def embed_query_gemini(query: str) -> list[float]:
+def embed_query_gemini_sync(query: str) -> list[float]:
     """
-    Embed a single query string using Gemini Embeddings.
+    Embed a single query string using Gemini Embeddings — synchronous version.
+    Safe to call from synchronous contexts (e.g. LangChain @tool functions).
     Returns a float vector.
     """
+    embedder = _make_gemini_embedder()
+    return embedder.embed_query(query)  # sync call — no event loop needed
+
+
+def retrieve_similar_chunks_sync(
+    query: str,
+    tenant_id: str,
+    role_scope: str,
+    db: Any,
+    top_k: int = 4,
+) -> list[ScoredChunk]:
+    """
+    Synchronous version of retrieve_similar_chunks for use inside
+    LangChain @tool functions that cannot call async code.
+
+    Uses embed_query_gemini_sync to avoid event-loop nesting issues.
+    """
+    import json as _json
+
+    try:
+        query_vec_list = embed_query_gemini_sync(query)
+    except Exception as exc:
+        logger.error("Gemini sync query embedding failed: %s", exc)
+        return []
+
+    query_vec = np.array(query_vec_list, dtype=np.float32)
+    accessible_scopes = _accessible_scopes(role_scope)
+
+    # Use a synchronous DB execution path via run_sync
     import asyncio
 
-    embedder = _make_gemini_embedder()
+    async def _fetch():
+        from sqlalchemy import select
+        result = await db.execute(
+            select(
+                DocumentChunk.id,
+                DocumentChunk.document_id,
+                DocumentChunk.text,
+                DocumentChunk.embedding_json,
+                DocumentChunk.role_scope,
+            ).where(
+                DocumentChunk.tenant_id == tenant_id,
+                DocumentChunk.role_scope.in_(accessible_scopes),
+            )
+        )
+        return result.fetchall()
+
+    try:
+        loop = asyncio.get_event_loop()
+        rows = loop.run_until_complete(_fetch())
+    except RuntimeError:
+        # Already inside a running loop — use nest_asyncio if available
+        try:
+            import nest_asyncio
+            nest_asyncio.apply()
+            loop = asyncio.get_event_loop()
+            rows = loop.run_until_complete(_fetch())
+        except Exception as exc:
+            logger.error("Cannot fetch chunks in sync context: %s", exc)
+            return []
+
+    scored: list[tuple[float, ScoredChunk]] = []
+    for row in rows:
+        embedding = json.loads(row.embedding_json or "[]")
+        if not embedding:
+            continue
+        if len(embedding) != len(query_vec_list):
+            logger.warning(
+                "Skipping chunk %s: stored dim=%d, query dim=%d.",
+                row.id, len(embedding), len(query_vec_list),
+            )
+            continue
+        chunk_vec = np.array(embedding, dtype=np.float32)
+        score = _cosine_similarity(query_vec, chunk_vec)
+        scored.append((score, ScoredChunk(
+            chunk_id=row.id,
+            document_id=row.document_id,
+            document_name="",
+            doc_type="",
+            role_scope=row.role_scope,
+            text=row.text,
+            score=score,
+        )))
+
+    scored.sort(key=lambda x: x[0], reverse=True)
+    return [sc for _, sc in scored[:top_k]]
+
+
+async def embed_query_gemini(query: str) -> list[float]:
+    """
+    Embed a single query string using Gemini Embeddings (async wrapper).
+    Returns a float vector. Delegates to the sync version in a thread executor.
+    """
+    import asyncio
     loop = asyncio.get_event_loop()
-    vector: list[float] = await loop.run_in_executor(
-        None, embedder.embed_query, query
-    )
-    return vector
-
-
-# ── Legacy alias kept so document_processor.py import still works ─────────────
+    return await loop.run_in_executor(None, embed_query_gemini_sync, query)
 # Old callers passed an AsyncOpenAI client; this wrapper ignores the client
 # argument and uses Gemini instead.  The migration is transparent to callers
 # that still pass a client object — the client is simply discarded.
@@ -190,7 +276,8 @@ async def retrieve_similar_chunks(
     but is not used — Gemini is always the embedding provider.
     """
     try:
-        query_vec_list = await embed_query_gemini(query)
+        # Use sync embedder to avoid event-loop nesting when called from async context
+        query_vec_list = embed_query_gemini_sync(query)
     except Exception as exc:
         logger.error("Gemini query embedding failed: %s", exc)
         return []

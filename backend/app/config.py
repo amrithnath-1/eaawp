@@ -40,11 +40,12 @@ class Settings(BaseSettings):
     # Gemini embedding model for RAG document indexing and retrieval.
     # Both indexing and retrieval must use the same model — changing this
     # after documents are indexed requires full re-indexing of all chunks.
-    # Available confirmed models: models/gemini-embedding-001 (3072 dims)
-    gemini_embedding_model: str = "models/gemini-embedding-001"
-    # Legacy OpenAI embedding model — kept so old code that reads this field
-    # doesn't crash.  Not used for new indexing or retrieval.
-    embedding_model: str = "models/gemini-embedding-001"
+    # Available confirmed models (3072 dims each):
+    #   models/gemini-embedding-001  — stable
+    #   models/gemini-embedding-2    — current recommended
+    gemini_embedding_model: str = "models/gemini-embedding-2"
+    # Legacy alias — kept so any code that reads embedding_model doesn't crash.
+    embedding_model: str = "models/gemini-embedding-2"
 
     # ── Google Gemini API ─────────────────────────────────────────────────────
     # Get from https://aistudio.google.com/app/apikey

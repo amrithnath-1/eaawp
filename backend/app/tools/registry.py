@@ -121,13 +121,10 @@ def fetch_knowledge_base(query: str) -> str:
     if not _rag_settings.gemini_api_key:
         return "[INFO] Knowledge base search requires GEMINI_API_KEY to be configured."
     try:
-        from app.services.vector_store import retrieve_similar_chunks
-        _loop = asyncio.get_running_loop()
-        _chunks = _loop.run_until_complete(
-            retrieve_similar_chunks(
-                query=query, tenant_id=_tid, role_scope=_rk,
-                db=_db, top_k=4,
-            )
+        from app.services.vector_store import retrieve_similar_chunks_sync
+        _chunks = retrieve_similar_chunks_sync(
+            query=query, tenant_id=_tid, role_scope=_rk,
+            db=_db, top_k=4,
         )
         if not _chunks:
             return f"No relevant knowledge base entries found for: '{query[:100]}'"
