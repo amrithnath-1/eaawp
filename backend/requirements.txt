@@ -38,5 +38,5 @@ google-auth==2.40.3
 google-auth-oauthlib==1.2.2
 google-api-python-client==2.171.0
 
-# ── Google Gemini LLM ──────────────────────────────────────────────────────────
-langchain-google-genai
+# ── Google Gemini LLM + Embeddings ───────────────────────────────────────────
+langchain-google-genai==2.1.4   # provides ChatGoogleGenerativeAI + GoogleGenerativeAIEmbeddings

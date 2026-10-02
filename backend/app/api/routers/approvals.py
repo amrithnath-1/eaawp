@@ -1,16 +1,20 @@
 """Approval requests router — requires authenticated user."""
 from __future__ import annotations
+
+import uuid
 from datetime import datetime, timezone
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+
 from app.core.auth import get_current_user, require_admin
-from app.db.models import User
+from app.db.models import ApprovalRequest, AuditLog, User
 from app.db.session import get_db
-from app.db.models import ApprovalRequest
-from app.schemas.api import ApprovalRequestOut, ApprovalDecision
+from app.schemas.api import ApprovalDecision, ApprovalRequestOut
 
 router = APIRouter(prefix="/api/v1/approvals", tags=["approvals"])
+
 
 @router.get("", response_model=list[ApprovalRequestOut])
 async def list_approvals(
@@ -25,6 +29,7 @@ async def list_approvals(
     result = await db.execute(stmt.order_by(ApprovalRequest.created_at.desc()))
     return result.scalars().all()
 
+
 @router.post("/{approval_id}/decide", response_model=ApprovalRequestOut)
 async def decide_approval(
     approval_id: str,
@@ -32,18 +37,39 @@ async def decide_approval(
     admin_user: User = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
-    """Approve or reject an action.  Reviewer identity comes from the JWT, not the request body."""
+    """Approve or reject an action.
+    Reviewer identity is taken from the verified JWT — never from the request body.
+    An AuditLog record is written for every decision so the full approval
+    history is queryable from the Audit page.
+    """
     tenant_id = admin_user.tenant_id
     approval = await db.get(ApprovalRequest, approval_id)
     if not approval or approval.tenant_id != tenant_id:
         raise HTTPException(status_code=404, detail="Approval request not found")
     if approval.status != "pending":
         raise HTTPException(status_code=409, detail="Approval already resolved")
+
+    # Update the approval record
     approval.status = body.decision
-    # Reviewer identity is taken from the verified JWT — never from the request body.
     approval.reviewed_by = admin_user.email or admin_user.id
     approval.review_note = body.review_note
     approval.resolved_at = datetime.now(timezone.utc)
+
+    # Write a tamper-evident audit log entry for this decision
+    audit_entry = AuditLog(
+        id=str(uuid.uuid4()),
+        tenant_id=tenant_id,
+        actor=admin_user.email or admin_user.id,
+        event=(
+            f"approval.{body.decision}: approval_id={approval_id} "
+            f"action={approval.action!r} "
+            f"note={body.review_note!r}"
+        ),
+        department="approval-center",
+        status="ok",
+    )
+    db.add(audit_entry)
+
     await db.commit()
     await db.refresh(approval)
     return approval

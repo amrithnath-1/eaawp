@@ -10,6 +10,22 @@
 
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiClient, USE_REAL_API, API_BASE_URL } from "@/lib/api-client";
+
+// ── Single shared API helper ───────────────────────────────────────────────────
+// All domain-specific *Fetch helpers (intFetch, dataFetch, actionFetch, …) were
+// identical switch statements delegating to apiClient. They are replaced by this
+// single function. The old per-domain helpers are kept as thin aliases below
+// their respective section headers for grep-ability, but they all call apiFetch.
+async function apiFetch<T>(method: string, path: string, body?: unknown): Promise<T> {
+  switch (method) {
+    case "GET":    return apiClient.get<T>(path);
+    case "POST":   return apiClient.post<T>(path, body ?? {});
+    case "PATCH":  return apiClient.patch<T>(path, body);
+    case "DELETE": return apiClient.delete<T>(path);
+    default:       return apiClient.post<T>(path, body ?? {});
+  }
+}
+
 import {
   activityService,
   taskService,
@@ -938,18 +954,8 @@ export interface ConnectionTestResponse {
 
 const INT_HEADERS = { "X-Tenant-ID": (typeof window !== "undefined" ? window.localStorage.getItem("eaawp.last_company_id") ?? "default-tenant" : "default-tenant") };
 
-async function intFetch<T>(
-  method: string,
-  path: string,
-  body?: unknown,
-): Promise<T> {
-  switch (method) {
-    case "GET":    return apiClient.get<T>(path);
-    case "POST":   return apiClient.post<T>(path, body);
-    case "PATCH":  return apiClient.patch<T>(path, body);
-    case "DELETE": return apiClient.delete<T>(path);
-    default:       return apiClient.post<T>(path, body);
-  }
+async function intFetch<T>(method: string, path: string, body?: unknown): Promise<T> {
+  return apiFetch<T>(method, path, body);
 }
 
 /** List all data connections for this tenant. */
@@ -1116,13 +1122,7 @@ export interface SemanticMappingCreate {
 const DATA_HEADERS = { "X-Tenant-ID": (typeof window !== "undefined" ? window.localStorage.getItem("eaawp.last_company_id") ?? "default-tenant" : "default-tenant") };
 
 async function dataFetch<T>(method: string, path: string, body?: unknown): Promise<T> {
-  switch (method) {
-    case "GET":    return apiClient.get<T>(path);
-    case "POST":   return apiClient.post<T>(path, body);
-    case "PATCH":  return apiClient.patch<T>(path, body);
-    case "DELETE": return apiClient.delete<T>(path);
-    default:       return apiClient.post<T>(path, body);
-  }
+  return apiFetch<T>(method, path, body);
 }
 
 /** List all semantic mappings for this tenant. */
@@ -1206,13 +1206,7 @@ export interface ActionToolMeta {
 const ACTION_HEADERS = { "X-Tenant-ID": (typeof window !== "undefined" ? window.localStorage.getItem("eaawp.last_company_id") ?? "default-tenant" : "default-tenant") };
 
 async function actionFetch<T>(method: string, path: string, body?: unknown): Promise<T> {
-  switch (method) {
-    case "GET":    return apiClient.get<T>(path);
-    case "POST":   return apiClient.post<T>(path, body);
-    case "PATCH":  return apiClient.patch<T>(path, body);
-    case "DELETE": return apiClient.delete<T>(path);
-    default:       return apiClient.post<T>(path, body);
-  }
+  return apiFetch<T>(method, path, body);
 }
 
 /** List all action audit records for this tenant. */
@@ -1577,13 +1571,7 @@ async function monFetch<T>(
   path: string,
   body?: unknown,
 ): Promise<T> {
-  switch (method) {
-    case "GET":    return apiClient.get<T>(path);
-    case "POST":   return apiClient.post<T>(path, body);
-    case "PATCH":  return apiClient.patch<T>(path, body);
-    case "DELETE": return apiClient.delete<T>(path);
-    default:       return apiClient.post<T>(path, body);
-  }
+  return apiFetch<T>(method, path, body);
 }
 
 // ── Query keys ────────────────────────────────────────────────────────────────
@@ -1923,13 +1911,7 @@ const MOCK_EMAIL_INTEGRATION: EmailIntegrationFE = {
 const EMAIL_HEADERS = { "X-Tenant-ID": (typeof window !== "undefined" ? window.localStorage.getItem("eaawp.last_company_id") ?? "default-tenant" : "default-tenant") };
 
 async function emailFetch<T>(method: string, path: string, body?: unknown): Promise<T> {
-  switch (method) {
-    case "GET":    return apiClient.get<T>(path);
-    case "POST":   return apiClient.post<T>(path, body ?? {});
-    case "PATCH":  return apiClient.patch<T>(path, body);
-    case "DELETE": return apiClient.delete<T>(path);
-    default:       return apiClient.post<T>(path, body ?? {});
-  }
+  return apiFetch<T>(method, path, body);
 }
 
 // ── Query keys ────────────────────────────────────────────────────────────────
@@ -2206,13 +2188,7 @@ const MOCK_CAMPAIGNS: CampaignFE[] = [
 const CAMP_HEADERS = { "X-Tenant-ID": (typeof window !== "undefined" ? window.localStorage.getItem("eaawp.last_company_id") ?? "default-tenant" : "default-tenant") };
 
 async function campFetch<T>(method: string, path: string, body?: unknown): Promise<T> {
-  switch (method) {
-    case "GET":    return apiClient.get<T>(path);
-    case "POST":   return apiClient.post<T>(path, body ?? {});
-    case "PATCH":  return apiClient.patch<T>(path, body);
-    case "DELETE": return apiClient.delete<T>(path);
-    default:       return apiClient.post<T>(path, body ?? {});
-  }
+  return apiFetch<T>(method, path, body);
 }
 
 export const campaignKeys = {
@@ -2364,13 +2340,7 @@ export interface CampaignComparisonFE {
 const PERF_HEADERS = { "X-Tenant-ID": (typeof window !== "undefined" ? window.localStorage.getItem("eaawp.last_company_id") ?? "default-tenant" : "default-tenant") };
 
 async function perfFetch<T>(method: string, path: string, body?: unknown): Promise<T> {
-  switch (method) {
-    case "GET":    return apiClient.get<T>(path);
-    case "POST":   return apiClient.post<T>(path, body ?? {});
-    case "PATCH":  return apiClient.patch<T>(path, body);
-    case "DELETE": return apiClient.delete<T>(path);
-    default:       return apiClient.post<T>(path, body ?? {});
-  }
+  return apiFetch<T>(method, path, body);
 }
 
 export const performanceKeys = {
@@ -2463,13 +2433,7 @@ export interface FunnelMetricsFE {
 const FUNNEL_HEADERS = { "X-Tenant-ID": (typeof window !== "undefined" ? window.localStorage.getItem("eaawp.last_company_id") ?? "default-tenant" : "default-tenant") };
 
 async function funnelFetch<T>(method: string, path: string, body?: unknown): Promise<T> {
-  switch (method) {
-    case "GET":    return apiClient.get<T>(path);
-    case "POST":   return apiClient.post<T>(path, body ?? {});
-    case "PATCH":  return apiClient.patch<T>(path, body);
-    case "DELETE": return apiClient.delete<T>(path);
-    default:       return apiClient.post<T>(path, body ?? {});
-  }
+  return apiFetch<T>(method, path, body);
 }
 
 export const funnelKeys = {
@@ -2559,13 +2523,7 @@ export interface StrategicAnalysisFE {
 const STRAT_HEADERS = { "X-Tenant-ID": (typeof window !== "undefined" ? window.localStorage.getItem("eaawp.last_company_id") ?? "default-tenant" : "default-tenant") };
 
 async function stratFetch<T>(method: string, path: string, body?: unknown): Promise<T> {
-  switch (method) {
-    case "GET":    return apiClient.get<T>(path);
-    case "POST":   return apiClient.post<T>(path, body ?? {});
-    case "PATCH":  return apiClient.patch<T>(path, body);
-    case "DELETE": return apiClient.delete<T>(path);
-    default:       return apiClient.post<T>(path, body ?? {});
-  }
+  return apiFetch<T>(method, path, body);
 }
 
 export const strategyKeys = {
@@ -2680,13 +2638,7 @@ export interface AnalyzeContentBody {
 const CONTENT_HEADERS = { "X-Tenant-ID": (typeof window !== "undefined" ? window.localStorage.getItem("eaawp.last_company_id") ?? "default-tenant" : "default-tenant") };
 
 async function contentFetch<T>(method: string, path: string, body?: unknown): Promise<T> {
-  switch (method) {
-    case "GET":    return apiClient.get<T>(path);
-    case "POST":   return apiClient.post<T>(path, body ?? {});
-    case "PATCH":  return apiClient.patch<T>(path, body);
-    case "DELETE": return apiClient.delete<T>(path);
-    default:       return apiClient.post<T>(path, body ?? {});
-  }
+  return apiFetch<T>(method, path, body);
 }
 
 export const contentKeys = {
@@ -2771,13 +2723,7 @@ export interface NotificationFE {
 const NOTIF_HEADERS = { "X-Tenant-ID": (typeof window !== "undefined" ? window.localStorage.getItem("eaawp.last_company_id") ?? "default-tenant" : "default-tenant") };
 
 async function notifFetch<T>(method: string, path: string, body?: unknown): Promise<T> {
-  switch (method) {
-    case "GET":    return apiClient.get<T>(path);
-    case "POST":   return apiClient.post<T>(path, body ?? {});
-    case "PATCH":  return apiClient.patch<T>(path, body);
-    case "DELETE": return apiClient.delete<T>(path);
-    default:       return apiClient.post<T>(path, body ?? {});
-  }
+  return apiFetch<T>(method, path, body);
 }
 
 export const notificationKeys = {
@@ -2859,13 +2805,7 @@ export interface ChannelIntegrationFE {
 const CHAN_HEADERS = { "X-Tenant-ID": (typeof window !== "undefined" ? window.localStorage.getItem("eaawp.last_company_id") ?? "default-tenant" : "default-tenant") };
 
 async function chanFetch<T>(method: string, path: string, body?: unknown): Promise<T> {
-  switch (method) {
-    case "GET":    return apiClient.get<T>(path);
-    case "POST":   return apiClient.post<T>(path, body ?? {});
-    case "PATCH":  return apiClient.patch<T>(path, body);
-    case "DELETE": return apiClient.delete<T>(path);
-    default:       return apiClient.post<T>(path, body ?? {});
-  }
+  return apiFetch<T>(method, path, body);
 }
 
 export function useChannelIntegrations() {
@@ -3152,12 +3092,7 @@ async function intMgrFetch<T>(
   body?: unknown,
   _tenantId = "default-tenant", // kept for signature compatibility; apiClient reads from localStorage
 ): Promise<T> {
-  switch (method) {
-    case "GET":    return apiClient.get<T>(path);
-    case "POST":   return apiClient.post<T>(path, body ?? {});
-    case "PATCH":  return apiClient.patch<T>(path, body);
-    case "DELETE": return apiClient.delete<T>(path);
-  }
+  return apiFetch<T>(method, path, body);
 }
 
 // ── Provider catalogue ────────────────────────────────────────────────────────

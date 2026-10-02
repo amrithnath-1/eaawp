@@ -104,19 +104,14 @@ async def execute_agent(
 
     # ── Shared pre-work: RAG + data context ───────────────────────────────────
     rag_chunks: list[ScoredChunk] = []
-    if (
-        "fetch_knowledge_base" in authoritative_blueprint.allowed_tools
-        and settings.openai_api_key
-    ):
+    if "fetch_knowledge_base" in authoritative_blueprint.allowed_tools:
         try:
-            from openai import AsyncOpenAI
-            openai_client = AsyncOpenAI(api_key=settings.openai_api_key)
+            # Gemini embeddings — no OpenAI client required
             rag_chunks = await retrieve_similar_chunks(
                 query=request.user_prompt,
                 tenant_id=authoritative_blueprint.tenant_id,
                 role_scope=role_key,
                 db=db,
-                openai_client=openai_client,
                 top_k=4,
             )
         except Exception as exc:  # noqa: BLE001
@@ -218,7 +213,10 @@ async def execute_agent(
                     from sqlalchemy import select
                     from app.db.models import ExecutionPlan, PlanStep
                     pr = await db.execute(
-                        select(ExecutionPlan).where(ExecutionPlan.id == plan_id)
+                        select(ExecutionPlan).where(
+                            ExecutionPlan.id == plan_id,
+                            ExecutionPlan.tenant_id == tenant_id,  # tenant-scoped
+                        )
                     )
                     db_plan = pr.scalar_one_or_none()
                     if db_plan:

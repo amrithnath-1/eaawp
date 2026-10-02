@@ -1,7 +1,7 @@
 import type { ReactElement } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
-import { Mic, Paperclip, SendHorizonal, CheckCircle, Clock, XCircle, RefreshCw, Mail } from "lucide-react";
+import { SendHorizonal, CheckCircle, Clock, XCircle, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import { AppShell } from "@/components/eaawp/AppShell";
 import { AmoebaButton } from "@/components/eaawp/AmoebaButton";
@@ -11,9 +11,10 @@ import { useSession } from "@/state/session";
 import { EmailDraftPreview, parseDraftPreview } from "@/components/eaawp/EmailDraftPreview";
 import {
   useAgentExecute, DEFAULT_BLUEPRINT, useRoleConfig, roleConfigToBlueprint,
-  useResumePlan, type PlanStatus,
+  useResumePlan, useDecideApproval, type PlanStatus,
 } from "@/hooks/use-api";
 import { USE_REAL_API } from "@/lib/api-client";
+import { reportError } from "@/lib/error-reporting";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/cabin")({
@@ -162,6 +163,8 @@ function CabinPage() {
   const { status } = useAgentStatus();
   const agentExecute = useAgentExecute();
   const { data: roleConfig } = useRoleConfig("DIGITAL_MARKETING_MANAGER");
+  const decideApproval = useDecideApproval();
+  const resumePlan = useResumePlan();
 
   const [turns, setTurns] = useState<Turn[]>([]);
   const [text, setText] = useState("");
@@ -232,6 +235,7 @@ function CabinPage() {
     } catch (err) {
       const errorMessage =
         err instanceof Error ? err.message : "Agent execution failed. Check your connection.";
+      reportError(err, { prompt: prompt.slice(0, 100), sessionId });
       toast.error(errorMessage);
       setTurns((t) => [
         ...t,
@@ -354,17 +358,91 @@ function CabinPage() {
                     )}
                     {t.requiresApproval && (
                       <div className="mt-2 flex flex-wrap gap-1.5">
-                        {["Approve", "Request changes", "Open task"].map((a) => (
-                          <button
-                            key={a}
-                            onClick={() =>
-                              toast.success(`${a} — sent to agent orchestrator`)
+                        {/* Approve — decide the pending ApprovalRequest then resume the plan */}
+                        <button
+                          disabled={decideApproval.isPending || resumePlan.isPending}
+                          onClick={() => {
+                            if (!USE_REAL_API) {
+                              toast.info("Connect real API to use approvals.");
+                              return;
                             }
-                            className="border border-border px-2 py-1 font-mono text-[10px] tracking-[0.12em] text-muted-foreground hover:border-border-strong hover:text-foreground"
-                          >
-                            {a.toUpperCase()}
-                          </button>
-                        ))}
+                            if (!t.planId) {
+                              toast.error("No plan ID on this turn — cannot approve.");
+                              return;
+                            }
+                            // First record the approval decision, then resume the plan
+                            decideApproval.mutate(
+                              {
+                                approval_id: t.planId, // plan_id doubles as correlation key
+                                decision: "approved",
+                                reviewed_by: user?.email ?? "admin",
+                              },
+                              {
+                                onSuccess: () => {
+                                  // Now resume the paused plan so execution continues
+                                  resumePlan.mutate(
+                                    { planId: t.planId! },
+                                    {
+                                      onSuccess: () => toast.success("Action approved and plan resumed."),
+                                      onError: (err) => {
+                                        reportError(err, { planId: t.planId });
+                                        toast.error(`Resume failed: ${err.message}`);
+                                      },
+                                    },
+                                  );
+                                },
+                                onError: (err) => {
+                                  reportError(err, { planId: t.planId });
+                                  toast.error(`Approval failed: ${err.message}`);
+                                },
+                              },
+                            );
+                          }}
+                          className="border border-success/60 px-2 py-1 font-mono text-[10px] tracking-[0.12em] text-success hover:bg-success/10 disabled:opacity-40"
+                        >
+                          {decideApproval.isPending || resumePlan.isPending ? "APPROVING…" : "APPROVE"}
+                        </button>
+
+                        {/* Reject — record a rejection; plan will not continue */}
+                        <button
+                          disabled={decideApproval.isPending}
+                          onClick={() => {
+                            if (!USE_REAL_API) {
+                              toast.info("Connect real API to use approvals.");
+                              return;
+                            }
+                            if (!t.planId) {
+                              toast.error("No plan ID on this turn — cannot reject.");
+                              return;
+                            }
+                            decideApproval.mutate(
+                              {
+                                approval_id: t.planId,
+                                decision: "rejected",
+                                reviewed_by: user?.email ?? "admin",
+                                review_note: "Rejected from Cabin",
+                              },
+                              {
+                                onSuccess: () => toast.success("Action rejected. Plan will not continue."),
+                                onError: (err) => {
+                                  reportError(err, { planId: t.planId });
+                                  toast.error(`Rejection failed: ${err.message}`);
+                                },
+                              },
+                            );
+                          }}
+                          className="border border-destructive/60 px-2 py-1 font-mono text-[10px] tracking-[0.12em] text-destructive hover:bg-destructive/10 disabled:opacity-40"
+                        >
+                          {decideApproval.isPending ? "REJECTING…" : "REQUEST CHANGES"}
+                        </button>
+
+                        {/* Open task — navigate to the full Approvals page for details */}
+                        <a
+                          href="/approvals"
+                          className="border border-border px-2 py-1 font-mono text-[10px] tracking-[0.12em] text-muted-foreground hover:border-border-strong hover:text-foreground"
+                        >
+                          OPEN IN APPROVALS
+                        </a>
                       </div>
                     )}
                     {/* Plan progress display */}
@@ -390,13 +468,6 @@ function CabinPage() {
           <div className="shrink-0 border-t border-border bg-surface">
             <div className="mx-auto max-w-[760px] px-4 py-3">
               <div className="flex items-end gap-1.5 rounded-2xl border border-border bg-background px-2 py-1.5 focus-within:border-border-strong">
-                <button
-                  onClick={() => toast("Attach file — connect storage service")}
-                  aria-label="Attach file"
-                  className="grid size-8 shrink-0 place-items-center rounded-full text-muted-foreground hover:text-foreground"
-                >
-                  <Paperclip className="size-4" strokeWidth={1.5} />
-                </button>
                 <textarea
                   ref={boxRef}
                   value={text}
@@ -412,13 +483,6 @@ function CabinPage() {
                   disabled={isThinking}
                   className="max-h-40 min-h-[34px] flex-1 resize-none self-center bg-transparent py-1.5 text-[13px] outline-none placeholder:text-muted-foreground disabled:opacity-50"
                 />
-                <button
-                  onClick={() => toast("Voice capture — connect speech service")}
-                  aria-label="Record voice"
-                  className="grid size-8 shrink-0 place-items-center rounded-full text-muted-foreground hover:text-foreground"
-                >
-                  <Mic className="size-4" strokeWidth={1.5} />
-                </button>
                 <button
                   onClick={() => void send()}
                   disabled={isThinking || !text.trim()}

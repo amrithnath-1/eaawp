@@ -37,9 +37,14 @@ class Settings(BaseSettings):
     # Default model used by the LLM Gateway when no role-specific model is set.
     # Must be an entry in app.llm.config.ALLOWED_MODELS[LLMProvider.OPENAI].
     llm_default_model: str = "gpt-4o-mini"
-    # Embedding model for RAG. Must match OpenAI text-embedding model names.
-    # Changing this after documents are indexed requires full re-indexing.
-    embedding_model: str = "text-embedding-3-small"
+    # Gemini embedding model for RAG document indexing and retrieval.
+    # Both indexing and retrieval must use the same model — changing this
+    # after documents are indexed requires full re-indexing of all chunks.
+    # Available confirmed models: models/gemini-embedding-001 (3072 dims)
+    gemini_embedding_model: str = "models/gemini-embedding-001"
+    # Legacy OpenAI embedding model — kept so old code that reads this field
+    # doesn't crash.  Not used for new indexing or retrieval.
+    embedding_model: str = "models/gemini-embedding-001"
 
     # ── Google Gemini API ─────────────────────────────────────────────────────
     # Get from https://aistudio.google.com/app/apikey

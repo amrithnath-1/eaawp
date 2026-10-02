@@ -153,14 +153,15 @@ async def upload_document(
 
 
 async def _process_in_background(doc_id: str, tenant_id: str) -> None:
-    """Run document processing in a new DB session (background task)."""
-    from openai import AsyncOpenAI
+    """Run document processing in a new DB session (background task).
+    Embeddings are handled by Gemini inside process_document — no OpenAI
+    client is required here.
+    """
     from app.db.session import AsyncSessionLocal
 
     async with AsyncSessionLocal() as session:
         try:
-            client = AsyncOpenAI(api_key=settings.openai_api_key)
-            await process_document(doc_id, session, client)
+            await process_document(doc_id, session)
             await session.commit()
         except Exception as exc:
             await session.rollback()

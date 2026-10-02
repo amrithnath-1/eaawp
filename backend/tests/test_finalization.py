@@ -395,8 +395,14 @@ class TestConfigAndEnv:
         import inspect
         from app.services import vector_store
         src = inspect.getsource(vector_store)
-        # Should read from settings
-        assert "settings.embedding_model" in src or "_settings.embedding_model" in src
+        # Should read from settings — now uses gemini_embedding_model
+        assert (
+            "settings.embedding_model" in src
+            or "_settings.embedding_model" in src
+            or "settings.gemini_embedding_model" in src
+            or "_settings.gemini_embedding_model" in src
+            or "gemini_embedding_model" in src
+        )
 
     def test_env_example_documents_algorithm(self):
         """ALGORITHM is documented in backend/.env.example."""

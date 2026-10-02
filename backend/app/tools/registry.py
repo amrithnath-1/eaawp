@@ -118,17 +118,15 @@ def fetch_knowledge_base(query: str) -> str:
     _rk = _role_key_ctx.get()
     if _db is None:
         return "[ERROR] fetch_knowledge_base: no database session available."
-    if not _rag_settings.openai_api_key:
-        return "[INFO] Knowledge base search requires OPENAI_API_KEY to be configured."
+    if not _rag_settings.gemini_api_key:
+        return "[INFO] Knowledge base search requires GEMINI_API_KEY to be configured."
     try:
-        from openai import AsyncOpenAI
         from app.services.vector_store import retrieve_similar_chunks
-        _client = AsyncOpenAI(api_key=_rag_settings.openai_api_key)
         _loop = asyncio.get_running_loop()
         _chunks = _loop.run_until_complete(
             retrieve_similar_chunks(
                 query=query, tenant_id=_tid, role_scope=_rk,
-                db=_db, openai_client=_client, top_k=4,
+                db=_db, top_k=4,
             )
         )
         if not _chunks:

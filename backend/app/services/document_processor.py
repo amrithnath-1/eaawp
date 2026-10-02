@@ -32,7 +32,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-from openai import AsyncOpenAI
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -119,14 +118,17 @@ def chunk_text(text: str) -> list[str]:
 async def process_document(
     doc_id: str,
     db: AsyncSession,
-    openai_client: AsyncOpenAI,
+    openai_client: object = None,  # kept for call-site compatibility, not used
 ) -> None:
     """
     Background task: load the document record, read the file, extract text,
-    chunk, embed, store chunks, and mark the document as indexed.
+    chunk, embed using Gemini, store chunks, and mark the document as indexed.
 
     All errors are caught and stored in doc.error_message; the document
     is marked "failed" rather than leaving it in an unknown state.
+
+    The openai_client parameter is accepted for backward compatibility but
+    is NOT used — embeddings now come from the Gemini API.
     """
     # Load document record
     result = await db.execute(
@@ -157,12 +159,12 @@ async def process_document(
         if not chunks:
             raise ValueError("Text could not be split into chunks.")
 
-        # Embed (batch in groups of 100 to stay within API limits)
+        # Embed using Gemini (batch in groups of 50 to stay within rate limits)
         all_embeddings: list[list[float]] = []
-        batch_size = 100
+        batch_size = 50
         for i in range(0, len(chunks), batch_size):
             batch = chunks[i : i + batch_size]
-            vecs = await embed_text(batch, openai_client)
+            vecs = await embed_text(batch)  # uses Gemini — no client arg needed
             all_embeddings.extend(vecs)
 
         # Delete any existing chunks for this document (re-processing)
