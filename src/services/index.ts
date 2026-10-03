@@ -34,7 +34,8 @@ export const authService = {
     if (USE_REAL_API) {
       const { API_BASE_URL } = await import("@/lib/api-client");
       // Use companyId if provided, otherwise try to find from email or use a default
-      const company_id = companyId || window.localStorage.getItem("eaawp.last_company_id") || "demo-company-001";
+      const company_id = companyId || window.localStorage.getItem("eaawp.last_company_id");
+      if (!company_id) throw new Error("Company ID is required. Register a company first or use the ID from your company administrator.");
       const res = await fetch(`${API_BASE_URL}/api/v1/auth/token`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -86,8 +87,9 @@ export const authService = {
 };
 
 export const companyService = {
-  list: (): Promise<Company[]> => latency(mock.companies),
+  list: (): Promise<Company[]> => latency(USE_REAL_API ? [] : mock.companies),
   get: (id: string) => {
+    if (USE_REAL_API) return null;
     // Try mock companies first, then fall back to null
     return mock.companies.find((c) => c.id === id) ?? null;
   },
@@ -95,41 +97,43 @@ export const companyService = {
 };
 
 export const taskService = {
-  list: (): AgentTask[] => mock.tasks,
-  get: (id: string) => mock.tasks.find((t) => t.id === id),
+  list: (): AgentTask[] => USE_REAL_API ? [] : mock.tasks,
+  get: (id: string) => USE_REAL_API ? undefined : mock.tasks.find((t) => t.id === id),
 };
 
 export const activityService = {
-  feed: (): ActivityEvent[] => mock.activityFeed,
-  candidates: () => mock.streamCandidates,
+  feed: (): ActivityEvent[] => USE_REAL_API ? [] : mock.activityFeed,
+  candidates: () => USE_REAL_API ? [] : mock.streamCandidates,
 };
 
 export const insightService = {
-  list: (): Insight[] => mock.insights,
+  list: (): Insight[] => USE_REAL_API ? [] : mock.insights,
 };
 
 export const departmentService = {
-  exchanges: (): DepartmentExchange[] => mock.exchanges,
-  forDepartment: (key: string) => mock.exchanges.filter((e) => e.department === key),
-  liveScript: (): DepartmentExchange[] => mock.liveMeetingScript,
+  exchanges: (): DepartmentExchange[] => USE_REAL_API ? [] : mock.exchanges,
+  forDepartment: (key: string) => USE_REAL_API ? [] : mock.exchanges.filter((e) => e.department === key),
+  liveScript: (): DepartmentExchange[] => USE_REAL_API ? [] : mock.liveMeetingScript,
 };
 
 export const scheduleService = {
-  list: (): Schedule[] => mock.schedules,
+  list: (): Schedule[] => USE_REAL_API ? [] : mock.schedules,
 };
 
 export const knowledgeService = {
-  items: (): LibraryItem[] => mock.libraryItems,
-  status: (): KnowledgeStatus => mock.knowledgeStatus,
+  items: (): LibraryItem[] => USE_REAL_API ? [] : mock.libraryItems,
+  status: (): KnowledgeStatus => USE_REAL_API
+    ? { documentsIndexed: 0, knowledgeSources: 0, lastSync: "Not synchronized", pendingUpdates: 0 }
+    : mock.knowledgeStatus,
 };
 
 export const auditService = {
-  list: (): AuditEntry[] => mock.auditEntries,
-  traces: () => mock.executionTraces,
+  list: (): AuditEntry[] => USE_REAL_API ? [] : mock.auditEntries,
+  traces: () => USE_REAL_API ? [] : mock.executionTraces,
 };
 
 export const recentService = {
-  list: (): RecentItem[] => mock.recents,
+  list: (): RecentItem[] => USE_REAL_API ? [] : mock.recents,
 };
 
 export const agentConfigService = {
@@ -137,13 +141,15 @@ export const agentConfigService = {
 };
 
 export const roleService = {
-  list: (): RoleDefinition[] => mock.roleDefinitions,
+  list: (): RoleDefinition[] => USE_REAL_API ? [] : mock.roleDefinitions,
 };
 
 export const mailService = {
-  thread: (): MailMessage[] => mock.mailThread,
+  thread: (): MailMessage[] => USE_REAL_API ? [] : mock.mailThread,
   send: async (text: string, attachments: string[] = []): Promise<MailMessage> =>
-    latency({
+    USE_REAL_API
+      ? Promise.reject(new Error("Local simulated email is disabled. Use a configured company email integration."))
+      : latency({
       id: `m-${Date.now()}`,
       from: "user",
       text,

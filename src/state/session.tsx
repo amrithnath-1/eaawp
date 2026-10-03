@@ -1,7 +1,8 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { companyService } from "@/services";
-import type { Company, SessionUser, UserRole } from "@/services/types";
+import type { Company, SessionUser } from "@/services/types";
+import { apiClient, USE_REAL_API } from "@/lib/api-client";
 
 const STORAGE_KEY = "eaawp.session";
 
@@ -12,13 +13,13 @@ interface SessionState {
   signIn: (user: SessionUser) => void;
   signOut: () => void;
   selectCompany: (companyId: string) => void;
-  setRole: (role: UserRole) => void;
 }
 
 const SessionContext = createContext<SessionState | null>(null);
 
 export function SessionProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<SessionUser | null>(null);
+  const [company, setCompany] = useState<Company | null>(null);
   const [hydrated, setHydrated] = useState(false);
 
   useEffect(() => {
@@ -30,6 +31,44 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     }
     setHydrated(true);
   }, []);
+
+  useEffect(() => {
+    let active = true;
+    if (!user?.companyId) {
+      setCompany(null);
+      return () => { active = false; };
+    }
+    if (!USE_REAL_API) {
+      setCompany(companyService.get(user.companyId));
+      return () => { active = false; };
+    }
+    void apiClient.get<{ id: string; name: string; industry?: string; region?: string; employees?: number }>(`/api/v1/companies/${encodeURIComponent(user.companyId)}`)
+      .then((record) => {
+        if (!active) return;
+        setCompany({
+          id: record.id,
+          name: record.name,
+          industry: record.industry ?? "",
+          region: record.region ?? "",
+          employees: record.employees ?? 0,
+          agentRole: "Digital Marketing Manager",
+          agentName: "Digital Marketing Manager",
+        });
+      })
+      .catch(() => {
+        if (!active) return;
+        setCompany({
+          id: user.companyId,
+          name: "Company details unavailable",
+          industry: "",
+          region: "",
+          employees: 0,
+          agentRole: "Digital Marketing Manager",
+          agentName: "Digital Marketing Manager",
+        });
+      });
+    return () => { active = false; };
+  }, [user?.companyId]);
 
   const persist = useCallback((next: SessionUser | null) => {
     setUser(next);
@@ -45,18 +84,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     () => ({
       user,
       hydrated,
-      company: user?.companyId
-        ? (companyService.get(user.companyId) ?? {
-            // For real companies not in mock data, provide minimal stub so app doesn't break
-            id: user.companyId,
-            name: user.companyId,
-            industry: "",
-            region: "",
-            employees: 0,
-            agentRole: "Digital Marketing Manager",
-            agentName: "Marketing Intelligence Agent",
-          })
-        : null,
+      company,
       signIn: (u) => persist(u),
       signOut: () => {
         persist(null);
@@ -67,9 +95,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         } catch { /* ignore */ }
       },
       selectCompany: (companyId) => user && persist({ ...user, companyId }),
-      setRole: (role) => user && persist({ ...user, role }),
     }),
-    [user, hydrated, persist],
+    [user, hydrated, persist, company],
   );
 
   return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>;

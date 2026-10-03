@@ -1,23 +1,21 @@
 """Insights router — tenant-scoped."""
 from __future__ import annotations
 import uuid
-from fastapi import APIRouter, Depends, HTTPException, Header
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.session import get_db
 from app.db.models import Insight
+from app.core.auth import get_current_tenant_id
 from app.schemas.api import InsightOut, InsightCreate
 
 router = APIRouter(prefix="/api/v1/insights", tags=["insights"])
-
-def _tenant(x_tenant_id: str = Header(..., alias="X-Tenant-ID")) -> str:
-    return x_tenant_id
 
 @router.get("", response_model=list[InsightOut])
 async def list_insights(
     ai_employee_id: str | None = None,
     include_dismissed: bool = False,
-    tenant_id: str = Depends(_tenant),
+    tenant_id: str = Depends(get_current_tenant_id),
     db: AsyncSession = Depends(get_db),
 ):
     stmt = select(Insight).where(Insight.tenant_id == tenant_id)
@@ -31,7 +29,7 @@ async def list_insights(
 @router.post("/{insight_id}/dismiss", response_model=InsightOut)
 async def dismiss_insight(
     insight_id: str,
-    tenant_id: str = Depends(_tenant),
+    tenant_id: str = Depends(get_current_tenant_id),
     db: AsyncSession = Depends(get_db),
 ):
     insight = await db.get(Insight, insight_id)

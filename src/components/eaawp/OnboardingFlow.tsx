@@ -13,7 +13,7 @@ import { USE_REAL_API } from "@/lib/api-client";
 import { useOnboardCompany, type OnboardRequest } from "@/hooks/use-api";
 
 interface OnboardingFlowProps {
-  onComplete: (companyId: string, companyName: string) => void;
+  onComplete: (companyId: string, companyName: string, adminEmail: string, adminPassword: string) => void;
   onCancel: () => void;
 }
 
@@ -47,7 +47,7 @@ export function OnboardingFlow({ onComplete, onCancel }: OnboardingFlowProps) {
       const result = await onboard.mutateAsync(form);
       toast.success(`Company "${result.company_name}" created successfully.`);
       setStep("done");
-      setTimeout(() => onComplete(result.company_id, result.company_name), 1500);
+      setTimeout(() => onComplete(result.company_id, result.company_name, form.admin_email, form.admin_password), 1500);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Onboarding failed.");
     }

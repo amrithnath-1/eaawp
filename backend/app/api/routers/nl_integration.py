@@ -17,10 +17,10 @@ from __future__ import annotations
 import logging
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, Header
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.auth import get_optional_tenant_id
+from app.core.auth import get_current_tenant_id
 from app.db.session import get_db
 from app.integrations import manager as mgr
 from app.integrations.integration_registry import integration_registry
@@ -52,7 +52,7 @@ router = APIRouter(prefix="/api/v1/nl-integration", tags=["nl-integration"])
 )
 async def parse_intent(
     body: NLIntegrationRequest,
-    tenant_id: str = Depends(get_optional_tenant_id),
+    tenant_id: str = Depends(get_current_tenant_id),
 ) -> IntegrationIntent:
     """
     Parse a natural-language string into a structured IntegrationIntent.
@@ -85,7 +85,7 @@ async def parse_intent(
 )
 async def chat(
     body: IntegrationConversationRequest,
-    tenant_id: str = Depends(get_optional_tenant_id),
+    tenant_id: str = Depends(get_current_tenant_id),
     db: AsyncSession = Depends(get_db),
 ) -> IntegrationConversationResponse:
     """
@@ -104,13 +104,12 @@ async def chat(
         intent = await parse_integration_intent(
             instruction=body.message,
         )
-    except RuntimeError:
-        # LLM unavailable — give a helpful fallback response
-        intent = IntegrationIntent(
-            intent_type="UNKNOWN",
-            reasoning="LLM unavailable",
-            confidence=0.0,
-        )
+    except RuntimeError as exc:
+        logger.warning("NL integration chat LLM unavailable: %s", exc)
+        raise HTTPException(
+            status_code=503,
+            detail="Integration assistant is unavailable because the configured AI model request failed. Check model configuration and connectivity, then retry.",
+        ) from exc
 
     # Load current integrations for context (safe metadata only, no credentials)
     try:

@@ -2,7 +2,7 @@
 
 A multi-tenant platform that deploys AI "employees" inside a company. Each AI employee has a defined role, access to permitted tools, and a human approval layer for sensitive actions.
 
-**Current state:** Full-stack — React frontend + FastAPI backend + SQLite/PostgreSQL + Google Gemini.
+**Current state:** Full-stack development application — React frontend + FastAPI backend + SQLite/PostgreSQL + Google Gemini. It is not yet a production-ready multi-company service; see the limitations below.
 
 ---
 
@@ -25,12 +25,13 @@ Every action is logged in an audit trail. Every sensitive action goes through a 
 
 ## Quick start
 
-### 1. Backend
+### 1. Configure and start the backend
 
 ```bash
 cd kinetic-office-main/backend
-cp .env.example .env
-# Edit .env — set GEMINI_API_KEY and SECRET_KEY at minimum
+# Create backend/.env from backend/.env.example if it does not already exist.
+# Set GEMINI_API_KEY to a Google Gemini API key (not an OAuth access token).
+# Set SECRET_KEY to a unique random value. Never share either value.
 python -m venv .venv
 .venv/Scripts/pip install -r requirements.txt       # Windows
 # source .venv/bin/activate && pip install -r requirements.txt  # Mac/Linux
@@ -43,12 +44,12 @@ LLM Gateway: ready — provider=google model=gemini-3.5-flash-lite
 Application startup complete.
 ```
 
-### 2. Frontend
+### 2. Start the frontend
 
 ```bash
 cd kinetic-office-main
 npm install
-# Create .env in this folder:
+# In the project root, create or check .env:
 # VITE_USE_REAL_API=true
 # VITE_API_BASE_URL=http://localhost:8000
 npm run dev
@@ -56,12 +57,21 @@ npm run dev
 
 Open http://localhost:5173
 
-### 3. Create your account
+### 3. Register a fresh company
 
-Go to the `/company` route and fill in your company name and admin details. Or use the development seed account:
-- **Email:** `admin@demo.eaawp.io`
-- **Password:** `demo1234`
-- **Company ID:** `demo-company-001`
+On the sign-in screen, choose **New Company**. Enter the company name and the first administrator's details. Keep the company ID shown after registration; the administrator can then sign in and use the app.
+
+Do not use a demo account for a real company. A new account starts without that company's policies, records, or connected services.
+
+### 4. Add company knowledge and verify an answer
+
+Sign in as the new administrator. Open **Library** and upload a policy or other document that the company is allowed to use for this pilot. Wait for indexing to finish, then ask the Cabin a question whose answer is plainly stated in that document. Check that the response reflects the document. If nothing has been uploaded or connected, the app has no company-specific data to answer from.
+
+Use approved test material first. Do not upload sensitive or regulated information until the company has reviewed its hosting, access, retention, and AI-provider requirements.
+
+### 5. Connect a supported service (optional)
+
+Open **Integrations** and use a provider's setup form. The available providers and authorization steps depend on the integration. Google Analytics and Search Console require Google OAuth configuration by the service operator. GitHub requires a scoped personal access token. Never paste credentials into Cabin chat. A private physical server must be reachable over a customer-approved network connection; entering a server address alone cannot make a cloud-hosted EAAWP reach a private network.
 
 ---
 
@@ -78,7 +88,7 @@ SECRET_KEY=generate-a-32-char-random-string
 DATABASE_URL=sqlite+aiosqlite:///./eaawp.db
 LLM_DEFAULT_PROVIDER=google
 GEMINI_DEFAULT_MODEL=gemini-3.5-flash-lite
-CORS_ORIGINS=http://localhost:5173,http://localhost:5174
+CORS_ORIGINS=http://localhost:5173,http://localhost:5174,http://127.0.0.1:5173,http://127.0.0.1:5174
 ```
 
 Generate a SECRET_KEY:
@@ -162,13 +172,15 @@ Expected: ~1306 passed.
 
 ---
 
-## Known limitations
+## Before a company pilot or production deployment
 
-- **Free-tier Gemini quota:** 20 requests/day per model. Upgrade your API key or switch model if you hit the limit.
-- **Document embeddings currently require OpenAI.** If `OPENAI_API_KEY` is not set, document upload works but search returns nothing. Migration to Gemini embeddings is in progress.
-- **Only the Digital Marketing Manager role is active.** Other roles (Sales, Finance, HR, etc.) show "Coming Soon".
-- **Cabin approval buttons** are wired for plan-level approval but not yet for individual action-level approval in the same view.
-- **Vector store** loads all document chunks into memory. Fine for development; switch to PostgreSQL + pgvector for production loads.
+- The current app supports a limited set of active role and integration workflows. Verify each needed provider and permission path before relying on it; Ahrefs is not currently available.
+- Staff invitations and a complete in-app role/permission editor still need implementation. Do not assume every department role is ready for company-wide use.
+- The current vector search implementation is suitable for development and small pilots, not large production document collections. A production deployment needs a scalable vector database, backups, monitoring, and a reviewed data-retention policy.
+- Google OAuth integrations require valid OAuth client configuration. Gemini chat and embeddings require a valid Gemini API key; an OAuth access token is not interchangeable with that key.
+- A cloud deployment cannot directly reach an isolated on-premises server without a secure network path or customer-side connector.
+- Before production, configure HTTPS, managed secrets, a production database, backups, access recovery, audit retention, rate limits, and incident monitoring. Review applicable company privacy and security requirements.
+- This repository's local development setup is not a hosted service. The operator must deploy and maintain the backend, database, and frontend for company users.
 
 ---
 

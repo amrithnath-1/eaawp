@@ -121,7 +121,7 @@ export function MailBox() {
       </div>
 
       <div className="shrink-0 border-t border-border">
-        <div className="flex items-center gap-2 px-3 py-1.5">
+        {!USE_REAL_API && <div className="flex items-center gap-2 px-3 py-1.5">
           <span className="label-xs">Delivery policy</span>
           <div className="flex">
             {MODES.map((m) => (
@@ -139,7 +139,7 @@ export function MailBox() {
               </button>
             ))}
           </div>
-        </div>
+        </div>}
         <div className="flex items-end gap-2 border-t border-border px-3 py-2">
           <textarea
             value={text}
@@ -155,18 +155,18 @@ export function MailBox() {
             className="min-h-[38px] flex-1 resize-none bg-transparent text-[13px] outline-none placeholder:text-muted-foreground"
             disabled={agentExecute.isPending}
           />
-          <button
+          {!USE_REAL_API && <button
             onClick={() => toast("Attach file — connect storage service")}
             aria-label="Attach file"
           >
             <Paperclip className="size-4 text-muted-foreground hover:text-foreground" />
-          </button>
-          <button
+          </button>}
+          {!USE_REAL_API && <button
             onClick={() => toast("Voice capture — connect speech service")}
             aria-label="Record voice"
           >
             <Mic className="size-4 text-muted-foreground hover:text-foreground" />
-          </button>
+          </button>}
           <button
             onClick={() => void send()}
             disabled={agentExecute.isPending || !text.trim()}

@@ -130,6 +130,9 @@ class IntegrationConversationResponse(BaseModel):
         "CONFIRM_GRANT",
         "SHOW_STATUS",
         "CLARIFY",
+        "OPEN_GITHUB_FORM",
+        "OPEN_MCP_FORM",
+        "UNAVAILABLE",
     ] = "NONE"
     action_data: dict[str, Any] = Field(
         default_factory=dict,

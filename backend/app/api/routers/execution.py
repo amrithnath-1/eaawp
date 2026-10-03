@@ -41,6 +41,28 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/agent", tags=["agent"])
 
 
+def _simple_conversation_reply(prompt: str, role_name: str) -> str | None:
+    """Answer greetings and basic chat without invoking company data tools."""
+    normalized = " ".join(prompt.lower().split()).strip(" .!?,")
+    if normalized in {
+        "hi", "hello", "hey", "hi there", "hello there", "hey there",
+        "good morning", "good afternoon", "good evening",
+    }:
+        return (
+            f"Hi! I’m your {role_name} agent. I can answer using documents in your "
+            "company Library and data sources connected in Integrations. What "
+            "would you like help with?"
+        )
+    if normalized in {"thanks", "thank you", "thanks a lot"}:
+        return "You’re welcome. What would you like help with next?"
+    if normalized in {"what can you do", "what can you help me with", "help"}:
+        return (
+            "I can help with questions grounded in your company's uploaded documents "
+            "and connected data sources. Tell me what you need to find out."
+        )
+    return None
+
+
 def _tenant_optional(x_tenant_id: str = Header(default="default-tenant", alias="X-Tenant-ID")) -> str:
     return x_tenant_id
 
@@ -99,6 +121,23 @@ async def execute_agent(
         "system_persona": server_persona,
         "llm_model": server_llm,
     })
+
+    # Greetings and simple conversational turns must not be sent through the
+    # planner: otherwise the model may invent an unrelated integration lookup.
+    conversational_reply = _simple_conversation_reply(
+        request.user_prompt, authoritative_blueprint.role_name
+    )
+    if conversational_reply:
+        return AgentExecutionResponse(
+            message=conversational_reply,
+            tool_calls=[],
+            sources=[],
+            requires_approval=False,
+            session_id=resolved_session_id,
+            plan_id=None,
+            plan_status=None,
+            step_summaries=[],
+        )
 
     has_action_tools = any(is_action_tool(t) for t in authoritative_blueprint.allowed_tools)
 

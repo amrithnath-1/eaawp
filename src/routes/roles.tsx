@@ -6,6 +6,7 @@ import { PageHeader } from "@/components/eaawp/Panel";
 import { roleService } from "@/services";
 import type { RoleDefinition } from "@/services/types";
 import { cn } from "@/lib/utils";
+import { USE_REAL_API } from "@/lib/api-client";
 
 export const Route = createFileRoute("/roles")({
   component: RolesPage,
@@ -21,7 +22,7 @@ function RolesPage() {
         <PageHeader
           title="Roles & access"
           subtitle="Company Admin defines what each role may see, approve and configure."
-          actions={
+          actions={!USE_REAL_API ? (
             <button
               onClick={() =>
                 setRoles((r) => [
@@ -38,7 +39,7 @@ function RolesPage() {
             >
               CREATE ROLE
             </button>
-          }
+          ) : <span className="text-[10px] text-muted-foreground">No live user-role permission editor is connected yet.</span>}
         />
 
         <div className="mt-4 overflow-x-auto border border-border">
@@ -46,7 +47,7 @@ function RolesPage() {
             <thead>
               <tr className="bg-surface-2">
                 <th className="label-xs border-b border-r border-border px-3 py-2 text-left">Permission</th>
-                {roles.map((r) => (
+              {roles.map((r) => (
                   <th key={r.name} className="border-b border-r border-border px-3 py-2 text-left last:border-r-0">
                     <div className="text-[13px] font-medium">{r.name}</div>
                     <div className="label-xs mt-0.5">
@@ -81,7 +82,8 @@ function RolesPage() {
                   ))}
                 </tr>
               ))}
-              <tr>
+              {USE_REAL_API && roles.length === 0 && <tr><td colSpan={1} className="px-3 py-5 text-center text-xs text-muted-foreground">No live role permission records are available. The displayed demo roles have been disabled.</td></tr>}
+              {!USE_REAL_API && <tr>
                 <td className="label-xs border-r border-border px-3 py-2">Assign users</td>
                 {roles.map((r) => (
                   <td key={r.name} className="border-r border-border px-3 py-2 last:border-r-0">
@@ -93,7 +95,7 @@ function RolesPage() {
                     </button>
                   </td>
                 ))}
-              </tr>
+              </tr>}
             </tbody>
           </table>
         </div>

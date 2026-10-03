@@ -21,6 +21,7 @@ function RecentsPage() {
               <span className="font-mono text-[11px] text-muted-foreground">{i.at}</span>
             </li>
           ))}
+          {items.length === 0 && <li className="px-3 py-6 text-center text-xs text-muted-foreground">No recent company activity is available. No demo records are shown.</li>}
         </ul>
       </div>
     </AppShell>

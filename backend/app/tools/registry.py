@@ -101,7 +101,7 @@ def clear_tool_context() -> None:
 
 
 @tool
-def fetch_knowledge_base(query: str) -> str:
+async def fetch_knowledge_base(query: str) -> str:
     """
     Search the company knowledge base using semantic vector search.
 
@@ -111,18 +111,17 @@ def fetch_knowledge_base(query: str) -> str:
     Returns:
         Relevant text chunks from the knowledge base.
     """
-    import asyncio
     from app.config import settings as _rag_settings
     _db = _db_session_ctx.get()
     _tid = _tenant_id_ctx.get()
     _rk = _role_key_ctx.get()
     if _db is None:
-        return "[ERROR] fetch_knowledge_base: no database session available."
+        raise RuntimeError("No database session is available for knowledge-base search.")
     if not _rag_settings.gemini_api_key:
-        return "[INFO] Knowledge base search requires GEMINI_API_KEY to be configured."
+        raise RuntimeError("Knowledge-base search is unavailable because Gemini embeddings are not configured.")
     try:
-        from app.services.vector_store import retrieve_similar_chunks_sync
-        _chunks = retrieve_similar_chunks_sync(
+        from app.services.vector_store import retrieve_similar_chunks
+        _chunks = await retrieve_similar_chunks(
             query=query, tenant_id=_tid, role_scope=_rk,
             db=_db, top_k=4,
         )
@@ -136,7 +135,7 @@ def fetch_knowledge_base(query: str) -> str:
         return "\n".join(_lines)
     except Exception as _exc:
         logger.error("fetch_knowledge_base error: %s", _exc)
-        return f"[ERROR] Knowledge base search failed: {str(_exc)[:200]}"
+        raise RuntimeError(f"Knowledge base search failed: {str(_exc)[:200]}") from _exc
 
 
 
@@ -1191,7 +1190,7 @@ def analyze_campaign_funnel_tool(params: str) -> str:
 
 
 @tool
-def analyze_marketing_strategy_tool(params: str = "{}") -> str:
+async def analyze_marketing_strategy_tool(params: str = "{}") -> str:
     """
     Combine campaign performance, funnel intelligence, and monitoring findings
     into a structured strategic analysis.
@@ -1204,7 +1203,6 @@ def analyze_marketing_strategy_tool(params: str = "{}") -> str:
     Returns:
         Structured strategic analysis with priorities, evidence, and recommended actions.
     """
-    import asyncio
     db = _db_session_ctx.get()
     tenant_id = _tenant_id_ctx.get()
     if db is None:
@@ -1215,14 +1213,12 @@ def analyze_marketing_strategy_tool(params: str = "{}") -> str:
         p = {}
     try:
         from app.services.strategy_service import build_strategic_analysis, analysis_to_dict
-        coro = build_strategic_analysis(
+        analysis = await build_strategic_analysis(
             tenant_id=tenant_id, db=db,
             campaign_insights=p.get("campaign_insights"),
             funnel_insights=p.get("funnel_insights"),
             monitoring_anomalies=p.get("monitoring_anomalies"),
         )
-        loop = asyncio.get_running_loop()
-        analysis = loop.run_until_complete(coro)
         if analysis is None:
             return "[PENDING] analyze_marketing_strategy dispatched."
         d = analysis_to_dict(analysis)
@@ -1255,7 +1251,7 @@ def analyze_marketing_strategy_tool(params: str = "{}") -> str:
 
 
 @tool
-def get_marketing_priorities_tool(params: str = "{}") -> str:
+async def get_marketing_priorities_tool(params: str = "{}") -> str:
     """
     Get the current deterministic marketing priorities from available intelligence.
     LOW risk � read only.
@@ -1266,7 +1262,6 @@ def get_marketing_priorities_tool(params: str = "{}") -> str:
     Returns:
         Ranked priority list with scores, evidence, and approval requirements.
     """
-    import asyncio
     db = _db_session_ctx.get()
     tenant_id = _tenant_id_ctx.get()
     if db is None:
@@ -1277,13 +1272,11 @@ def get_marketing_priorities_tool(params: str = "{}") -> str:
         p = {}
     try:
         from app.services.strategy_service import build_strategic_analysis, analysis_to_dict
-        coro = build_strategic_analysis(
+        analysis = await build_strategic_analysis(
             tenant_id=tenant_id, db=db,
             campaign_insights=p.get("campaign_insights"),
             funnel_insights=p.get("funnel_insights"),
         )
-        loop = asyncio.get_running_loop()
-        analysis = loop.run_until_complete(coro)
         if analysis is None:
             return "[PENDING] get_marketing_priorities dispatched."
         d = analysis_to_dict(analysis)
@@ -1303,7 +1296,7 @@ def get_marketing_priorities_tool(params: str = "{}") -> str:
 
 
 @tool
-def get_marketing_objectives_tool(status: str = "") -> str:
+async def get_marketing_objectives_tool(status: str = "") -> str:
     """
     Get current marketing objectives for the tenant.
     LOW risk � read only.
@@ -1314,16 +1307,13 @@ def get_marketing_objectives_tool(status: str = "") -> str:
     Returns:
         List of marketing objectives with current vs target values.
     """
-    import asyncio
     db = _db_session_ctx.get()
     tenant_id = _tenant_id_ctx.get()
     if db is None:
         return "[ERROR] get_marketing_objectives: no database session."
     try:
         from app.services.strategy_service import list_objectives
-        coro = list_objectives(tenant_id=tenant_id, db=db, status=status or None)
-        loop = asyncio.get_running_loop()
-        objectives = loop.run_until_complete(coro)
+        objectives = await list_objectives(tenant_id=tenant_id, db=db, status=status or None)
         if not objectives:
             return "No marketing objectives found."
         lines = [f"Marketing Objectives ({len(objectives)}):"]

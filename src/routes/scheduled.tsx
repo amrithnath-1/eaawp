@@ -6,6 +6,7 @@ import { PageHeader } from "@/components/eaawp/Panel";
 import { departmentName, scheduleService } from "@/services";
 import type { Schedule } from "@/services/types";
 import { cn } from "@/lib/utils";
+import { USE_REAL_API } from "@/lib/api-client";
 
 export const Route = createFileRoute("/scheduled")({
   component: ScheduledPage,
@@ -20,14 +21,14 @@ function ScheduledPage() {
         <PageHeader
           title="Scheduled"
           subtitle="Recurring responsibilities executed by the AI without human prompting."
-          actions={
+          actions={!USE_REAL_API ? (
             <button
               onClick={() => toast.success("New schedule draft created")}
               className="border border-primary px-3 py-1.5 font-mono text-[10px] tracking-[0.14em] text-primary hover:bg-primary/10"
             >
               CREATE SCHEDULE
             </button>
-          }
+          ) : <span className="text-[10px] text-muted-foreground">Live schedule management is not connected to this page yet.</span>}
         />
 
         <div className="mt-4 border border-border">
@@ -66,6 +67,7 @@ function ScheduledPage() {
               </div>
             </div>
           ))}
+          {USE_REAL_API && rows.length === 0 && <div className="px-3 py-6 text-center text-xs text-muted-foreground">No live schedules are available here. No demo schedules are shown.</div>}
         </div>
       </div>
     </AppShell>

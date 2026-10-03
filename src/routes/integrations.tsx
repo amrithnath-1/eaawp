@@ -1,12 +1,13 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useState, useEffect } from "react";
+import { useState, useEffect, type FormEvent } from "react";
 import { toast } from "sonner";
-import { Plug, Search, BarChart2, Github, Server } from "lucide-react";
+import { Plug, Search, BarChart2, Github, Server, Loader2 } from "lucide-react";
 import { AppShell } from "@/components/eaawp/AppShell";
 import { PageHeader, Panel } from "@/components/eaawp/Panel";
 import { NLIntegrationPanel } from "@/components/eaawp/NLIntegrationPanel";
 import { GoogleSearchConsolePanel } from "@/components/eaawp/GoogleSearchConsolePanel";
 import { cn } from "@/lib/utils";
+import { useCreateIntegration, useTestIntegration } from "@/hooks/use-api";
 
 export const Route = createFileRoute("/integrations")({
   component: IntegrationsPage,
@@ -73,7 +74,7 @@ function IntegrationsPage() {
 
         {/* Tab content */}
         <Panel>
-          {activeTab === "setup" && <NLIntegrationPanel />}
+          {activeTab === "setup" && <NLIntegrationPanel onOpenTab={(tab) => setActiveTab(tab)} />}
           {activeTab === "gsc" && <GoogleSearchConsolePanel />}
           {activeTab === "analytics" && (
             <div className="space-y-3">
@@ -110,14 +111,7 @@ function IntegrationsPage() {
               <p className="text-[12px] text-muted-foreground">
                 Write capabilities (create issue, create PR) require human approval.
               </p>
-              <div className="border border-border bg-surface p-3 space-y-2">
-                <p className="font-mono text-[10px] text-muted-foreground">MANUAL SETUP REQUIRED</p>
-                <ol className="text-[12px] text-muted-foreground space-y-1">
-                  <li>1. Create a PAT at github.com/settings/tokens (select repo scope)</li>
-                  <li>2. Go to Integrations → use the Integration Manager API</li>
-                  <li>3. POST /api/v1/integration-manager/integrations with provider_type=github and credentials&#123;github_token&#125;</li>
-                </ol>
-              </div>
+              <ProviderConnectionForm providerType="github" title="Connect GitHub" tokenLabel="GitHub personal access token" />
             </div>
           )}
           {activeTab === "mcp" && (
@@ -133,20 +127,67 @@ function IntegrationsPage() {
                 All discovered tools require an explicit capability grant before any
                 AI employee can use them. Risk is auto-classified by tool name prefix.
               </p>
-              <div className="border border-border bg-surface p-3 space-y-2">
-                <p className="font-mono text-[10px] text-muted-foreground">MANUAL SETUP REQUIRED</p>
-                <ol className="text-[12px] text-muted-foreground space-y-1">
-                  <li>1. Deploy your MCP server with HTTP transport</li>
-                  <li>2. POST /api/v1/integration-manager/integrations with:</li>
-                  <li className="ml-4 font-mono text-[10px]">provider_type: "mcp", credentials: &#123;server_url, api_key&#125;</li>
-                  <li>3. POST …/test to discover available tools</li>
-                  <li>4. Grant capabilities to AI employees as needed</li>
-                </ol>
-              </div>
+              <ProviderConnectionForm providerType="mcp" title="Connect MCP server" />
+              <p className="border border-border p-3 text-[11px] text-muted-foreground">
+                EAAWP must be able to reach the server URL. A private on-premises server needs a network route or a customer-side connector; entering its address alone cannot expose it to a cloud deployment.
+              </p>
             </div>
           )}
         </Panel>
       </div>
     </AppShell>
+  );
+}
+
+function ProviderConnectionForm({ providerType, title, tokenLabel }: { providerType: "github" | "mcp"; title: string; tokenLabel?: string }) {
+  const createIntegration = useCreateIntegration();
+  const testIntegration = useTestIntegration();
+  const [displayName, setDisplayName] = useState(providerType === "github" ? "GitHub" : "MCP server");
+  const [secret, setSecret] = useState("");
+  const [serverUrl, setServerUrl] = useState("");
+  const [headerName, setHeaderName] = useState("Authorization");
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState("");
+
+  async function saveAndTest(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setBusy(true);
+    setMessage("");
+    try {
+      const credentials: Record<string, unknown> = providerType === "github"
+        ? { github_token: secret }
+        : { server_url: serverUrl.trim(), ...(secret ? { api_key: secret } : {}), auth_header_name: headerName.trim() || "Authorization" };
+      const created = await createIntegration.mutateAsync({
+        provider_type: providerType,
+        display_name: displayName.trim(),
+        credentials,
+      });
+      setSecret("");
+      const result = await testIntegration.mutateAsync(created.id);
+      setMessage(result.success
+        ? `Connected and verified${result.account_info?.["name"] ? ` as ${String(result.account_info["name"])}` : ""}.`
+        : `Saved securely, but the connection test failed: ${result.error_message || "Check the address, permissions, and credentials."}`);
+    } catch (error) {
+      setSecret("");
+      setMessage(error instanceof Error ? error.message : "Connection could not be saved or tested.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const fieldClass = "mt-1 h-9 w-full border border-input bg-background px-2.5 text-[12px] outline-none focus:border-ring";
+  return (
+    <form onSubmit={(event) => void saveAndTest(event)} className="space-y-3 border border-border bg-surface p-4">
+      <h3 className="font-mono text-[10px] tracking-[0.14em]">{title.toUpperCase()}</h3>
+      <label className="block text-xs">Connection name<input required maxLength={255} value={displayName} onChange={(event) => setDisplayName(event.target.value)} className={fieldClass} /></label>
+      {providerType === "mcp" && <label className="block text-xs">MCP HTTP server URL<input required type="url" value={serverUrl} onChange={(event) => setServerUrl(event.target.value)} placeholder="https://mcp.company.com" className={fieldClass} /></label>}
+      <label className="block text-xs">{tokenLabel ?? "API key (optional if the server is unauthenticated)"}<input required={providerType === "github"} type="password" autoComplete="new-password" value={secret} onChange={(event) => setSecret(event.target.value)} className={fieldClass} /></label>
+      {providerType === "mcp" && <label className="block text-xs">Authentication header name<input value={headerName} onChange={(event) => setHeaderName(event.target.value)} className={fieldClass} /></label>}
+      <p className="text-[10px] text-muted-foreground">Credentials are sent directly to EAAWP for encrypted storage and are never shown back. The test result confirms connectivity; capabilities still need an explicit grant.</p>
+      <button type="submit" disabled={busy} className="inline-flex h-9 items-center gap-2 border border-primary bg-primary px-3 font-mono text-[10px] tracking-widest text-primary-foreground disabled:opacity-50">
+        {busy && <Loader2 className="size-3 animate-spin" />}{busy ? "SAVING AND TESTING…" : "SAVE AND TEST CONNECTION"}
+      </button>
+      {message && <p role="status" className="text-xs text-muted-foreground">{message}</p>}
+    </form>
   );
 }

@@ -43,7 +43,7 @@ const QUICK_PROMPTS = [
   "Show me connected integrations",
 ];
 
-export function NLIntegrationPanel() {
+export function NLIntegrationPanel({ onOpenTab }: { onOpenTab?: (tab: "github" | "mcp") => void }) {
   const [messages, setMessages] = useState<Message[]>([
     {
       role: "assistant",
@@ -189,6 +189,15 @@ export function NLIntegrationPanel() {
               >
                 <ExternalLink className="size-3" />
                 CONNECT WITH GOOGLE
+              </button>
+            )}
+            {msg.role === "assistant" && (msg.next_action === "OPEN_GITHUB_FORM" || msg.next_action === "OPEN_MCP_FORM") && (
+              <button
+                onClick={() => onOpenTab?.(msg.next_action === "OPEN_GITHUB_FORM" ? "github" : "mcp")}
+                className="mt-1.5 inline-flex items-center gap-1.5 border border-foreground/20 bg-foreground/5 px-2.5 py-1 font-mono text-[10px] tracking-[0.08em] hover:bg-foreground/10"
+              >
+                <ExternalLink className="size-3" />
+                OPEN {msg.next_action === "OPEN_GITHUB_FORM" ? "GITHUB" : "MCP SERVER"} SETUP
               </button>
             )}
             <div className="mt-0.5 font-mono text-[9px] text-muted-foreground/50">

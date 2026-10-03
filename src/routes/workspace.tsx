@@ -64,7 +64,7 @@ function WorkspacePage() {
             </Panel>
           </div>
 
-          <Panel title="Mail / letter box" dense className="h-[300px] border-t border-border">
+          <Panel title="Agent chat — this does not send email" dense className="h-[300px] border-t border-border">
             <MailBox />
           </Panel>
         </div>
@@ -73,7 +73,7 @@ function WorkspacePage() {
           title="Proactive insights"
           dense
           className="min-h-[400px] xl:h-[calc(100vh-3.5rem)]"
-          actions={<span className="font-mono text-[10px] text-accent">UNPROMPTED</span>}
+          actions={<span className="font-mono text-[10px] text-accent">COMPANY DATA</span>}
         >
           <ProactiveInsights />
         </Panel>

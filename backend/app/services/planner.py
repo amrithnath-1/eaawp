@@ -302,12 +302,21 @@ async def create_and_execute_plan(
 
         if ps.step_type == "response":
             # Synthesise final response from all prior results
-            final_msg = await _synthesise_response(
-                objective=plan.objective,
-                step_results=step_results,
-                blueprint=blueprint,
-                system_persona=system_persona,
-            )
+            try:
+                final_msg = await _synthesise_response(
+                    objective=plan.objective,
+                    step_results=step_results,
+                    blueprint=blueprint,
+                    system_persona=system_persona,
+                )
+            except Exception as exc:
+                logger.error("Final response generation failed (%s)", type(exc).__name__, exc_info=True)
+                db_step.status = "failed"
+                db_step.result_summary = "The AI provider failed while preparing the final response."
+                db_plan.status = "failed"
+                db_plan.final_message = "I couldn’t prepare a reliable response because the AI model request failed. Please check the model configuration and try again."
+                await db.flush()
+                break
             db_step.status = "completed"
             db_step.result_summary = "Final response synthesised."
             db_step.completed_at = datetime.now(timezone.utc)
@@ -328,6 +337,14 @@ async def create_and_execute_plan(
             result = await _invoke_tool(ps.tool_name, ps.arguments, blueprint)
             tool_calls_used += 1
             db_plan.tool_calls_used = tool_calls_used
+            if result.lstrip().startswith(("[TOOL ERROR]", "[ERROR]")):
+                db_step.status = "failed"
+                db_step.result_summary = result[:500]
+                db_step.completed_at = datetime.now(timezone.utc)
+                db_plan.status = "failed"
+                db_plan.final_message = f"I couldn’t complete this request because the {ps.tool_name} data request failed. Check the integration and required inputs, then retry. No result was generated from the failed request."
+                await db.flush()
+                break
             step_results[ps.step_index] = result[:1000]  # safe truncated summary
             db_step.status = "completed"
             db_step.result_summary = result[:500]
@@ -445,11 +462,18 @@ async def create_and_execute_plan(
                 summary = (
                     _content
                     if _content.strip()
-                    else f"Analysed results from {len(step_results)} prior steps."
+                    else ""
                 )
+                if not summary:
+                    raise RuntimeError("The AI provider returned an empty analysis.")
             except Exception as _exc:
                 logger.warning("Analysis step LLM call failed (%s): %s", type(_exc).__name__, _exc, exc_info=True)
-                summary = f"Analysed results from {len(step_results)} prior steps."
+                db_step.status = "failed"
+                db_step.result_summary = "The AI provider failed while analysing the request."
+                db_plan.status = "failed"
+                db_plan.final_message = "I couldn’t analyse this request because the AI model request failed. Please check the model configuration and try again."
+                await db.flush()
+                break
             step_results[ps.step_index] = summary
             db_step.status = "completed"
             db_step.result_summary = summary[:500]
@@ -473,12 +497,13 @@ async def create_and_execute_plan(
                 await db.flush()
 
     # ── 4. Finalise plan ──────────────────────────────────────────────────────
+    if not db_plan.final_message:
+        db_plan.status = "failed"
+        db_plan.final_message = "The request did not produce a final answer. Please review the execution steps and try again."
+
     if db_plan.status not in ("awaiting_approval", "failed", "rejected"):
         db_plan.status = "completed"
         db_plan.completed_at = datetime.now(timezone.utc)
-
-    if not db_plan.final_message:
-        db_plan.final_message = "Task completed."
 
     await db.flush()
 
@@ -615,11 +640,20 @@ async def resume_plan(
                     guarded_tools=guarded_tools,
                     tenant_id=tenant_id,
                 )
-                final_msg = await _synthesise_response(
-                    objective=db_plan.objective,
-                    step_results=step_results,
-                    blueprint=blueprint_snapshot,
-                )
+                try:
+                    final_msg = await _synthesise_response(
+                        objective=db_plan.objective,
+                        step_results=step_results,
+                        blueprint=blueprint_snapshot,
+                    )
+                except Exception as exc:
+                    logger.error("Resumed response generation failed (%s)", type(exc).__name__, exc_info=True)
+                    db_step.status = "failed"
+                    db_step.result_summary = "The AI provider failed while preparing the final response."
+                    db_plan.status = "failed"
+                    db_plan.final_message = "I couldn’t prepare a reliable response because the AI model request failed. Please check the model configuration and try again."
+                    await db.flush()
+                    break
                 db_step.status = "completed"
                 db_step.result_summary = "Final response synthesised."
                 db_step.completed_at = datetime.now(timezone.utc)
@@ -634,10 +668,14 @@ async def resume_plan(
                 await db.flush()
 
         if db_plan.status == "running":
-            db_plan.status = "completed"
-            db_plan.completed_at = datetime.now(timezone.utc)
+            if db_plan.final_message:
+                db_plan.status = "completed"
+                db_plan.completed_at = datetime.now(timezone.utc)
+            else:
+                db_plan.status = "failed"
+                db_plan.final_message = "The request did not produce a final answer after approval. Please review the execution steps and try again."
         await db.flush()
-        return db_plan.final_message or "Plan completed after approval.", plan_id
+        return db_plan.final_message or "The request did not produce a final answer after approval.", plan_id
 
     else:
         pending_step.status = "failed"
@@ -818,10 +856,10 @@ async def _synthesise_response(
         if content.strip():
             return content
         logger.warning("_synthesise_response: LLM returned empty content for objective=%r", objective[:80])
-        return results_text[:300] if results_text else "I was unable to generate a response. Please try again."
+        raise RuntimeError("The AI provider returned an empty response.")
     except Exception as exc:
         logger.error("Response synthesis failed (%s): %s", type(exc).__name__, exc, exc_info=True)
-        return results_text[:300] if results_text else "I was unable to generate a response. Please try again."
+        raise RuntimeError("The AI provider failed to prepare a response.") from exc
 
 
 def _sanitise_args(args: dict) -> dict:

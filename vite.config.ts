@@ -14,7 +14,8 @@ export default defineConfig({
   },
   server: {
     port: 5173,
-    strictPort: false,
+    // Keep the frontend origin stable so the backend's explicit CORS allowlist matches.
+    strictPort: true,
   },
   build: {
     outDir: "dist",

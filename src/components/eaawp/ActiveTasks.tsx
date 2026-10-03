@@ -1,58 +1,44 @@
-import { useEffect, useState } from "react";
-import { departmentName, taskService } from "@/services";
-import type { AgentTask } from "@/services/types";
-import { Meter } from "./Panel";
-import { TaskDetail } from "./TaskDetail";
-import { cn } from "@/lib/utils";
+import { useTasks } from "@/hooks/use-api";
+import { USE_REAL_API } from "@/lib/api-client";
 
-const STATUS_LABEL: Record<AgentTask["status"], string> = {
-  running: "RUNNING",
-  awaiting_approval: "NEEDS APPROVAL",
-  completed: "COMPLETED",
-  blocked: "BLOCKED",
+type ApiTask = {
+  id: string;
+  name: string;
+  goal?: string;
+  status: string;
+  progress?: number;
+  department?: string;
+  started_at?: string;
+  required_action?: string | null;
 };
 
 export function ActiveTasks() {
-  const [tasks, setTasks] = useState<AgentTask[]>(() => taskService.list());
-  const [openId, setOpenId] = useState<string | null>(null);
-
-  useEffect(() => {
-    const id = setInterval(() => {
-      setTasks((prev) =>
-        prev.map((t) =>
-          t.status === "running" ? { ...t, progress: Math.min(99, t.progress + Math.round(Math.random() * 2)) } : t,
-        ),
-      );
-    }, 4000);
-    return () => clearInterval(id);
-  }, []);
-
-  const open = tasks.find((t) => t.id === openId) ?? null;
+  const { data, isLoading, isError } = useTasks();
+  if (!USE_REAL_API) return <StateMessage>Live tasks are unavailable while demo mode is enabled.</StateMessage>;
+  if (isLoading) return <StateMessage>Loading company tasks…</StateMessage>;
+  if (isError) return <StateMessage>Could not load company tasks. Check the connection and retry.</StateMessage>;
+  const tasks = (data ?? []) as unknown as ApiTask[];
+  if (tasks.length === 0) return <StateMessage>No company tasks have been created yet.</StateMessage>;
 
   return (
-    <>
-      <ul className="h-full overflow-y-auto">
-        {tasks.map((t) => (
-          <li key={t.id} className="border-b border-border last:border-0">
-            <button onClick={() => setOpenId(t.id)} className="w-full px-3 py-2.5 text-left hover:bg-surface-2">
-              <div className="flex items-baseline justify-between gap-2">
-                <span className="truncate text-[13px] font-medium">{t.name}</span>
-                <span className="font-mono text-[10px] text-muted-foreground">{t.progress}%</span>
-              </div>
-              <div className="mt-1.5">
-                <Meter value={t.progress} />
-              </div>
-              <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-[10px] text-muted-foreground">
-                <span className={cn(t.status !== "completed" && "text-foreground")}>{STATUS_LABEL[t.status]}</span>
-                <span>{departmentName(t.department)}</span>
-                <span>START {t.startedAt}</span>
-                {t.requiredAction && <span className="text-foreground">ACTION: {t.requiredAction}</span>}
-              </div>
-            </button>
-          </li>
-        ))}
-      </ul>
-      <TaskDetail task={open} onClose={() => setOpenId(null)} />
-    </>
+    <ul className="h-full overflow-y-auto">
+      {tasks.map((task) => (
+        <li key={task.id} className="border-b border-border px-3 py-2.5 last:border-0">
+          <div className="flex items-baseline justify-between gap-2">
+            <span className="truncate text-[13px] font-medium">{task.name}</span>
+            <span className="font-mono text-[10px] text-muted-foreground">{(task.status || "unknown").replaceAll("_", " ").toUpperCase()}</span>
+          </div>
+          {task.goal && <p className="mt-1 text-xs text-muted-foreground">{task.goal}</p>}
+          <div className="mt-1 font-mono text-[10px] text-muted-foreground">
+            {task.department || "Company"}{task.started_at ? ` · ${new Date(task.started_at).toLocaleString()}` : ""}
+          </div>
+          {task.required_action && <p className="mt-1 text-xs">Needs action: {task.required_action}</p>}
+        </li>
+      ))}
+    </ul>
   );
+}
+
+function StateMessage({ children }: { children: string }) {
+  return <div className="px-3 py-6 text-center text-xs text-muted-foreground">{children}</div>;
 }

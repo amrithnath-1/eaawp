@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import type { AgentStatus } from "@/services/types";
+import { USE_REAL_API } from "@/lib/api-client";
 
 const CYCLE: { status: AgentStatus; ms: number }[] = [
   { status: "MONITORING", ms: 7000 },
@@ -20,15 +21,16 @@ export const STATUS_LABEL: Record<AgentStatus, string> = {
   ERROR: "Error",
 };
 
-/** Simulated agent lifecycle. Replace with a live orchestrator subscription later. */
+/** Only animate the sample lifecycle in demo mode; live mode stays truthful until a run reports status. */
 export function useAgentStatus() {
   const [index, setIndex] = useState(0);
 
   useEffect(() => {
+    if (USE_REAL_API) return;
     const t = setTimeout(() => setIndex((i) => (i + 1) % CYCLE.length), (CYCLE[index]?.ms ?? 6000));
     return () => clearTimeout(t);
   }, [index]);
 
-  const status = CYCLE[index]?.status ?? "MONITORING";
+  const status = USE_REAL_API ? "IDLE" : CYCLE[index]?.status ?? "MONITORING";
   return { status, label: STATUS_LABEL[status] };
 }

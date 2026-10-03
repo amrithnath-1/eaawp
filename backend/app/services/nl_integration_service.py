@@ -107,7 +107,7 @@ def _extract_json(text: str) -> dict:
 
 async def parse_integration_intent(
     instruction: str,
-    llm_model: str = "gpt-4o-mini",
+    llm_model: str | None = None,
 ) -> IntegrationIntent:
     """
     Use the LLM to parse a natural-language integration instruction into
@@ -121,7 +121,13 @@ async def parse_integration_intent(
             "LLM is not available. Integration intent parsing requires a configured LLM."
         )
 
-    chat_model = gateway.get_chat_model_for_role(role_llm_model=llm_model)
+    # Use the configured provider/model unless a role explicitly overrides it.
+    # A hard-coded OpenAI model bypasses a Gemini-only deployment's configuration.
+    chat_model = (
+        gateway.get_chat_model_for_role(role_llm_model=llm_model)
+        if llm_model
+        else gateway.get_chat_model(temperature=0)
+    )
 
     messages = [
         SystemMessage(content=_SYSTEM_PROMPT.strip()),
@@ -175,12 +181,13 @@ def build_conversation_reply(
     existing = [i for i in tenant_integrations if i.get("provider_type") == provider]
 
     if intent.intent_type == "UNKNOWN":
+        supported = ", ".join(
+            p["display_name"] for p in integration_registry.provider_catalogue()
+        )
         return (
-            "I wasn't sure what you'd like to do with integrations. "
-            "You can say things like: 'Connect Google Search Console', "
-            "'Show me connected integrations', "
-            "or 'Give the Marketing Manager access to Search Console'. "
-            "What would you like to do?",
+            "I couldn’t match that request to a supported integration or action. "
+            f"Currently available providers are: {supported}. "
+            "Tell me which one you want to connect, or choose it from the tabs below.",
             "CLARIFY",
             {},
         )
@@ -217,7 +224,7 @@ def build_conversation_reply(
                 "SHOW_STATUS",
                 {"integration_id": existing[0]["id"]},
             )
-        if provider in ("google_search_console", "google_analytics", "facebook", "github"):
+        if provider in ("google_search_console", "google_analytics"):
             pname = provider_info["display_name"] if provider_info else provider
             return (
                 "To connect {}, you will need to authorize access via their OAuth screen. "
@@ -226,12 +233,26 @@ def build_conversation_reply(
                 "REDIRECT_TO_OAUTH",
                 {"provider_type": provider},
             )
+        if provider == "github":
+            return (
+                "Use the GitHub tab to enter a least-privilege personal access token in the secure connection form. "
+                "EAAWP will save it encrypted and test access; the assistant chat will not receive the token.",
+                "OPEN_GITHUB_FORM",
+                {"provider_type": provider},
+            )
+        if provider == "mcp":
+            return (
+                "Use the MCP Server tab to enter the HTTP server URL and optional authentication details in the secure form. "
+                "EAAWP will test access and discover tools; you must grant tools to an AI role before it can use them.",
+                "OPEN_MCP_FORM",
+                {"provider_type": provider},
+            )
         else:
             pname = provider_info["display_name"] if provider_info else provider
             return (
-                "To connect {}, please provide the connection details "
-                "(host, database, username). Passwords are entered securely.".format(pname),
-                "REQUEST_CREDENTIALS",
+                "{} is listed in the provider catalogue, but a complete in-app setup flow is not available yet. "
+                "It has not been connected. Use a supported connection flow or ask your administrator to enable this provider.".format(pname),
+                "UNAVAILABLE",
                 {"provider_type": provider},
             )
 

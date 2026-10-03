@@ -69,7 +69,7 @@ class Settings(BaseSettings):
     google_redirect_uri: str = "http://localhost:8000/api/v1/oauth/google/callback"
 
     # ── CORS ──────────────────────────────────────────────────────────────────
-    cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
+    cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173,http://localhost:5174,http://127.0.0.1:5174"
 
     @property
     def cors_origins_list(self) -> list[str]:

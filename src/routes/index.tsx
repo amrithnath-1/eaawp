@@ -2,6 +2,7 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useState, useEffect } from "react";
 import { authService } from "@/services";
 import { useSession } from "@/state/session";
+import { OnboardingFlow } from "@/components/eaawp/OnboardingFlow";
 
 export const Route = createFileRoute("/")({
   component: LoginPage,
@@ -10,11 +11,12 @@ export const Route = createFileRoute("/")({
 const USE_REAL_API = import.meta.env["VITE_USE_REAL_API"] === "true";
 
 function LoginPage() {
-  const [email, setEmail] = useState("admin@demo.eaawp.io");
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [companyId, setCompanyId] = useState("demo-company-001");
+  const [companyId, setCompanyId] = useState(() => window.localStorage.getItem("eaawp.last_company_id") ?? "");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [registering, setRegistering] = useState(false);
   const { signIn, user, hydrated } = useSession();
   const navigate = useNavigate();
 
@@ -56,12 +58,37 @@ function LoginPage() {
     }
   }
 
+  async function finishRegistration(newCompanyId: string, adminEmail: string, adminPassword: string) {
+    setCompanyId(newCompanyId);
+    setError(null);
+    setBusy(true);
+    try {
+      const sessionUser = await authService.signIn(adminEmail, adminPassword, newCompanyId);
+      signIn(sessionUser);
+      void navigate({ to: "/cabin", replace: true });
+    } catch {
+      setRegistering(false);
+      setError(`Company created. Sign in with your registration email and password, using company ID ${newCompanyId}.`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   const field = "mt-1.5 h-9 w-full border border-input bg-surface px-2.5 text-sm outline-none focus:border-ring";
 
   return (
     <div className="min-h-screen w-full">
       <section className="flex min-h-screen w-full items-center justify-center p-6">
-        <form onSubmit={(e) => { e.preventDefault(); void submit(e); }} className="w-full max-w-sm">
+        {registering ? (
+          <div className="w-full max-w-lg">
+            <button type="button" onClick={() => setRegistering(false)} className="mb-3 font-mono text-[10px] text-muted-foreground hover:text-foreground">← BACK TO SIGN IN</button>
+            <OnboardingFlow
+              onComplete={(newCompanyId, _companyName, adminEmail, adminPassword) => { void finishRegistration(newCompanyId, adminEmail, adminPassword); }}
+              onCancel={() => setRegistering(false)}
+            />
+            {error && <p className="mt-3 border border-border p-3 text-xs text-muted-foreground">{error}</p>}
+          </div>
+        ) : <form onSubmit={(e) => { e.preventDefault(); void submit(e); }} className="w-full max-w-sm">
           <div className="mb-8 flex items-center gap-2">
             <span className="grid size-6 place-items-center border border-border font-mono text-[10px]">E</span>
             <span className="font-mono text-xs tracking-[0.3em]">EAAWP</span>
@@ -78,14 +105,6 @@ function LoginPage() {
           {error && (
             <div className="mt-4 border border-destructive/40 bg-destructive/5 px-3 py-2 font-mono text-[11px] text-destructive">
               {error}
-            </div>
-          )}
-
-          {/* Demo hint in real mode */}
-          {USE_REAL_API && (
-            <div className="mt-4 border border-border/50 bg-muted/20 px-3 py-2 text-[11px] text-muted-foreground">
-              <span className="font-mono">Demo account:</span>{" "}
-              admin@demo.eaawp.io · Admin1234! · demo-company-001
             </div>
           )}
 
@@ -118,14 +137,12 @@ function LoginPage() {
                 value={companyId}
                 onChange={(e) => setCompanyId(e.target.value)}
                 className={field + " font-mono text-[12px]"}
-                placeholder="demo-company-001"
+                placeholder="company ID from your welcome/setup details"
                 required
                 autoComplete="off"
                 spellCheck={false}
               />
-              <p className="mt-1 text-[10px] text-muted-foreground">
-                Your company's unique identifier. Found in Settings → Company.
-              </p>
+              <p className="mt-1 text-[10px] text-muted-foreground">Use the company ID from your EAAWP welcome/setup details. This field is prefilled on this device after registration.</p>
             </>
           )}
 
@@ -137,22 +154,19 @@ function LoginPage() {
             {busy ? "AUTHENTICATING…" : "SIGN IN"}
           </button>
 
-          {!USE_REAL_API && (
+          {USE_REAL_API && (
             <p className="mt-4 text-center text-[11px] text-muted-foreground">
-              New to EAAWP?{" "}
+              New company?{" "}
               <button
                 type="button"
-                onClick={() => {
-                  signIn({ id: "new-user", name: "New User", email: email || "admin@newcompany.com", role: "Company Admin", companyId: "", status: "Active" });
-                  void navigate({ to: "/company" });
-                }}
+                onClick={() => { setError(null); setRegistering(true); }}
                 className="font-mono text-[10px] tracking-[0.1em] text-primary hover:underline"
               >
                 REGISTER YOUR COMPANY
               </button>
             </p>
           )}
-        </form>
+        </form>}
       </section>
     </div>
   );

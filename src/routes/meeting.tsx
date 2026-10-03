@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { AppShell } from "@/components/eaawp/AppShell";
 import { AgentOrganism } from "@/components/eaawp/AgentOrganism";
 import { Panel } from "@/components/eaawp/Panel";
@@ -10,6 +10,7 @@ import { cn } from "@/lib/utils";
 import { useAgentStatus } from "@/state/useAgentStatus";
 import { SendHorizonal } from "lucide-react";
 import { useAgentExecute, DEFAULT_BLUEPRINT } from "@/hooks/use-api";
+import { useActivityFeed } from "@/hooks/use-api";
 
 export const Route = createFileRoute("/meeting")({
   component: MeetingRoom,
@@ -18,8 +19,6 @@ export const Route = createFileRoute("/meeting")({
 function MeetingRoom() {
   const { status } = useAgentStatus();
   const [dept, setDept] = useState<DepartmentKey>("finance");
-  const [live, setLive] = useState(true);
-  const [feed, setFeed] = useState<DepartmentExchange[]>([]);
   const [promptInput, setPromptInput] = useState("");
   const [latestPrompt, setLatestPrompt] = useState("");
   const [agentReply, setAgentReply] = useState("");
@@ -27,6 +26,8 @@ function MeetingRoom() {
   const [sessionId] = useState(() => `meeting-${Date.now()}`);
 
   const agentExecute = useAgentExecute();
+  const activityQuery = useActivityFeed();
+  const feed = (activityQuery.data ?? []) as unknown as Array<{ id: string; kind: string; text: string; department?: string | null; created_at?: string }>;
 
   function submitPrompt() {
     const trimmed = promptInput.trim();
@@ -45,19 +46,6 @@ function MeetingRoom() {
     );
   }
 
-  useEffect(() => {
-    if (!live) return;
-    const script = departmentService.liveScript();
-    let i = 0;
-    setFeed([]);
-    const id = setInterval(() => {
-      const item = script[i % script.length]!;
-      i += 1;
-      setFeed((f) => [...f.slice(-14), { ...item, id: `${item.id}-${Date.now()}` }]);
-    }, 2200);
-    return () => clearInterval(id);
-  }, [live]);
-
   const history = departmentService.forDepartment(dept);
 
   return (
@@ -66,21 +54,13 @@ function MeetingRoom() {
         <div className="grid-canvas relative border-b border-border lg:border-b-0 lg:border-r">
           <div className="flex items-center justify-between px-4 pt-3">
             <div>
-              <h1 className="text-base font-semibold tracking-tight">Company agent network</h1>
-              <p className="label-xs mt-1">One AI employee · {departments.length} system endpoints</p>
+              <h1 className="text-base font-semibold tracking-tight">Agent workspace</h1>
+              <p className="label-xs mt-1">The network illustration is not a live map of company system connections.</p>
             </div>
-            <button
-              onClick={() => setLive((l) => !l)}
-              className={cn(
-                "border px-2.5 py-1 font-mono text-[10px] tracking-[0.14em]",
-                live ? "border-primary text-primary" : "border-border text-muted-foreground",
-              )}
-            >
-              {live ? "LIVE MODE ON" : "LIVE MODE OFF"}
-            </button>
+            <span className="font-mono text-[10px] text-muted-foreground">{status}</span>
           </div>
           <AgentOrganism
-            status={live ? "COMMUNICATING" : status}
+            status={status}
             withNetwork
             activeDepartment={dept}
             onSelectDepartment={setDept}
@@ -147,18 +127,16 @@ function MeetingRoom() {
         </div>
 
         <div className="flex min-h-0 flex-col lg:h-[calc(100vh-3.5rem)]">
-          <Panel title="Live company activity" dense className="min-h-[220px] flex-1 border-b border-border">
+          <Panel title="Recorded company activity" dense className="min-h-[220px] flex-1 border-b border-border">
             <ul className="h-full overflow-y-auto px-3 py-2">
-              {feed.map((f) => (
-                <li key={f.id} className="stream-enter border-l-2 border-border pl-2.5 pb-2 last:pb-0">
-                  <div className="font-mono text-[10px] text-muted-foreground">
-                    {f.from === "AI" ? "AI" : `→ ${departmentName(f.department).toUpperCase()}`}
-                  </div>
-                  <p className={cn("text-[13px]", f.from === "AI" ? "text-primary" : "text-foreground")}>{f.text}</p>
+              {feed.map((event) => (
+                <li key={event.id} className="border-l-2 border-border pl-2.5 pb-2 last:pb-0">
+                  <div className="font-mono text-[10px] text-muted-foreground">{event.department ?? event.kind}{event.created_at ? ` · ${new Date(event.created_at).toLocaleTimeString()}` : ""}</div>
+                  <p className="text-[13px]">{event.text}</p>
                 </li>
               ))}
               {feed.length === 0 && (
-                <li className="py-6 text-center font-mono text-[11px] text-muted-foreground">Live mode paused</li>
+                <li className="py-6 text-center font-mono text-[11px] text-muted-foreground">{activityQuery.isError ? "Activity could not be loaded." : activityQuery.isLoading ? "Loading recorded activity…" : "No company activity recorded yet."}</li>
               )}
             </ul>
           </Panel>
@@ -176,6 +154,7 @@ function MeetingRoom() {
                   </div>
                 </li>
               ))}
+              {history.length === 0 && <li className="py-6 text-center font-mono text-[11px] text-muted-foreground">No interaction history is available for this department.</li>}
             </ul>
           </Panel>
         </div>

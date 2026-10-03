@@ -2,11 +2,10 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
 import { AppShell } from "@/components/eaawp/AppShell";
 import { KeyValue, PageHeader, Panel } from "@/components/eaawp/Panel";
-import { departments } from "@/services/mockData";
-import { agentConfigService } from "@/services";
 import { useSession } from "@/state/session";
 import { useTheme } from "@/state/theme";
 import { cn } from "@/lib/utils";
+import { USE_REAL_API } from "@/lib/api-client";
 
 export const Route = createFileRoute("/settings")({
   component: SettingsPage,
@@ -17,7 +16,6 @@ const TABS = ["Company", "Appearance", "AI", "Security", "Notifications"] as con
 function SettingsPage() {
   const [tab, setTab] = useState<(typeof TABS)[number]>("Company");
   const { company, user } = useSession();
-  const cfg = agentConfigService.get();
   const { theme, setTheme } = useTheme();
 
   return (
@@ -47,12 +45,10 @@ function SettingsPage() {
                 <KeyValue k="Industry" v={company?.industry ?? "—"} />
                 <KeyValue k="Region" v={company?.region ?? "—"} />
                 <KeyValue k="Employees" v={company?.employees ?? "—"} />
-                <KeyValue k="Working hours" v="08:00 – 18:00 · AI 24×7" />
+                <KeyValue k="Working hours" v="Not configured" />
               </Panel>
               <Panel title="Departments / endpoints">
-                {departments.map((d) => (
-                  <KeyValue key={d.key} k={d.name} v={d.systems.join(" · ")} />
-                ))}
+                <p className="text-xs text-muted-foreground">No real company systems are listed here until an administrator connects and tests them in Integrations.</p>
               </Panel>
             </>
           )}
@@ -82,19 +78,9 @@ function SettingsPage() {
           )}
 
           {tab === "AI" && (
-            <>
-              <Panel title="AI identity">
-                <KeyValue k="Agent" v={cfg.name} />
-                <KeyValue k="Role" v={cfg.role} />
-                <KeyValue k="Style" v={cfg.tone} />
-                <KeyValue k="Autonomy" v={`Level ${cfg.autonomy}`} />
-              </Panel>
-              <Panel title="Capabilities enabled">
-                {Object.entries(cfg.capabilities).map(([k, v]) => (
-                  <KeyValue key={k} k={k} v={v ? "ON" : "OFF"} />
-                ))}
-              </Panel>
-            </>
+            <Panel title="AI role configuration" className="lg:col-span-2">
+              <p className="text-xs text-muted-foreground">{USE_REAL_API ? "Role settings are managed in Customize. No sample capabilities are displayed here." : "Simulation mode uses sample role settings."}</p>
+            </Panel>
           )}
 
           {tab === "Security" && (
@@ -102,22 +88,20 @@ function SettingsPage() {
               <Panel title="Authentication & access">
                 <KeyValue k="Signed in as" v={user?.email ?? "—"} />
                 <KeyValue k="Role" v={user?.role ?? "—"} />
-                <KeyValue k="SSO" v="Enforced" />
-                <KeyValue k="Active sessions" v="3" />
+                <KeyValue k="SSO" v="Not configured" />
+                <KeyValue k="Active sessions" v="Current browser session" />
               </Panel>
               <Panel title="Keys & audit">
-                <KeyValue k="API keys" v="2 active" />
-                <KeyValue k="Audit retention" v="24 months" />
-                <KeyValue k="External API access" v="Disabled" />
+                <KeyValue k="API keys" v="Managed by deployment configuration" />
+                <KeyValue k="Audit retention" v="Not configured" />
+                <KeyValue k="External API access" v="Controlled by connected integrations" />
               </Panel>
             </>
           )}
 
           {tab === "Notifications" && (
             <Panel title="Notification channels" className="lg:col-span-2">
-              {["Email", "In-app", "AI alerts", "Task completion", "Approval requests"].map((n) => (
-                <KeyValue key={n} k={n} v="Enabled" />
-              ))}
+              <p className="text-xs text-muted-foreground">Notification delivery is not configured for this company.</p>
             </Panel>
           )}
         </div>

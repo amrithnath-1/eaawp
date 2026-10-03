@@ -2,7 +2,7 @@
 EAAWP Dynamic Integration Framework — API Router
 
 Prefix: /api/v1/integration-manager
-All endpoints are tenant-scoped via X-Tenant-ID header.
+All tenant endpoints require an authenticated user and derive the tenant from the JWT.
 
 Endpoints
 ─────────
@@ -36,10 +36,11 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.auth import get_optional_tenant_id
+from app.core.auth import get_current_tenant_id, require_admin
+from app.db.models import User
 from app.db.session import get_db
 from app.integrations import manager as mgr
 from app.integrations.integration_registry import integration_registry
@@ -66,7 +67,7 @@ router = APIRouter(
 )
 
 
-# _tenant replaced by get_optional_tenant_id (derives tenant from JWT first, falls back to header)
+# Tenant identity always comes from the authenticated JWT.
 
 
 # ── Framework metadata ────────────────────────────────────────────────────────
@@ -110,7 +111,8 @@ async def framework_status() -> IntegrationFrameworkStatus:
 )
 async def create_integration(
     body: IntegrationCreate,
-    tenant_id: str = Depends(get_optional_tenant_id),
+    _admin: User = Depends(require_admin),
+    tenant_id: str = Depends(get_current_tenant_id),
     db: AsyncSession = Depends(get_db),
 ) -> IntegrationOut:
     try:
@@ -126,7 +128,7 @@ async def create_integration(
 )
 async def list_integrations(
     provider_type: str | None = None,
-    tenant_id: str = Depends(get_optional_tenant_id),
+    tenant_id: str = Depends(get_current_tenant_id),
     db: AsyncSession = Depends(get_db),
 ) -> list[IntegrationOut]:
     return await mgr.list_integrations(tenant_id, db, provider_type=provider_type)
@@ -139,7 +141,7 @@ async def list_integrations(
 )
 async def get_integration(
     integration_id: str,
-    tenant_id: str = Depends(get_optional_tenant_id),
+    tenant_id: str = Depends(get_current_tenant_id),
     db: AsyncSession = Depends(get_db),
 ) -> IntegrationOut:
     try:
@@ -156,7 +158,8 @@ async def get_integration(
 async def update_integration(
     integration_id: str,
     body: IntegrationUpdate,
-    tenant_id: str = Depends(get_optional_tenant_id),
+    _admin: User = Depends(require_admin),
+    tenant_id: str = Depends(get_current_tenant_id),
     db: AsyncSession = Depends(get_db),
 ) -> IntegrationOut:
     try:
@@ -172,7 +175,8 @@ async def update_integration(
 )
 async def delete_integration(
     integration_id: str,
-    tenant_id: str = Depends(get_optional_tenant_id),
+    _admin: User = Depends(require_admin),
+    tenant_id: str = Depends(get_current_tenant_id),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     try:
@@ -195,7 +199,8 @@ async def delete_integration(
 )
 async def test_integration(
     integration_id: str,
-    tenant_id: str = Depends(get_optional_tenant_id),
+    _admin: User = Depends(require_admin),
+    tenant_id: str = Depends(get_current_tenant_id),
     db: AsyncSession = Depends(get_db),
 ) -> IntegrationTestResponse:
     try:
@@ -219,7 +224,8 @@ async def test_integration(
 )
 async def discover_entities(
     integration_id: str,
-    tenant_id: str = Depends(get_optional_tenant_id),
+    _admin: User = Depends(require_admin),
+    tenant_id: str = Depends(get_current_tenant_id),
     db: AsyncSession = Depends(get_db),
 ) -> DiscoverEntitiesResponse:
     try:
@@ -241,7 +247,7 @@ async def discover_entities(
 )
 async def list_grants(
     integration_id: str,
-    tenant_id: str = Depends(get_optional_tenant_id),
+    tenant_id: str = Depends(get_current_tenant_id),
     db: AsyncSession = Depends(get_db),
 ) -> list[CapabilityGrantOut]:
     try:
@@ -260,7 +266,8 @@ async def list_grants(
 async def create_grants(
     integration_id: str,
     body: CapabilityGrantBulkCreate,
-    tenant_id: str = Depends(get_optional_tenant_id),
+    _admin: User = Depends(require_admin),
+    tenant_id: str = Depends(get_current_tenant_id),
     db: AsyncSession = Depends(get_db),
 ) -> list[CapabilityGrantOut]:
     try:
@@ -284,7 +291,8 @@ async def create_grants(
 )
 async def delete_grant(
     grant_id: str,
-    tenant_id: str = Depends(get_optional_tenant_id),
+    _admin: User = Depends(require_admin),
+    tenant_id: str = Depends(get_current_tenant_id),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     try:
@@ -308,7 +316,7 @@ async def delete_grant(
 async def execute_capability(
     integration_id: str,
     body: ExecuteCapabilityRequest,
-    tenant_id: str = Depends(get_optional_tenant_id),
+    tenant_id: str = Depends(get_current_tenant_id),
     db: AsyncSession = Depends(get_db),
 ) -> ExecuteCapabilityResponse:
     try:
@@ -343,7 +351,7 @@ async def execute_capability(
 )
 async def list_available_tools(
     role_key: str,
-    tenant_id: str = Header(..., alias="X-Tenant-ID"),
+    tenant_id: str = Depends(get_current_tenant_id),
     db: AsyncSession = Depends(get_db),
 ) -> list[DynamicToolInfo]:
     """

@@ -4,7 +4,7 @@ import { Plus } from "lucide-react";
 import { companyService } from "@/services";
 import { useSession } from "@/state/session";
 import { USE_REAL_API } from "@/lib/api-client";
-import type { Company, UserRole } from "@/services/types";
+import type { Company } from "@/services/types";
 import { cn } from "@/lib/utils";
 import { DataConnectionsPanel } from "@/components/eaawp/DataConnectionsPanel";
 import { EmailIntegrationPanel } from "@/components/eaawp/EmailIntegrationPanel";
@@ -16,14 +16,11 @@ export const Route = createFileRoute("/company")({
   component: CompanySelect,
 });
 
-const ROLES: UserRole[] = ["Company Admin", "Manager", "Employee", "AI Administrator"];
-
 function CompanySelect() {
-  const { user, hydrated, selectCompany, setRole } = useSession();
+  const { user, hydrated, selectCompany } = useSession();
   const navigate = useNavigate();
   const [mockCompanies, setMockCompanies] = useState<Company[]>([]);
   const [picked, setPicked] = useState<string | null>(null);
-  const [role, setLocalRole] = useState<UserRole>("Company Admin");
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [tab, setTab] = useState<"select" | "workforce">("select");
 
@@ -38,10 +35,14 @@ function CompanySelect() {
     if (hydrated && !user) navigate({ to: "/", replace: true });
   }, [hydrated, user, navigate]);
 
+  useEffect(() => {
+    if (hydrated && USE_REAL_API && user?.companyId) navigate({ to: "/cabin", replace: true });
+  }, [hydrated, user, navigate]);
+
   function enter() {
     if (!picked) return;
-    setRole(role);
     selectCompany(picked);
+    window.localStorage.setItem("eaawp.last_company_id", picked);
     navigate({ to: "/cabin", replace: true });
   }
 
@@ -63,7 +64,7 @@ function CompanySelect() {
         agentRole: c.agentRole, isReal: false,
       }));
 
-  const isAdmin = role === "Company Admin" || role === "AI Administrator";
+  const isAdmin = user?.role === "Company Admin" || user?.role === "AI Administrator";
 
   return (
     <div className="grid-canvas min-h-screen px-6 py-10">
@@ -154,18 +155,6 @@ function CompanySelect() {
                   <div className={cn("font-mono text-[10px] tracking-[0.12em]", picked === c.id ? "text-primary" : "text-muted-foreground")}>
                     {c.agentRole.toUpperCase()}
                   </div>
-                </button>
-              ))}
-            </div>
-
-            {/* Role selection */}
-            <h2 className="label-xs mt-8">Your role in this environment</h2>
-            <div className="mt-2 flex flex-wrap gap-2">
-              {ROLES.map((r) => (
-                <button key={r} onClick={() => setLocalRole(r)}
-                  className={cn("border px-3 py-1.5 font-mono text-[10px] tracking-[0.14em]",
-                    role === r ? "border-primary text-primary" : "border-border text-muted-foreground hover:text-foreground")}>
-                  {r.toUpperCase()}
                 </button>
               ))}
             </div>

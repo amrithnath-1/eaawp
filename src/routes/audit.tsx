@@ -161,6 +161,7 @@ function AuditPage() {
                   </span>
                 </div>
               ))}
+              {filtered.length === 0 && <div className="px-3 py-6 text-center text-xs text-muted-foreground">No live audit records are available.</div>}
             </div>
           </>
         )}
@@ -217,7 +218,7 @@ function AuditPage() {
               </div>
             ) : (
               <div className="flex items-center justify-center border border-border py-16 font-mono text-[11px] text-muted-foreground">
-                Select a trace to view
+                {traces.length === 0 ? "No live execution traces are available." : "Select a trace to view."}
               </div>
             )}
           </div>
