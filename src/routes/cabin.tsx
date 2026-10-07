@@ -11,7 +11,7 @@ import { useSession } from "@/state/session";
 import { EmailDraftPreview, parseDraftPreview } from "@/components/eaawp/EmailDraftPreview";
 import {
   useAgentExecute, DEFAULT_BLUEPRINT, useRoleConfig, roleConfigToBlueprint,
-  useResumePlan, useDecideApproval, type PlanStatus,
+  useResumePlan, useRejectPlan, type ExecutionPlanFE,
 } from "@/hooks/use-api";
 import { USE_REAL_API } from "@/lib/api-client";
 import { reportError } from "@/lib/error-reporting";
@@ -100,10 +100,12 @@ function PlanProgress({
   planId,
   planStatus,
   stepSummaries,
+  onResolved,
 }: {
   planId: string | null;
   planStatus: string | null;
   stepSummaries: string[];
+  onResolved: (plan: ExecutionPlanFE) => void;
 }) {
   const resumePlan = useResumePlan();
 
@@ -143,7 +145,10 @@ function PlanProgress({
             resumePlan.mutate(
               { planId },
               {
-                onSuccess: () => toast.success("Plan resumed after approval."),
+                onSuccess: (plan) => {
+                  onResolved(plan);
+                  toast.success(plan.status === "completed" ? "Action approved and plan completed." : "Approval processed; review the plan status.");
+                },
                 onError: (err) => toast.error(err.message),
               },
             )
@@ -151,7 +156,7 @@ function PlanProgress({
           disabled={resumePlan.isPending}
           className="mt-2 flex items-center gap-1.5 border border-success/50 px-2 py-1 font-mono text-[10px] text-success hover:bg-success/10 disabled:opacity-40"
         >
-          {resumePlan.isPending ? <><RefreshCw className="size-3 animate-spin" /> RESUMING…</> : "RESUME AFTER APPROVAL"}
+          {resumePlan.isPending ? <><RefreshCw className="size-3 animate-spin" /> APPROVING…</> : "APPROVE & RESUME"}
         </button>
       )}
     </div>
@@ -163,8 +168,8 @@ function CabinPage() {
   const { status } = useAgentStatus();
   const agentExecute = useAgentExecute();
   const { data: roleConfig } = useRoleConfig("DIGITAL_MARKETING_MANAGER");
-  const decideApproval = useDecideApproval();
   const resumePlan = useResumePlan();
+  const rejectPlan = useRejectPlan();
 
   const [turns, setTurns] = useState<Turn[]>([]);
   const [text, setText] = useState("");
@@ -174,6 +179,18 @@ function CabinPage() {
 
   // Use quick prompts from the live role config when available, fall back to local map
   const quickPrompts = roleConfig?.quick_prompts ?? getRoleQuickPrompts(company?.agentRole);
+
+  function syncPlanResult(plan: ExecutionPlanFE) {
+    setTurns((current) => current.map((turn) => turn.planId === plan.id
+      ? {
+          ...turn,
+          text: plan.final_message,
+          requiresApproval: false,
+          planStatus: plan.status,
+          stepSummaries: plan.steps.map((step) => `[${step.step_type.toUpperCase()}] ${step.description} → ${step.status}`),
+        }
+      : turn));
+  }
 
   useEffect(() => {
     boxRef.current?.focus();
@@ -360,7 +377,7 @@ function CabinPage() {
                       <div className="mt-2 flex flex-wrap gap-1.5">
                         {/* Approve — decide the pending ApprovalRequest then resume the plan */}
                         <button
-                          disabled={decideApproval.isPending || resumePlan.isPending}
+                          disabled={resumePlan.isPending || rejectPlan.isPending}
                           onClick={() => {
                             if (!USE_REAL_API) {
                               toast.info("Connect real API to use approvals.");
@@ -370,26 +387,12 @@ function CabinPage() {
                               toast.error("No plan ID on this turn — cannot approve.");
                               return;
                             }
-                            // First record the approval decision, then resume the plan
-                            decideApproval.mutate(
+                            resumePlan.mutate(
+                              { planId: t.planId },
                               {
-                                approval_id: t.planId, // plan_id doubles as correlation key
-                                decision: "approved",
-                                reviewed_by: user?.email ?? "admin",
-                              },
-                              {
-                                onSuccess: () => {
-                                  // Now resume the paused plan so execution continues
-                                  resumePlan.mutate(
-                                    { planId: t.planId! },
-                                    {
-                                      onSuccess: () => toast.success("Action approved and plan resumed."),
-                                      onError: (err) => {
-                                        reportError(err, { planId: t.planId });
-                                        toast.error(`Resume failed: ${err.message}`);
-                                      },
-                                    },
-                                  );
+                                onSuccess: (plan) => {
+                                  syncPlanResult(plan);
+                                  toast.success(plan.status === "completed" ? "Action approved and plan completed." : "Approval processed; review the plan status.");
                                 },
                                 onError: (err) => {
                                   reportError(err, { planId: t.planId });
@@ -400,12 +403,12 @@ function CabinPage() {
                           }}
                           className="border border-success/60 px-2 py-1 font-mono text-[10px] tracking-[0.12em] text-success hover:bg-success/10 disabled:opacity-40"
                         >
-                          {decideApproval.isPending || resumePlan.isPending ? "APPROVING…" : "APPROVE"}
+                          {resumePlan.isPending ? "APPROVING…" : "APPROVE"}
                         </button>
 
                         {/* Reject — record a rejection; plan will not continue */}
                         <button
-                          disabled={decideApproval.isPending}
+                          disabled={rejectPlan.isPending || resumePlan.isPending}
                           onClick={() => {
                             if (!USE_REAL_API) {
                               toast.info("Connect real API to use approvals.");
@@ -415,15 +418,13 @@ function CabinPage() {
                               toast.error("No plan ID on this turn — cannot reject.");
                               return;
                             }
-                            decideApproval.mutate(
+                            rejectPlan.mutate(
+                              { planId: t.planId },
                               {
-                                approval_id: t.planId,
-                                decision: "rejected",
-                                reviewed_by: user?.email ?? "admin",
-                                review_note: "Rejected from Cabin",
-                              },
-                              {
-                                onSuccess: () => toast.success("Action rejected. Plan will not continue."),
+                                onSuccess: (plan) => {
+                                  syncPlanResult(plan);
+                                  toast.success("Action rejected. It was not executed, and the plan stopped.");
+                                },
                                 onError: (err) => {
                                   reportError(err, { planId: t.planId });
                                   toast.error(`Rejection failed: ${err.message}`);
@@ -433,7 +434,7 @@ function CabinPage() {
                           }}
                           className="border border-destructive/60 px-2 py-1 font-mono text-[10px] tracking-[0.12em] text-destructive hover:bg-destructive/10 disabled:opacity-40"
                         >
-                          {decideApproval.isPending ? "REJECTING…" : "REQUEST CHANGES"}
+                          {rejectPlan.isPending ? "REJECTING…" : "REQUEST CHANGES"}
                         </button>
 
                         {/* Open task — navigate to the full Approvals page for details */}
@@ -451,6 +452,7 @@ function CabinPage() {
                         planId={t.planId ?? null}
                         planStatus={t.planStatus ?? null}
                         stepSummaries={t.stepSummaries}
+                        onResolved={syncPlanResult}
                       />
                     )}
                   </article>

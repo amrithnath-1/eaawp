@@ -159,6 +159,21 @@ async def _google_authorize_common(
             detail=f"{provider_type} integration is not available.",
         )
 
+    # Purge stale OAuthState records for this tenant to avoid accumulation.
+    # Only states older than the TTL are removed — active states are kept.
+    try:
+        from sqlalchemy import delete as sql_delete
+        cutoff = datetime.now(timezone.utc) - timedelta(minutes=_OAUTH_STATE_TTL_MINUTES)
+        await db.execute(
+            sql_delete(OAuthState).where(
+                OAuthState.tenant_id == tenant_id,
+                OAuthState.expires_at < cutoff,
+            )
+        )
+        await db.flush()
+    except Exception as cleanup_exc:
+        logger.debug("OAuthState cleanup failed (non-fatal): %s", cleanup_exc)
+
     display_name = _PROVIDER_DISPLAY_NAMES.get(provider_type, provider.display_name)
 
     # Create placeholder integration row
@@ -364,7 +379,47 @@ async def google_callback(
             integration_id,
         )
 
-        # 9. Redirect to frontend with success parameters
+        # 9. Auto-test the connection now that tokens are stored.
+        #    This moves the integration from "not_tested" → "connected" immediately,
+        #    so the frontend shows an accurate status without requiring a manual test.
+        try:
+            from app.integrations.manager import test_integration as mgr_test
+            test_result = await mgr_test(integration_id, tenant_id, db)
+            if test_result.success:
+                logger.info(
+                    "Post-OAuth auto-test succeeded — provider=%s integration=%s",
+                    provider_type, integration_id,
+                )
+            else:
+                logger.warning(
+                    "Post-OAuth auto-test failed (tokens stored, connection check failed) "
+                    "— provider=%s integration=%s error=%s",
+                    provider_type, integration_id, test_result.error_message,
+                )
+        except Exception as test_exc:
+            # Non-fatal — tokens are already stored; user can test manually
+            logger.warning(
+                "Post-OAuth auto-test raised an exception (non-fatal): %s", test_exc
+            )
+
+        # 10. Write an audit log entry for the successful OAuth connection
+        try:
+            import uuid as _uuid_mod
+            from app.db.models import AuditLog
+            audit = AuditLog(
+                id=str(_uuid_mod.uuid4()),
+                tenant_id=tenant_id,
+                actor="oauth_callback",
+                event=f"oauth.connected: provider={provider_type} integration_id={integration_id}",
+                department="integrations",
+                status="ok",
+            )
+            db.add(audit)
+            await db.commit()
+        except Exception as audit_exc:
+            logger.warning("OAuth audit write failed (non-fatal): %s", audit_exc)
+
+        # 11. Redirect to frontend with success parameters
         frontend_url = _build_frontend_redirect(
             success="true",
             integration_id=integration_id,

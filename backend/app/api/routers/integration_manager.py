@@ -183,6 +183,24 @@ async def delete_integration(
         await mgr.delete_integration(integration_id, tenant_id, db)
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    # Audit the disconnect
+    try:
+        import uuid as _uuid_mod
+        from app.db.models import AuditLog
+        audit = AuditLog(
+            id=str(_uuid_mod.uuid4()),
+            tenant_id=tenant_id,
+            actor=_admin.email or _admin.id,
+            event=f"integration.deleted: integration_id={integration_id}",
+            department="integrations",
+            status="ok",
+        )
+        db.add(audit)
+        await db.commit()
+    except Exception as audit_exc:
+        logger.warning("Delete integration audit write failed (non-fatal): %s", audit_exc)
+
     return {"deleted": integration_id}
 
 
@@ -316,9 +334,20 @@ async def delete_grant(
 async def execute_capability(
     integration_id: str,
     body: ExecuteCapabilityRequest,
+    current_user: User = Depends(require_admin),
     tenant_id: str = Depends(get_current_tenant_id),
     db: AsyncSession = Depends(get_db),
 ) -> ExecuteCapabilityResponse:
+    # role_key comes from the request body but we validate it is a known role key —
+    # arbitrary string injection cannot grant additional permissions because the
+    # execute_capability service still checks CapabilityGrant.role_key == body.role_key
+    # against the DB.  We add a format guard here as a defence-in-depth measure.
+    import re
+    if body.role_key and not re.match(r"^[A-Z_]{3,64}$", body.role_key):
+        raise HTTPException(
+            status_code=400,
+            detail="role_key must be an uppercase snake_case identifier (e.g. DIGITAL_MARKETING_MANAGER).",
+        )
     try:
         return await mgr.execute_capability(
             integration_id=integration_id,

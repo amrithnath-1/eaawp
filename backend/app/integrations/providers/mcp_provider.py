@@ -406,6 +406,17 @@ class MCPIntegrationProvider(IntegrationProvider):
 
         _check_injection(tool_name, "tool_name parameter")
 
+        # Classify the risk level of the specific tool being called.
+        # HIGH-risk MCP tools (delete_*, execute_*, send_*, etc.) must not run
+        # automatically — they must go through the existing human approval workflow.
+        tool_risk = _classify_risk(tool_name)
+        if tool_risk == RiskLevel.HIGH:
+            raise MCPError(
+                f"MCP tool '{tool_name}' is classified as HIGH risk "
+                f"(prefix '{tool_name.split('_')[0]}') and cannot be executed directly. "
+                "It must go through the human approval workflow before execution."
+            )
+
         # Validate the tool exists on this server
         tools = await self._discover_tools(credentials)
         known_names = {t["name"] for t in tools}

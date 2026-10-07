@@ -15,12 +15,13 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.actions.registry import ACTION_REGISTRY
-from app.db.models import ActionAudit
+from app.core.auth import get_current_tenant_id, require_admin
+from app.db.models import ActionAudit, PlanStep, User
 from app.db.session import get_db
 from app.schemas.actions import (
     ActionAuditOut,
@@ -34,8 +35,21 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/actions", tags=["actions"])
 
 
-def _tenant(x_tenant_id: str = Header(..., alias="X-Tenant-ID")) -> str:
-    return x_tenant_id
+async def _ensure_not_plan_linked(approval_request_id: str | None, tenant_id: str, db: AsyncSession) -> None:
+    if not approval_request_id:
+        return
+    result = await db.execute(
+        select(PlanStep.id).where(
+            PlanStep.approval_request_id == approval_request_id,
+            PlanStep.tenant_id == tenant_id,
+            PlanStep.status == "awaiting_approval",
+        )
+    )
+    if result.scalar_one_or_none():
+        raise HTTPException(
+            status_code=409,
+            detail="This action belongs to a paused execution plan. Approve or reject it through the plan-aware approval endpoint.",
+        )
 
 
 # ── List registered action tools ──────────────────────────────────────────────
@@ -61,7 +75,7 @@ async def list_action_tools() -> list[dict]:
 
 @router.get("/audits", response_model=list[ActionAuditOut])
 async def list_action_audits(
-    tenant_id: str = Depends(_tenant),
+    tenant_id: str = Depends(get_current_tenant_id),
     db: AsyncSession = Depends(get_db),
 ) -> list[ActionAuditOut]:
     result = await db.execute(
@@ -78,7 +92,7 @@ async def list_action_audits(
 @router.get("/audits/{audit_id}", response_model=ActionAuditOut)
 async def get_action_audit(
     audit_id: str,
-    tenant_id: str = Depends(_tenant),
+    tenant_id: str = Depends(get_current_tenant_id),
     db: AsyncSession = Depends(get_db),
 ) -> ActionAuditOut:
     result = await db.execute(
@@ -99,7 +113,7 @@ async def get_action_audit(
 async def approve_action(
     audit_id: str,
     body: ActionApprovalDecision,
-    tenant_id: str = Depends(_tenant),
+    admin_user: User = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ) -> ActionResult:
     """
@@ -108,6 +122,8 @@ async def approve_action(
     """
     if body.decision != "approved":
         raise HTTPException(status_code=400, detail="Use /reject for rejection.")
+
+    tenant_id = admin_user.tenant_id
 
     # Load audit to get approval_request_id
     audit_result = await db.execute(
@@ -127,10 +143,12 @@ async def approve_action(
     if not audit.approval_request_id:
         raise HTTPException(status_code=400, detail="No approval request associated with this action.")
 
+    await _ensure_not_plan_linked(audit.approval_request_id, tenant_id, db)
+
     result = await approve_and_execute(
         audit_id=audit_id,
         approval_request_id=audit.approval_request_id,
-        reviewed_by=body.reviewed_by,
+        reviewed_by=admin_user.email or admin_user.id,
         tenant_id=tenant_id,
         db=db,
     )
@@ -143,13 +161,17 @@ async def approve_action(
 async def reject_action_endpoint(
     audit_id: str,
     body: ActionApprovalDecision,
-    tenant_id: str = Depends(_tenant),
+    admin_user: User = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ) -> ActionResult:
     """
     Reject a pending action. The action will never execute.
     Configuration is left completely unchanged.
     """
+    if body.decision != "rejected":
+        raise HTTPException(status_code=400, detail="Use /approve for approval.")
+
+    tenant_id = admin_user.tenant_id
     audit_result = await db.execute(
         select(ActionAudit).where(
             ActionAudit.id == audit_id,
@@ -167,10 +189,12 @@ async def reject_action_endpoint(
     if not audit.approval_request_id:
         raise HTTPException(status_code=400, detail="No approval request associated.")
 
+    await _ensure_not_plan_linked(audit.approval_request_id, tenant_id, db)
+
     result = await reject_action(
         audit_id=audit_id,
         approval_request_id=audit.approval_request_id,
-        reviewed_by=body.reviewed_by,
+        reviewed_by=admin_user.email or admin_user.id,
         tenant_id=tenant_id,
         db=db,
     )

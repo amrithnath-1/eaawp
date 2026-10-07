@@ -515,6 +515,82 @@ async def create_and_execute_plan(
     return db_plan.final_message, plan_id, all_tool_calls
 
 
+async def reject_plan(
+    plan_id: str,
+    tenant_id: str,
+    reviewed_by: str,
+    db: AsyncSession,
+) -> tuple[str, str]:
+    """Reject the pending governed action and stop the plan."""
+    plan_result = await db.execute(
+        select(ExecutionPlan).where(
+            ExecutionPlan.id == plan_id,
+            ExecutionPlan.tenant_id == tenant_id,
+        )
+    )
+    db_plan = plan_result.scalar_one_or_none()
+    if not db_plan:
+        return "Plan not found.", plan_id
+    if db_plan.status != "awaiting_approval":
+        return f"Plan is in status '{db_plan.status}' — cannot reject.", plan_id
+
+    steps_result = await db.execute(
+        select(PlanStep)
+        .where(PlanStep.plan_id == plan_id, PlanStep.tenant_id == tenant_id)
+        .order_by(PlanStep.step_index)
+    )
+    db_steps = list(steps_result.scalars().all())
+    pending_step = next(
+        (step for step in db_steps if step.status == "awaiting_approval"), None
+    )
+    if not pending_step or not pending_step.approval_request_id:
+        db_plan.status = "failed"
+        db_plan.final_message = "Cannot reject: no pending approval request was found."
+        await db.flush()
+        return db_plan.final_message, plan_id
+
+    from app.db.models import ActionAudit
+    from app.services.action_governance import reject_action
+
+    audit_result = await db.execute(
+        select(ActionAudit).where(
+            ActionAudit.approval_request_id == pending_step.approval_request_id,
+            ActionAudit.tenant_id == tenant_id,
+        )
+    )
+    audit = audit_result.scalar_one_or_none()
+    if not audit:
+        pending_step.status = "failed"
+        pending_step.result_summary = "Action audit record not found."
+        db_plan.status = "failed"
+        db_plan.final_message = "Rejection failed because the action audit record was not found."
+        await db.flush()
+        return db_plan.final_message, plan_id
+
+    result = await reject_action(
+        audit_id=audit.id,
+        approval_request_id=pending_step.approval_request_id,
+        reviewed_by=reviewed_by,
+        tenant_id=tenant_id,
+        db=db,
+    )
+    if result.status != "rejected":
+        pending_step.status = "failed"
+        pending_step.result_summary = result.message[:500]
+        db_plan.status = "failed"
+        db_plan.final_message = f"The action could not be rejected: {result.message}"
+        await db.flush()
+        return db_plan.final_message, plan_id
+
+    pending_step.status = "rejected"
+    pending_step.result_summary = "Rejected by an administrator. The action was not executed."
+    pending_step.completed_at = datetime.now(timezone.utc)
+    db_plan.status = "rejected"
+    db_plan.final_message = "The proposed action was rejected. It was not executed, and the plan has stopped."
+    await db.flush()
+    return db_plan.final_message, plan_id
+
+
 async def resume_plan(
     plan_id: str,
     tenant_id: str,

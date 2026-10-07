@@ -92,6 +92,9 @@ class MySQLIntegrationProvider(IntegrationProvider):
     ) -> ConnectionTestResult:
         try:
             from app.integrations.connector import MySQLConnector
+            from app.integrations.provider import validate_outbound_host
+            host = str(credentials["host"])
+            validate_outbound_host(host)  # SSRF guard — same as PostgreSQL provider
             connector = MySQLConnector()
             result = await connector.test_connection(
                 host=str(credentials["host"]),
@@ -143,6 +146,9 @@ class MySQLIntegrationProvider(IntegrationProvider):
     ) -> CapabilityResult:
         try:
             from app.integrations.connector import MySQLConnector
+            from app.integrations.provider import validate_outbound_host
+            host = str(credentials["host"])
+            validate_outbound_host(host)  # SSRF guard
             connector = MySQLConnector()
             entities = await connector.discover_schema(
                 host=str(credentials["host"]),

@@ -1203,6 +1203,15 @@ export interface ActionToolMeta {
   allowed_roles: string[];
 }
 
+export interface ActionDecisionResult {
+  tool_name: string;
+  status: ActionStatus;
+  approval_request_id: string | null;
+  task_id: string | null;
+  message: string;
+  details: Record<string, unknown>;
+}
+
 const ACTION_HEADERS = { "X-Tenant-ID": (typeof window !== "undefined" ? window.localStorage.getItem("eaawp.last_company_id") ?? "default-tenant" : "default-tenant") };
 
 async function actionFetch<T>(method: string, path: string, body?: unknown): Promise<T> {
@@ -1253,17 +1262,18 @@ export function useActionTools() {
 /** Approve a pending action (re-validates + executes server-side). */
 export function useApproveAction() {
   const queryClient = useQueryClient();
-  return useMutation<ActionAuditFE, Error, { auditId: string; reviewed_by?: string }>({
-    mutationFn: ({ auditId, reviewed_by = "admin" }) => {
+  return useMutation<ActionDecisionResult, Error, { auditId: string }>({
+    mutationFn: ({ auditId }) => {
       if (!USE_REAL_API) return Promise.reject(new Error("Requires real API mode."));
-      return actionFetch<ActionAuditFE>(
+      return actionFetch<ActionDecisionResult>(
         "POST",
         `/api/v1/actions/audits/${auditId}/approve`,
-        { decision: "approved", reviewed_by },
+        { decision: "approved" },
       );
     },
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["action-audits"] });
+      void queryClient.invalidateQueries({ queryKey: ["approvals"] });
       void queryClient.invalidateQueries({ queryKey: queryKeys.tasks });
     },
   });
@@ -1272,17 +1282,18 @@ export function useApproveAction() {
 /** Reject a pending action — it will never execute. */
 export function useRejectAction() {
   const queryClient = useQueryClient();
-  return useMutation<ActionAuditFE, Error, { auditId: string; reviewed_by?: string }>({
-    mutationFn: ({ auditId, reviewed_by = "admin" }) => {
+  return useMutation<ActionDecisionResult, Error, { auditId: string }>({
+    mutationFn: ({ auditId }) => {
       if (!USE_REAL_API) return Promise.reject(new Error("Requires real API mode."));
-      return actionFetch<ActionAuditFE>(
+      return actionFetch<ActionDecisionResult>(
         "POST",
         `/api/v1/actions/audits/${auditId}/reject`,
-        { decision: "rejected", reviewed_by },
+        { decision: "rejected" },
       );
     },
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["action-audits"] });
+      void queryClient.invalidateQueries({ queryKey: ["approvals"] });
     },
   });
 }
@@ -1360,18 +1371,40 @@ export function useExecutionPlans() {
 /** Resume a paused plan after approval. */
 export function useResumePlan() {
   const queryClient = useQueryClient();
-  return useMutation<ExecutionPlanFE, Error, { planId: string; reviewed_by?: string }>({
-    mutationFn: ({ planId, reviewed_by = "admin" }) => {
+  return useMutation<ExecutionPlanFE, Error, { planId: string }>({
+    mutationFn: ({ planId }) => {
       if (!USE_REAL_API) return Promise.reject(new Error("Requires real API mode."));
       return apiClient.post<ExecutionPlanFE>(
         `/api/v1/planning/plans/${planId}/resume`,
-        { plan_id: planId, reviewed_by },
+        { plan_id: planId },
       );
     },
     onSuccess: (_, { planId }) => {
       void queryClient.invalidateQueries({ queryKey: ["execution-plan", planId] });
       void queryClient.invalidateQueries({ queryKey: ["execution-plans"] });
+      void queryClient.invalidateQueries({ queryKey: ["approvals"] });
+      void queryClient.invalidateQueries({ queryKey: ["action-audits"] });
       void queryClient.invalidateQueries({ queryKey: queryKeys.tasks });
+    },
+  });
+}
+
+/** Reject the pending action for a plan and stop it without executing the action. */
+export function useRejectPlan() {
+  const queryClient = useQueryClient();
+  return useMutation<ExecutionPlanFE, Error, { planId: string }>({
+    mutationFn: ({ planId }) => {
+      if (!USE_REAL_API) return Promise.reject(new Error("Requires real API mode."));
+      return apiClient.post<ExecutionPlanFE>(
+        `/api/v1/planning/plans/${planId}/reject`,
+        { plan_id: planId },
+      );
+    },
+    onSuccess: (_, { planId }) => {
+      void queryClient.invalidateQueries({ queryKey: ["execution-plan", planId] });
+      void queryClient.invalidateQueries({ queryKey: ["execution-plans"] });
+      void queryClient.invalidateQueries({ queryKey: ["approvals"] });
+      void queryClient.invalidateQueries({ queryKey: ["action-audits"] });
     },
   });
 }
@@ -3458,6 +3491,16 @@ export function useUpdateWorkflow(workflowId: string) {
   const qc = useQueryClient();
   return useMutation<WorkflowOut, Error, Partial<WorkflowCreate>>({
     mutationFn: (body) => intMgrFetch<WorkflowOut>("PATCH", `/api/v1/workflows/${workflowId}`, body),
+    onSuccess: () => { void qc.invalidateQueries({ queryKey: ["workflows"] }); },
+  });
+}
+
+/** Update a workflow identified by the mutation variables (useful in row actions). */
+export function usePatchWorkflow() {
+  const qc = useQueryClient();
+  return useMutation<WorkflowOut, Error, { workflowId: string; patch: Partial<WorkflowCreate> }>({
+    mutationFn: ({ workflowId, patch }) =>
+      intMgrFetch<WorkflowOut>("PATCH", `/api/v1/workflows/${workflowId}`, patch),
     onSuccess: () => { void qc.invalidateQueries({ queryKey: ["workflows"] }); },
   });
 }

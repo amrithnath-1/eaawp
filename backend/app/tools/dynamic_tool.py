@@ -367,6 +367,7 @@ def build_dynamic_tool_adapter(defn: DynamicToolDefinition) -> Any:
         #   - capability grant exists for role_key
         # Credentials are decrypted inside the manager, never here.
         from app.integrations.manager import execute_capability as mgr_execute
+        import concurrent.futures
 
         coro = mgr_execute(
             integration_id=_integration_id,
@@ -377,14 +378,21 @@ def build_dynamic_tool_adapter(defn: DynamicToolDefinition) -> Any:
             db=db,
         )
 
-        loop = asyncio.get_running_loop()
-        exec_result = loop.run_until_complete(coro) if not loop.is_running() else None
-
-        if exec_result is None:
-            return (
-                f"[PENDING] {_tool_key}: async dispatch in progress — "
-                "result will be returned by the engine."
-            )
+        try:
+            loop = asyncio.get_running_loop()
+            # We are inside a running async event loop (FastAPI request).
+            # run_until_complete() cannot be called from a running loop, so
+            # we schedule the coroutine as a task and block a worker thread
+            # to wait for it. nest_asyncio is installed but patching the global
+            # event loop is fragile — thread-based dispatch is safer.
+            future = asyncio.run_coroutine_threadsafe(coro, loop)
+            try:
+                exec_result = future.result(timeout=60)
+            except concurrent.futures.TimeoutError:
+                return f"[TIMEOUT] {_tool_key}: integration call timed out after 60 s"
+        except RuntimeError:
+            # No running loop — run directly (test / CLI context)
+            exec_result = asyncio.run(coro)
 
         # ── Write audit record ────────────────────────────────────────────────
         _write_dynamic_tool_audit(
@@ -526,6 +534,7 @@ def _write_dynamic_tool_audit(
             await db.flush()
 
         if loop.is_running():
+            # Schedule as a fire-and-forget task — audit must not block execution
             loop.create_task(_write())
         else:
             loop.run_until_complete(_write())

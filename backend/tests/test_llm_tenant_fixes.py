@@ -90,11 +90,12 @@ class TestGeminiProviderResolution:
 
 class TestTenantContextFix:
 
-    def test_integration_manager_uses_get_optional_tenant_id(self):
+    def test_integration_manager_uses_authenticated_tenant_id(self):
         import inspect
         from app.api.routers import integration_manager
         src = inspect.getsource(integration_manager)
-        assert "get_optional_tenant_id" in src
+        assert "get_current_tenant_id" in src
+        assert "require_admin" in src
         assert "def _tenant(x_tenant_id" not in src
 
     def test_jwt_tenant_is_authoritative(self):

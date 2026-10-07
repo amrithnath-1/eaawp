@@ -539,11 +539,31 @@ async def execute_capability(
     credentials: dict[str, Any] = {}
     try:
         credentials = _decrypt_credentials(row.encrypted_credentials)
+        # Take a snapshot of the tokens before execution so we can detect refresh
+        _token_before = credentials.get("access_token"), credentials.get("token_expiry")
+
         result = await provider.execute(
             capability_key=capability_key,
             credentials=credentials,
             parameters=parameters,
         )
+
+        # If the provider refreshed the access token (GSC/GA mutate the dict
+        # in place), re-encrypt and persist the updated credentials immediately
+        # so the next call reuses the fresh token rather than re-refreshing.
+        _token_after = credentials.get("access_token"), credentials.get("token_expiry")
+        if _token_after != _token_before and credentials.get("access_token"):
+            try:
+                row.encrypted_credentials = _encrypt_credentials(credentials)
+                await db.flush()
+                logger.debug(
+                    "Persisted refreshed OAuth token for integration %s", integration_id
+                )
+            except Exception as _persist_exc:
+                logger.warning(
+                    "Failed to persist refreshed token for integration %s (non-fatal): %s",
+                    integration_id, _persist_exc,
+                )
     except (ValueError, NotImplementedError) as exc:
         return ExecuteCapabilityResponse(
             integration_id=integration_id,

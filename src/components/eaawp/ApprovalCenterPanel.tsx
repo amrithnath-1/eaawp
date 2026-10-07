@@ -19,7 +19,12 @@ import {
 import { cn } from "@/lib/utils";
 import {
   useApprovalRequests,
-  useDecideApproval,
+  useActionAudits,
+  useApproveAction,
+  useExecutionPlans,
+  useRejectAction,
+  useRejectPlan,
+  useResumePlan,
   type ApprovalRequestOut,
 } from "@/hooks/use-api";
 
@@ -137,23 +142,58 @@ export function ApprovalCenterPanel() {
   const { data: approvals = [], isLoading } = useApprovalRequests(
     filter === "all" ? undefined : filter
   );
-  const decideMutation = useDecideApproval();
+  const { data: plans = [], isLoading: plansLoading } = useExecutionPlans();
+  const { data: audits = [], isLoading: auditsLoading } = useActionAudits();
+  const resumePlan = useResumePlan();
+  const rejectPlan = useRejectPlan();
+  const approveAction = useApproveAction();
+  const rejectAction = useRejectAction();
 
-  function handleDecide(approvalId: string, decision: "approved" | "rejected") {
+  async function handleDecide(approvalId: string, decision: "approved" | "rejected") {
     setDecidingId(approvalId);
-    decideMutation.mutate(
-      { approval_id: approvalId, decision, reviewed_by: "admin" },
-      {
-        onSuccess: () => {
-          toast.success(decision === "approved" ? "Action approved." : "Action rejected.");
-          setDecidingId(null);
-        },
-        onError: (e) => {
-          toast.error(e.message);
-          setDecidingId(null);
-        },
+    try {
+      // Plans own the paused agent run. Resume/reject through the planner so
+      // the decision and the plan state remain in sync.
+      const plan = plans.find((candidate) =>
+        candidate.status === "awaiting_approval" &&
+        candidate.steps.some((step) => step.approval_request_id === approvalId),
+      );
+      if (plan) {
+        const result = decision === "approved"
+          ? await resumePlan.mutateAsync({ planId: plan.id })
+          : await rejectPlan.mutateAsync({ planId: plan.id });
+        if (decision === "approved" && result.status === "failed") {
+          throw new Error(result.final_message || "The action failed after approval.");
+        }
+        if (decision === "rejected" && result.status !== "rejected") {
+          throw new Error(result.final_message || "The plan could not be rejected.");
+        }
+        toast.success(decision === "approved"
+          ? (result.status === "completed" ? "Action approved and plan resumed." : result.final_message || "Approval processed.")
+          : (result.final_message || "Action rejected; plan stopped."));
+        return;
       }
-    );
+
+      // Standalone governed actions use their audit record to revalidate and
+      // execute on approval, or to permanently reject without execution.
+      const audit = audits.find((candidate) =>
+        candidate.approval_request_id === approvalId && candidate.approval_status === "proposed",
+      );
+      if (!audit) {
+        throw new Error("No pending action record is linked to this approval. Refresh the page and check the action audit.");
+      }
+      const result = decision === "approved"
+        ? await approveAction.mutateAsync({ auditId: audit.id })
+        : await rejectAction.mutateAsync({ auditId: audit.id });
+      if (result.status !== (decision === "approved" ? "executed" : "rejected")) {
+        throw new Error(result.message || `The action was not ${decision}.`);
+      }
+      toast.success(result.message || (decision === "approved" ? "Action approved and executed." : "Action rejected."));
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not process this approval.");
+    } finally {
+      setDecidingId(null);
+    }
   }
 
   const pending = approvals.filter((a) => a.status === "pending");
@@ -217,7 +257,7 @@ export function ApprovalCenterPanel() {
               key={a.id}
               request={a}
               onDecide={handleDecide}
-              deciding={decidingId === a.id}
+              deciding={decidingId === a.id || (a.status === "pending" && (plansLoading || auditsLoading))}
             />
           ))}
         </div>

@@ -38,7 +38,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.actions.registry import get_action_tool
-from app.db.models import ActionAudit, ApprovalRequest
+from app.db.models import ActionAudit, ApprovalRequest, AuditLog
 from app.schemas.actions import ActionRequest, ActionResult
 
 logger = logging.getLogger(__name__)
@@ -257,8 +257,17 @@ async def approve_and_execute(
         audit.approval_status = "rejected"
         audit.execution_status = "failed"
         audit.error_message = f"Re-validation failed at approval time: {err_msg}"
-        approval.status = "denied"
+        approval.status = "rejected"
         approval.reviewed_by = reviewed_by
+        approval.resolved_at = datetime.now(timezone.utc)
+        db.add(AuditLog(
+            id=str(uuid.uuid4()),
+            tenant_id=tenant_id,
+            actor=reviewed_by,
+            event=f"approval.rejected: approval_id={approval_request_id} action={audit.tool_name!r} reason=validation_failed",
+            department="approval-center",
+            status="failed",
+        ))
         await db.flush()
         return ActionResult(
             tool_name=audit.tool_name,
@@ -273,6 +282,14 @@ async def approve_and_execute(
     approval.status = "approved"
     approval.reviewed_by = reviewed_by
     approval.resolved_at = now
+    db.add(AuditLog(
+        id=str(uuid.uuid4()),
+        tenant_id=tenant_id,
+        actor=reviewed_by,
+        event=f"approval.approved: approval_id={approval_request_id} action={audit.tool_name!r}",
+        department="approval-center",
+        status="ok",
+    ))
     await db.flush()
 
     # Execute
@@ -336,9 +353,17 @@ async def reject_action(
     audit.approval_status = "rejected"
     audit.execution_status = "skipped"
     if approval:
-        approval.status = "denied"
+        approval.status = "rejected"
         approval.reviewed_by = reviewed_by
         approval.resolved_at = now
+    db.add(AuditLog(
+        id=str(uuid.uuid4()),
+        tenant_id=tenant_id,
+        actor=reviewed_by,
+        event=f"approval.rejected: approval_id={approval_request_id} action={audit.tool_name!r}",
+        department="approval-center",
+        status="ok",
+    ))
     await db.flush()
 
     return ActionResult(

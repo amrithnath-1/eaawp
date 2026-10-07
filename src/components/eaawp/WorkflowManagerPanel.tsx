@@ -37,8 +37,10 @@ function StatusBadge({ status }: { status: string }) {
   const cfgMap: Record<string, { cls: string; label: string }> = {
     idle:      { cls: "text-muted-foreground border-muted-foreground/40", label: "IDLE" },
     running:   { cls: "text-warning border-warning/40",                   label: "RUNNING" },
+    awaiting_approval: { cls: "text-warning border-warning/40",           label: "NEEDS APPROVAL" },
     completed: { cls: "text-success border-success/40",                   label: "COMPLETED" },
     failed:    { cls: "text-destructive border-destructive/40",           label: "FAILED" },
+    rejected:  { cls: "text-destructive border-destructive/40",           label: "REJECTED" },
   };
   const cfg = cfgMap[status] ?? cfgMap["idle"]!;
   const { cls, label } = cfg;

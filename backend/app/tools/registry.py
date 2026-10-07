@@ -140,7 +140,7 @@ async def fetch_knowledge_base(query: str) -> str:
 
 
 @tool
-def draft_email(email_params: str) -> str:
+async def draft_email(email_params: str) -> str:
     """
     Create a structured email draft for review. Has NO external side effect.
     Does NOT send email. Does NOT access SMTP credentials.
@@ -207,7 +207,7 @@ def draft_email(email_params: str) -> str:
         )
 
         loop = asyncio.get_running_loop()
-        result = loop.run_until_complete(coro)
+        result = await coro
 
         if result is None:
             return "[ERROR] draft_email: unexpected None result from action governance."
@@ -220,7 +220,7 @@ def draft_email(email_params: str) -> str:
 
 
 @tool
-def send_email(email_params: str) -> str:
+async def send_email(email_params: str) -> str:
     """
     Send an email on behalf of the Digital Marketing Manager.
 
@@ -282,7 +282,7 @@ def send_email(email_params: str) -> str:
         )
 
         loop = asyncio.get_running_loop()
-        result = loop.run_until_complete(coro)
+        result = await coro
 
         if result is None:
             return "[ERROR] send_email: unexpected None result from action governance."
@@ -294,7 +294,7 @@ def send_email(email_params: str) -> str:
         return f"[ERROR] send_email tool failed: {str(exc)[:200]}"
 
         loop = asyncio.get_running_loop()
-        result = loop.run_until_complete(coro)
+        result = await coro
 
         if result is None:
             return "[ERROR] send_email: unexpected None result from action governance."
@@ -307,7 +307,7 @@ def send_email(email_params: str) -> str:
 
 
 @tool
-def query_campaign_analytics(channel: str = "all") -> str:
+async def query_campaign_analytics(channel: str = "all") -> str:
     """
     Query marketing campaign analytics for the Digital Marketing Manager role.
 
@@ -326,9 +326,7 @@ def query_campaign_analytics(channel: str = "all") -> str:
     try:
         from app.services.campaign_service import list_campaigns, get_metrics
         _loop = asyncio.get_running_loop()
-        _campaigns = _loop.run_until_complete(
-            list_campaigns(tenant_id=_tid, db=_db, status="active", limit=10)
-        )
+        _campaigns = await list_campaigns(tenant_id=_tid, db=_db, status="active", limit=10)
         if not _campaigns:
             return f"No active campaigns found for channel='{channel}'."
         _lines = [f"Campaign Analytics (channel={channel}):"]
@@ -338,9 +336,7 @@ def query_campaign_analytics(channel: str = "all") -> str:
             _lines.append(
                 f"  [{_c.status.upper()}] {_c.name} | channel:{_c.channel or 'N/A'} | budget:{_c.budget:,.0f}"
             )
-            _metrics = _loop.run_until_complete(
-                get_metrics(campaign_id=_c.id, tenant_id=_tid, db=_db, limit=5)
-            )
+            _metrics = await get_metrics(campaign_id=_c.id, tenant_id=_tid, db=_db, limit=5)
             for _m in _metrics[:3]:
                 _lines.append(f"    {_m.metric_date} {_m.metric_name}: {_m.metric_value}")
         if len(_lines) == 1:
@@ -352,7 +348,7 @@ def query_campaign_analytics(channel: str = "all") -> str:
 
 
 @tool
-def generate_report(report_type: str, period: str = "current_month") -> str:
+async def generate_report(report_type: str, period: str = "current_month") -> str:
     """
     Generate a structured performance report document.
 
@@ -372,9 +368,7 @@ def generate_report(report_type: str, period: str = "current_month") -> str:
     try:
         from app.services.campaign_service import list_campaigns, get_metrics
         _loop = asyncio.get_running_loop()
-        _campaigns = _loop.run_until_complete(
-            list_campaigns(tenant_id=_tid, db=_db, limit=5)
-        )
+        _campaigns = await list_campaigns(tenant_id=_tid, db=_db, limit=5)
         _lines = [
             f"=== {report_type.upper()} REPORT ({period}) ===",
             f"Generated for tenant: {_tid[:8]}",
@@ -398,7 +392,7 @@ def generate_report(report_type: str, period: str = "current_month") -> str:
 
 
 @tool
-def query_company_data(query_params: str) -> str:
+async def query_company_data(query_params: str) -> str:
     """
     Query authorized company data using structured parameters � NOT raw SQL.
 
@@ -461,7 +455,7 @@ def query_company_data(query_params: str) -> str:
         # Use asyncio.ensure_future / get_event_loop().run_until_complete won't work here
         # Instead we use a task in the running loop
         loop = asyncio.get_running_loop()
-        result = loop.run_until_complete(coro)
+        result = await coro
 
         if result is None:
             # Running inside an async context � use nest_asyncio or return a coroutine hint
@@ -501,7 +495,7 @@ def query_company_data(query_params: str) -> str:
 
 
 @tool
-def create_internal_task(task_params: str) -> str:
+async def create_internal_task(task_params: str) -> str:
     """
     Create an internal EAAWP task record for tracking purposes.
 
@@ -565,7 +559,7 @@ def create_internal_task(task_params: str) -> str:
         )
 
         loop = asyncio.get_running_loop()
-        result = loop.run_until_complete(coro)
+        result = await coro
 
         if result is None:
             return "[PENDING] Action tool dispatched � result will be returned by the engine."
@@ -584,7 +578,7 @@ def create_internal_task(task_params: str) -> str:
 # -- Campaign read tools -------------------------------------------------------
 
 @tool
-def get_campaigns(params: str = "{}") -> str:
+async def get_campaigns(params: str = "{}") -> str:
     """
     List EAAWP-internal marketing campaigns for the tenant.
     LOW risk � read only. No external database access.
@@ -608,7 +602,7 @@ def get_campaigns(params: str = "{}") -> str:
         from app.services.campaign_service import list_campaigns
         coro = list_campaigns(tenant_id=tenant_id, db=db, status=p.get("status"), limit=int(p.get("limit", 20)))
         loop = asyncio.get_running_loop()
-        campaigns = loop.run_until_complete(coro)
+        campaigns = await coro
         if not campaigns:
             return "No campaigns found."
         lines = [f"Campaigns ({len(campaigns)} found):"]
@@ -621,7 +615,7 @@ def get_campaigns(params: str = "{}") -> str:
 
 
 @tool
-def get_campaign_metrics(params: str) -> str:
+async def get_campaign_metrics(params: str) -> str:
     """
     Retrieve performance metrics for a campaign.
     LOW risk � read only.
@@ -648,7 +642,7 @@ def get_campaign_metrics(params: str) -> str:
         from app.services.campaign_service import get_metrics
         coro = get_metrics(campaign_id=campaign_id, tenant_id=tenant_id, db=db, metric_name=p.get("metric_name"), limit=int(p.get("limit", 50)))
         loop = asyncio.get_running_loop()
-        metrics = loop.run_until_complete(coro)
+        metrics = await coro
         if not metrics:
             return f"No metrics found for campaign {campaign_id[:8]}."
         lines = [f"Campaign Metrics ({len(metrics)}):"]
@@ -661,7 +655,7 @@ def get_campaign_metrics(params: str) -> str:
 
 
 @tool
-def get_campaign_summary(campaign_id: str) -> str:
+async def get_campaign_summary(campaign_id: str) -> str:
     """
     Get a structured campaign summary with KPIs and recent metrics.
     LOW risk � read only.
@@ -681,7 +675,7 @@ def get_campaign_summary(campaign_id: str) -> str:
         from app.services.campaign_service import get_campaign_summary as svc_summary
         coro = svc_summary(campaign_id=campaign_id, tenant_id=tenant_id, db=db)
         loop = asyncio.get_running_loop()
-        summary = loop.run_until_complete(coro)
+        summary = await coro
         if not summary:
             return f"[ERROR] Campaign {campaign_id[:8]} not found."
         lines = [
@@ -700,7 +694,7 @@ def get_campaign_summary(campaign_id: str) -> str:
 
 
 @tool
-def create_campaign_tool(campaign_params: str) -> str:
+async def create_campaign_tool(campaign_params: str) -> str:
     """
     Create a new internal marketing campaign. MEDIUM risk � requires approval.
     Does NOT create external ad campaigns.
@@ -729,7 +723,7 @@ def create_campaign_tool(campaign_params: str) -> str:
         guarded_tools = _guarded_tools_ctx.get() or []
         coro = process_action_request(request=action_request, blueprint_allowed_tools=allowed_tools, blueprint_guarded_tools=guarded_tools, db=db)
         loop = asyncio.get_running_loop()
-        result = loop.run_until_complete(coro)
+        result = await coro
         if result is None:
             return "[PENDING] create_campaign dispatched."
         return result.message
@@ -739,7 +733,7 @@ def create_campaign_tool(campaign_params: str) -> str:
 
 
 @tool
-def update_campaign_tool(campaign_params: str) -> str:
+async def update_campaign_tool(campaign_params: str) -> str:
     """
     Update an existing campaign. Budget changes and status transitions require approval.
 
@@ -767,7 +761,7 @@ def update_campaign_tool(campaign_params: str) -> str:
         guarded_tools = _guarded_tools_ctx.get() or []
         coro = process_action_request(request=action_request, blueprint_allowed_tools=allowed_tools, blueprint_guarded_tools=guarded_tools, db=db)
         loop = asyncio.get_running_loop()
-        result = loop.run_until_complete(coro)
+        result = await coro
         if result is None:
             return "[PENDING] update_campaign dispatched."
         return result.message
@@ -777,7 +771,7 @@ def update_campaign_tool(campaign_params: str) -> str:
 
 
 @tool
-def analyze_campaign_performance_tool(params: str) -> str:
+async def analyze_campaign_performance_tool(params: str) -> str:
     """
     Analyse campaign performance over a period using deterministic KPI calculations.
     LOW risk � read only. Returns KPIs, period comparison, trends, anomalies, and recommendations.
@@ -814,7 +808,7 @@ def analyze_campaign_performance_tool(params: str) -> str:
             date_to=p.get("date_to"),
         )
         loop = asyncio.get_running_loop()
-        insight = loop.run_until_complete(coro)
+        insight = await coro
         if insight is None:
             return f"[ERROR] Campaign {campaign_id[:8]} not found."
         d = insight_to_dict(insight)
@@ -855,7 +849,7 @@ def analyze_campaign_performance_tool(params: str) -> str:
 
 
 @tool
-def compare_campaigns_tool(params: str) -> str:
+async def compare_campaigns_tool(params: str) -> str:
     """
     Compare multiple campaigns on KPIs over a selected period.
     LOW risk � read only. Returns ranked results only when data is sufficient.
@@ -893,7 +887,7 @@ def compare_campaigns_tool(params: str) -> str:
             rank_by=p.get("rank_by", "ctr"),
         )
         loop = asyncio.get_running_loop()
-        result = loop.run_until_complete(coro)
+        result = await coro
         if result is None:
             return "[ERROR] Comparison failed."
         if result.insufficient_data:
@@ -914,7 +908,7 @@ def compare_campaigns_tool(params: str) -> str:
 
 
 @tool
-def get_campaign_kpis_tool(params: str) -> str:
+async def get_campaign_kpis_tool(params: str) -> str:
     """
     Calculate KPIs for a campaign over a period. LOW risk � read only.
     Returns calculated metrics including CTR, CPC, CPM, CPA, ROAS, conversion rate.
@@ -947,7 +941,7 @@ def get_campaign_kpis_tool(params: str) -> str:
             db=db,
         )
         loop = asyncio.get_running_loop()
-        metric_records = loop.run_until_complete(coro)
+        metric_records = await coro
         if not metric_records:
             return f"No metrics found for campaign {campaign_id[:8]}."
         records = [{"metric_name": m.metric_name, "metric_value": m.metric_value, "metric_date": m.metric_date} for m in metric_records]
@@ -967,7 +961,7 @@ def get_campaign_kpis_tool(params: str) -> str:
 
 
 @tool
-def analyze_funnel_tool(params: str) -> str:
+async def analyze_funnel_tool(params: str) -> str:
     """
     Analyse the marketing funnel from authorized external company data.
     LOW risk � read only. Uses existing semantic mapping layer.
@@ -999,7 +993,7 @@ def analyze_funnel_tool(params: str) -> str:
         from app.services.funnel_service import fetch_funnel_from_external, calculate_funnel, funnel_to_dict
         coro = fetch_funnel_from_external(tenant_id=tenant_id, role_key=role_key, concepts=concepts, db=db)
         loop = asyncio.get_running_loop()
-        ext = loop.run_until_complete(coro)
+        ext = await coro
         # Map external concept names to funnel stage names
         concept_to_stage = {
             "visitor_count": "visitors", "lead_count": "leads",
@@ -1036,7 +1030,7 @@ def analyze_funnel_tool(params: str) -> str:
 
 
 @tool
-def get_funnel_metrics_tool(params: str = "{}") -> str:
+async def get_funnel_metrics_tool(params: str = "{}") -> str:
     """
     Get specific funnel metric values from authorized external company data.
     LOW risk � read only. Concepts must have valid semantic mappings.
@@ -1068,7 +1062,7 @@ def get_funnel_metrics_tool(params: str = "{}") -> str:
         from app.services.funnel_service import fetch_funnel_from_external
         coro = fetch_funnel_from_external(tenant_id=tenant_id, role_key=role_key, concepts=concepts, db=db)
         loop = asyncio.get_running_loop()
-        results = loop.run_until_complete(coro)
+        results = await coro
         lines = ["Funnel Metrics:"]
         for c, v in results.items():
             if v is not None:
@@ -1082,7 +1076,7 @@ def get_funnel_metrics_tool(params: str = "{}") -> str:
 
 
 @tool
-def analyze_campaign_funnel_tool(params: str) -> str:
+async def analyze_campaign_funnel_tool(params: str) -> str:
     """
     Analyse the funnel attributed to a specific campaign.
     LOW risk � read only. Uses campaign metrics and semantic mapping.
@@ -1120,7 +1114,7 @@ def analyze_campaign_funnel_tool(params: str) -> str:
         # Get internal campaign metrics
         coro = svc_metrics(campaign_id=campaign_id, tenant_id=tenant_id, db=db)
         loop = asyncio.get_running_loop()
-        metrics = loop.run_until_complete(coro)
+        metrics = await coro
         records = [{"metric_name": m.metric_name, "metric_value": m.metric_value, "metric_date": m.metric_date} for m in metrics]
         internal = collect_metrics(records, p.get("date_from"), p.get("date_to"))
 
@@ -1140,7 +1134,7 @@ def analyze_campaign_funnel_tool(params: str) -> str:
             valid = [c for c in ext_concepts if c in FUNNEL_SEMANTIC_CONCEPTS]
             if valid:
                 coro2 = fetch_funnel_from_external(tenant_id=tenant_id, role_key=role_key, concepts=valid, db=db)
-                ext_vals = loop.run_until_complete(coro2)
+                ext_vals = await coro2
 
         concept_to_stage = {
             "visitor_count": "visitors", "lead_count": "leads",
@@ -1333,7 +1327,7 @@ async def get_marketing_objectives_tool(status: str = "") -> str:
 
 
 @tool
-def create_marketing_objective_tool(params: str) -> str:
+async def create_marketing_objective_tool(params: str) -> str:
     """
     Create a marketing strategic objective. MEDIUM risk � requires approval.
 
@@ -1368,7 +1362,7 @@ def create_marketing_objective_tool(params: str) -> str:
             blueprint_guarded_tools=guarded_tools, db=db,
         )
         loop = asyncio.get_running_loop()
-        result = loop.run_until_complete(coro)
+        result = await coro
         if result is None:
             return "[PENDING] create_marketing_objective dispatched."
         return result.message
@@ -1378,7 +1372,7 @@ def create_marketing_objective_tool(params: str) -> str:
 
 
 @tool
-def update_marketing_objective_tool(params: str) -> str:
+async def update_marketing_objective_tool(params: str) -> str:
     """
     Update a marketing objective. HIGH risk � requires approval.
 
@@ -1413,7 +1407,7 @@ def update_marketing_objective_tool(params: str) -> str:
             blueprint_guarded_tools=guarded_tools, db=db,
         )
         loop = asyncio.get_running_loop()
-        result = loop.run_until_complete(coro)
+        result = await coro
         if result is None:
             return "[PENDING] update_marketing_objective dispatched."
         return result.message
@@ -1423,7 +1417,7 @@ def update_marketing_objective_tool(params: str) -> str:
 
 
 @tool
-def generate_content_brief_tool(params: str) -> str:
+async def generate_content_brief_tool(params: str) -> str:
     """
     Generate a structured marketing content brief using company knowledge.
     LOW risk � read/generation only. Uses existing RAG system for brand context.
@@ -1451,7 +1445,7 @@ def generate_content_brief_tool(params: str) -> str:
         from app.services.content_service import generate_brief
         req = GenerateBriefRequest(**{k: v for k, v in p.items() if k in GenerateBriefRequest.model_fields})
         loop = asyncio.get_running_loop()
-        item = loop.run_until_complete(generate_brief(req, tenant_id, db))
+        item = await generate_brief(req, tenant_id, db)
         if item is None:
             return "[PENDING] generate_content_brief dispatched."
         sources = f" (sources: {', '.join(item.rag_sources[:3])})" if item.rag_sources else ""
@@ -1462,7 +1456,7 @@ def generate_content_brief_tool(params: str) -> str:
 
 
 @tool
-def generate_content_ideas_tool(params: str) -> str:
+async def generate_content_ideas_tool(params: str) -> str:
     """
     Generate marketing content ideas for a given objective and channel.
     LOW risk � generation only. Uses RAG for brand context.
@@ -1489,7 +1483,7 @@ def generate_content_ideas_tool(params: str) -> str:
         from app.services.content_service import generate_ideas
         req = GenerateIdeasRequest(**{k: v for k, v in p.items() if k in GenerateIdeasRequest.model_fields})
         loop = asyncio.get_running_loop()
-        item = loop.run_until_complete(generate_ideas(req, tenant_id, db))
+        item = await generate_ideas(req, tenant_id, db)
         if item is None:
             return "[PENDING] generate_content_ideas dispatched."
         return f"Content ideas created (ID: {item.id[:8]}).\n\n{item.body[:800]}"
@@ -1499,7 +1493,7 @@ def generate_content_ideas_tool(params: str) -> str:
 
 
 @tool
-def generate_content_draft_tool(params: str) -> str:
+async def generate_content_draft_tool(params: str) -> str:
     """
     Generate a marketing content draft for the specified channel.
     MEDIUM risk � uses LLM and RAG. Does NOT publish externally.
@@ -1527,7 +1521,7 @@ def generate_content_draft_tool(params: str) -> str:
         from app.services.content_service import generate_draft
         req = GenerateDraftRequest(**{k: v for k, v in p.items() if k in GenerateDraftRequest.model_fields})
         loop = asyncio.get_running_loop()
-        item = loop.run_until_complete(generate_draft(req, tenant_id, db))
+        item = await generate_draft(req, tenant_id, db)
         if item is None:
             return "[PENDING] generate_content_draft dispatched."
         sources = f"\nSources: {', '.join(item.rag_sources[:3])}" if item.rag_sources else ""
@@ -1538,7 +1532,7 @@ def generate_content_draft_tool(params: str) -> str:
 
 
 @tool
-def generate_content_variants_tool(params: str) -> str:
+async def generate_content_variants_tool(params: str) -> str:
     """
     Generate multiple variants of an existing content item.
     MEDIUM risk � generation only. Does NOT publish externally.
@@ -1566,7 +1560,7 @@ def generate_content_variants_tool(params: str) -> str:
         from app.services.content_service import generate_variants
         req = GenerateVariantsRequest(**{k: v for k, v in p.items() if k in GenerateVariantsRequest.model_fields})
         loop = asyncio.get_running_loop()
-        variants = loop.run_until_complete(generate_variants(req, tenant_id, db))
+        variants = await generate_variants(req, tenant_id, db)
         if not variants:
             return "[PENDING] generate_content_variants dispatched."
         lines = [f"Created {len(variants)} content variant(s):"]
@@ -1581,7 +1575,7 @@ def generate_content_variants_tool(params: str) -> str:
 
 
 @tool
-def analyze_content_tool(params: str) -> str:
+async def analyze_content_tool(params: str) -> str:
     """
     Analyse existing content against campaign objective, audience, and CTA.
     LOW risk � read/analysis only. Uses RAG for brand guidelines context.
@@ -1609,7 +1603,7 @@ def analyze_content_tool(params: str) -> str:
         from app.services.content_service import analyze_content
         req = AnalyzeContentRequest(**{k: v for k, v in p.items() if k in AnalyzeContentRequest.model_fields})
         loop = asyncio.get_running_loop()
-        item = loop.run_until_complete(analyze_content(req, tenant_id, db))
+        item = await analyze_content(req, tenant_id, db)
         if item is None:
             return "[PENDING] analyze_content dispatched."
         analysis_text = item.analysis.get("analysis", "Analysis not available.")

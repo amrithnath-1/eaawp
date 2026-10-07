@@ -172,8 +172,8 @@ function CreateCampaignForm({ onClose }: { onClose: () => void }) {
       return;
     }
     try {
-      await create.mutateAsync(form);
-      toast.success(`Campaign "${form.name}" created (awaiting approval)`);
+      const campaign = await create.mutateAsync(form);
+      toast.success(`Campaign "${campaign.name}" saved as ${campaign.status}.`);
       onClose();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to create campaign");

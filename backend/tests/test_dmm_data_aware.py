@@ -117,31 +117,34 @@ class TestToolContextInjection:
         assert _db_session_ctx.get() is None
         assert _tenant_id_ctx.get() == "default-tenant"
 
-    def test_tool_returns_error_without_context(self):
+    @pytest.mark.asyncio
+    async def test_tool_returns_error_without_context(self):
         from app.tools.registry import clear_tool_context, query_company_data
         clear_tool_context()
-        result = query_company_data.invoke('{"semantic_concept": "test"}')
+        result = await query_company_data.ainvoke('{"semantic_concept": "test"}')
         assert "[ERROR]" in result or "no database session" in result.lower()
 
 
 # ── Missing mapping / denied entity ──────────────────────────────────────────
 
 class TestMissingMappingHandling:
-    def test_missing_mapping_query_returns_error_text(self):
+    @pytest.mark.asyncio
+    async def test_missing_mapping_query_returns_error_text(self):
         """When no semantic mapping exists, the tool must explain — not guess."""
         from app.tools.registry import clear_tool_context, query_company_data
         clear_tool_context()
         # No DB session → returns clear error, not SQL attempt
-        result = query_company_data.invoke('{"semantic_concept": "nonexistent_concept"}')
+        result = await query_company_data.ainvoke('{"semantic_concept": "nonexistent_concept"}')
         # Must NOT contain any SQL keywords indicating a guess
         assert "DROP" not in result
         assert "SELECT *" not in result
 
-    def test_missing_concept_message_is_informative(self):
+    @pytest.mark.asyncio
+    async def test_missing_concept_message_is_informative(self):
         """The error must tell the user to configure mappings."""
         from app.tools.registry import clear_tool_context, query_company_data
         clear_tool_context()
-        result = query_company_data.invoke('{"semantic_concept": "campaign_spend"}')
+        result = await query_company_data.ainvoke('{"semantic_concept": "campaign_spend"}')
         # Should contain guidance, not credentials
         assert "password" not in result.lower()
         assert "connection_string" not in result.lower()
@@ -180,7 +183,7 @@ class TestNoCredentialsInContext:
         """The tool source must never reference password fields."""
         from app.tools.registry import query_company_data
         import inspect
-        source = inspect.getsource(query_company_data.func)  # type: ignore[attr-defined]
+        source = inspect.getsource(query_company_data.coroutine)  # type: ignore[attr-defined]
         assert "encrypted_password" not in source
         assert "password" not in source.split("def query_company_data")[1]
 

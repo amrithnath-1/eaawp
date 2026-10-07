@@ -338,10 +338,11 @@ class TestContextInjection:
         clear_tool_context()
         assert _allowed_tools_ctx.get() is None
 
-    def test_tool_without_context_returns_error(self):
+    @pytest.mark.asyncio
+    async def test_tool_without_context_returns_error(self):
         from app.tools.registry import clear_tool_context, create_internal_task
         clear_tool_context()
-        result = create_internal_task.invoke('{"title": "Test task"}')
+        result = await create_internal_task.ainvoke('{"title": "Test task"}')
         assert "[ERROR]" in result or "no database session" in result.lower()
 
 

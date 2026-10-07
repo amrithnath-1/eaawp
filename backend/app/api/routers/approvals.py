@@ -1,15 +1,12 @@
 """Approval requests router — requires authenticated user."""
 from __future__ import annotations
 
-import uuid
-from datetime import datetime, timezone
-
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth import get_current_user, require_admin
-from app.db.models import ApprovalRequest, AuditLog, User
+from app.db.models import ActionAudit, ApprovalRequest, ExecutionPlan, PlanStep, User
 from app.db.session import get_db
 from app.schemas.api import ApprovalDecision, ApprovalRequestOut
 
@@ -49,26 +46,64 @@ async def decide_approval(
     if approval.status != "pending":
         raise HTTPException(status_code=409, detail="Approval already resolved")
 
-    # Update the approval record
-    approval.status = body.decision
-    approval.reviewed_by = admin_user.email or admin_user.id
-    approval.review_note = body.review_note
-    approval.resolved_at = datetime.now(timezone.utc)
+    if body.decision not in {"approved", "rejected"}:
+        raise HTTPException(status_code=422, detail="Decision must be approved or rejected.")
 
-    # Write a tamper-evident audit log entry for this decision
-    audit_entry = AuditLog(
-        id=str(uuid.uuid4()),
-        tenant_id=tenant_id,
-        actor=admin_user.email or admin_user.id,
-        event=(
-            f"approval.{body.decision}: approval_id={approval_id} "
-            f"action={approval.action!r} "
-            f"note={body.review_note!r}"
-        ),
-        department="approval-center",
-        status="ok",
+    audit_result = await db.execute(
+        select(ActionAudit).where(
+            ActionAudit.approval_request_id == approval_id,
+            ActionAudit.tenant_id == tenant_id,
+        )
     )
-    db.add(audit_entry)
+    action_audit = audit_result.scalar_one_or_none()
+    if not action_audit:
+        raise HTTPException(status_code=409, detail="This approval has no linked action to execute.")
+
+    reviewer = admin_user.email or admin_user.id
+    step_result = await db.execute(
+        select(PlanStep).where(
+            PlanStep.approval_request_id == approval_id,
+            PlanStep.tenant_id == tenant_id,
+            PlanStep.status == "awaiting_approval",
+        )
+    )
+    plan_step = step_result.scalar_one_or_none()
+
+    if plan_step:
+        plan = await db.get(ExecutionPlan, plan_step.plan_id)
+        if not plan or plan.tenant_id != tenant_id or plan.status != "awaiting_approval":
+            raise HTTPException(status_code=409, detail="The linked execution plan is no longer awaiting approval.")
+        from app.services.planner import reject_plan, resume_plan
+
+        if body.decision == "approved":
+            await resume_plan(plan_id=plan.id, tenant_id=tenant_id, reviewed_by=reviewer, db=db)
+        else:
+            await reject_plan(plan_id=plan.id, tenant_id=tenant_id, reviewed_by=reviewer, db=db)
+        from app.api.routers.planning import _sync_workflow_run_state
+        await _sync_workflow_run_state(plan, db)
+    else:
+        # An action without a paused plan is still routed through the same
+        # validation and execution service; never mark a request approved alone.
+        from app.services.action_governance import approve_and_execute, reject_action
+
+        if body.decision == "approved":
+            await approve_and_execute(
+                audit_id=action_audit.id,
+                approval_request_id=approval_id,
+                reviewed_by=reviewer,
+                tenant_id=tenant_id,
+                db=db,
+            )
+        else:
+            await reject_action(
+                audit_id=action_audit.id,
+                approval_request_id=approval_id,
+                reviewed_by=reviewer,
+                tenant_id=tenant_id,
+                db=db,
+            )
+
+    approval.review_note = body.review_note
 
     await db.commit()
     await db.refresh(approval)

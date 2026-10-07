@@ -25,8 +25,8 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.auth import get_optional_tenant_id
-from app.db.models import Workflow
+from app.core.auth import get_current_tenant_id, require_admin
+from app.db.models import ExecutionPlan, User, Workflow
 from app.db.session import get_db
 
 logger = logging.getLogger(__name__)
@@ -127,8 +127,34 @@ _ALLOWED_STEP_TYPES = frozenset([
 ])
 
 
+def _valid_cron(expression: str) -> bool:
+    """Validate the simple five-field cron subset the scheduler implements."""
+    limits = ((0, 59), (0, 23), (1, 31), (1, 12), (0, 6))
+    fields = expression.strip().split()
+    if len(fields) != 5:
+        return False
+    for field, (minimum, maximum) in zip(fields, limits):
+        if field == "*":
+            continue
+        if field.startswith("*/"):
+            try:
+                interval = int(field[2:])
+            except ValueError:
+                return False
+            if interval < 1 or interval > maximum:
+                return False
+            continue
+        try:
+            value = int(field)
+        except ValueError:
+            return False
+        if value < minimum or value > maximum:
+            return False
+    return True
+
+
 def _validate_workflow(body: WorkflowCreate | WorkflowUpdate) -> None:
-    if isinstance(body, WorkflowCreate) and body.trigger not in _ALLOWED_TRIGGERS:
+    if body.trigger is not None and body.trigger not in _ALLOWED_TRIGGERS:
         raise HTTPException(
             status_code=422,
             detail=f"trigger must be one of: {sorted(_ALLOWED_TRIGGERS)}",
@@ -142,6 +168,14 @@ def _validate_workflow(body: WorkflowCreate | WorkflowUpdate) -> None:
                 status_code=422,
                 detail=f"Step type '{step.step_type}' is not allowed. Allowed: {sorted(_ALLOWED_STEP_TYPES)}",
             )
+    if body.schedule_cron is not None and not _valid_cron(body.schedule_cron):
+        raise HTTPException(
+            status_code=422,
+            detail="schedule_cron must use five fields with *, */n, or one supported number per field.",
+        )
+    if isinstance(body, WorkflowCreate) and body.trigger == "scheduled":
+        if not body.schedule_cron or not _valid_cron(body.schedule_cron):
+            raise HTTPException(status_code=422, detail="A valid five-field schedule_cron is required for scheduled workflows.")
 
 
 # ── CRUD endpoints ────────────────────────────────────────────────────────────
@@ -149,9 +183,10 @@ def _validate_workflow(body: WorkflowCreate | WorkflowUpdate) -> None:
 @router.post("", response_model=WorkflowOut, status_code=201)
 async def create_workflow(
     body: WorkflowCreate,
-    tenant_id: str = Depends(get_optional_tenant_id),
+    admin_user: User = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ) -> WorkflowOut:
+    tenant_id = admin_user.tenant_id
     _validate_workflow(body)
     wf = Workflow(
         id=str(uuid.uuid4()),
@@ -164,7 +199,7 @@ async def create_workflow(
         steps_json=json.dumps([s.model_dump() for s in body.steps]),
         is_enabled=body.is_enabled,
         status="idle",
-        created_by=body.created_by,
+        created_by=admin_user.email or admin_user.id,
     )
     db.add(wf)
     await db.commit()
@@ -174,7 +209,7 @@ async def create_workflow(
 
 @router.get("", response_model=list[WorkflowOut])
 async def list_workflows(
-    tenant_id: str = Depends(get_optional_tenant_id),
+    tenant_id: str = Depends(get_current_tenant_id),
     db: AsyncSession = Depends(get_db),
 ) -> list[WorkflowOut]:
     result = await db.execute(
@@ -189,7 +224,7 @@ async def list_workflows(
 @router.get("/{workflow_id}", response_model=WorkflowOut)
 async def get_workflow(
     workflow_id: str,
-    tenant_id: str = Depends(get_optional_tenant_id),
+    tenant_id: str = Depends(get_current_tenant_id),
     db: AsyncSession = Depends(get_db),
 ) -> WorkflowOut:
     result = await db.execute(
@@ -207,9 +242,10 @@ async def get_workflow(
 async def update_workflow(
     workflow_id: str,
     body: WorkflowUpdate,
-    tenant_id: str = Depends(get_optional_tenant_id),
+    admin_user: User = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ) -> WorkflowOut:
+    tenant_id = admin_user.tenant_id
     result = await db.execute(
         select(Workflow).where(
             Workflow.id == workflow_id, Workflow.tenant_id == tenant_id
@@ -233,6 +269,9 @@ async def update_workflow(
     if body.is_enabled is not None:
         wf.is_enabled = body.is_enabled
 
+    if wf.trigger == "scheduled" and (not wf.schedule_cron or not _valid_cron(wf.schedule_cron)):
+        raise HTTPException(status_code=422, detail="A valid five-field schedule_cron is required for scheduled workflows.")
+
     await db.commit()
     await db.refresh(wf)
     return _orm_to_out(wf)
@@ -241,9 +280,10 @@ async def update_workflow(
 @router.delete("/{workflow_id}", status_code=204, response_model=None)
 async def delete_workflow(
     workflow_id: str,
-    tenant_id: str = Depends(get_optional_tenant_id),
+    admin_user: User = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ) -> None:
+    tenant_id = admin_user.tenant_id
     result = await db.execute(
         select(Workflow).where(
             Workflow.id == workflow_id, Workflow.tenant_id == tenant_id
@@ -259,13 +299,14 @@ async def delete_workflow(
 @router.post("/{workflow_id}/trigger", response_model=WorkflowTriggerResponse)
 async def trigger_workflow(
     workflow_id: str,
-    tenant_id: str = Depends(get_optional_tenant_id),
+    admin_user: User = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ) -> WorkflowTriggerResponse:
     """
     Manually trigger a workflow run.
     Converts workflow steps into an execution plan via the existing planner.
     """
+    tenant_id = admin_user.tenant_id
     result = await db.execute(
         select(Workflow).where(
             Workflow.id == workflow_id, Workflow.tenant_id == tenant_id
@@ -284,8 +325,9 @@ async def trigger_workflow(
 
     # Build objective from workflow steps for the planner
     steps_data = json.loads(wf.steps_json or "[]")
-    step_descriptions = [s.get("description", "") for s in steps_data]
-    objective = f"Execute workflow '{wf.name}': " + "; ".join(step_descriptions[:5])
+    step_descriptions = [s.get("description", "").strip() for s in steps_data if s.get("description", "").strip()]
+    task_instructions = "; ".join(step_descriptions[:5]) or wf.description.strip() or wf.name
+    objective = f"Execute workflow '{wf.name}': {task_instructions}"
 
     logger.info(
         "Workflow %s triggered manually for tenant %s — objective: %s",
@@ -329,12 +371,11 @@ async def trigger_workflow(
     )
 
     try:
-        import uuid as _uuid
         from app.services.planner import create_and_execute_plan
         final_message, plan_id, tool_calls = await create_and_execute_plan(
             user_prompt=objective,
             blueprint=blueprint,
-            session_id=_uuid.uuid4().hex,
+            session_id=f"workflow:{workflow_id}",
             db=db,
         )
     except Exception as exc:
@@ -353,13 +394,24 @@ async def trigger_workflow(
         clear_tool_context()
 
     # Update workflow status
-    wf.status = "completed" if plan_id else "idle"
-    wf.last_run_status = "completed"
+    plan = await db.get(ExecutionPlan, plan_id) if plan_id else None
+    run_status = plan.status if plan else "failed"
+    wf.status = run_status
+    wf.last_run_status = run_status
     await db.commit()
+
+    if run_status == "completed":
+        message = f"Workflow '{wf.name}' completed. {final_message[:300]}"
+    elif run_status == "awaiting_approval":
+        message = f"Workflow '{wf.name}' is waiting for an administrator's approval. {final_message[:300]}"
+    elif run_status == "rejected":
+        message = f"Workflow '{wf.name}' was rejected. {final_message[:300]}"
+    else:
+        message = f"Workflow '{wf.name}' failed. {final_message[:300]}"
 
     return WorkflowTriggerResponse(
         workflow_id=workflow_id,
-        status="triggered",
-        message=f"Workflow '{wf.name}' executed. {final_message[:300]}",
+        status=run_status,
+        message=message,
         plan_id=plan_id or None,
     )

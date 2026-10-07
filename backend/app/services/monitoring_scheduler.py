@@ -9,7 +9,7 @@ Design
 ------
 - Uses asyncio background tasks (started via FastAPI lifespan).
 - No external dependencies (no Celery, no APScheduler, no Redis).
-- Minimum granularity: once per TICK_INTERVAL_SECONDS (5 min).
+- Minimum granularity: one minute, matching the smallest supported cron unit.
 - Duplicate concurrent execution prevented by is_locked flags.
 - Workflows with trigger="scheduled" and schedule_cron are run when due.
 - Disabled workflows are never run.
@@ -41,7 +41,7 @@ from typing import Any
 
 from sqlalchemy import select
 
-from app.db.models import Workflow
+from app.db.models import ExecutionPlan, Workflow
 from app.db.monitoring_models import MonitoringRule
 from app.db.session import AsyncSessionLocal
 from app.schemas.monitoring import ALLOWED_FREQUENCIES, FREQUENCY_INTERVAL_MINUTES
@@ -50,7 +50,7 @@ logger = logging.getLogger(__name__)
 
 # How often the scheduler wakes up to check for due evaluations (in seconds).
 # Set to 5 minutes — granular enough for hourly checks without being wasteful.
-TICK_INTERVAL_SECONDS = 300  # 5 minutes
+TICK_INTERVAL_SECONDS = 60  # 1 minute; scheduled workflows use minute precision
 
 # Flag to allow graceful shutdown
 _running = False
@@ -244,6 +244,18 @@ def _cron_is_due(cron_expr: str, now: datetime) -> bool:
         return False
 
 
+def _has_run_this_minute(last_run_at: datetime | None, now: datetime) -> bool:
+    if not last_run_at:
+        return False
+    last_run_utc = (
+        last_run_at.replace(tzinfo=timezone.utc)
+        if last_run_at.tzinfo is None
+        else last_run_at.astimezone(timezone.utc)
+    )
+    now_utc = now.replace(tzinfo=timezone.utc) if now.tzinfo is None else now.astimezone(timezone.utc)
+    return last_run_utc.strftime("%Y-%m-%d %H:%M") == now_utc.strftime("%Y-%m-%d %H:%M")
+
+
 async def _tick_workflows() -> None:
     """
     One workflow tick: find due scheduled workflows and execute them.
@@ -264,10 +276,16 @@ async def _tick_workflows() -> None:
     try:
         async with AsyncSessionLocal() as session:
             result = await session.execute(
-                select(Workflow.id, Workflow.tenant_id, Workflow.name, Workflow.schedule_cron).where(
+                select(
+                    Workflow.id,
+                    Workflow.tenant_id,
+                    Workflow.name,
+                    Workflow.schedule_cron,
+                    Workflow.last_run_at,
+                ).where(
                     Workflow.trigger == "scheduled",
                     Workflow.is_enabled == True,     # noqa: E712
-                    Workflow.status != "running",
+                    Workflow.status.notin_(("running", "awaiting_approval")),
                     Workflow.schedule_cron != None,  # noqa: E711
                 )
             )
@@ -276,8 +294,9 @@ async def _tick_workflows() -> None:
         logger.error("Workflow scheduler: failed to query due workflows: %s", exc)
         return
 
-    for wf_id, tenant_id, name, cron in rows:
-        if cron and _cron_is_due(cron, now):
+    for wf_id, tenant_id, name, cron, last_run_at in rows:
+        ran_this_minute = _has_run_this_minute(last_run_at, now)
+        if cron and not ran_this_minute and _cron_is_due(cron, now):
             due.append((wf_id, tenant_id, name))
 
     if not due:
@@ -321,10 +340,15 @@ async def _execute_workflow(workflow_id: str, tenant_id: str) -> None:
 
         try:
             steps_data = json.loads(wf.steps_json or "[]")
-            step_descriptions = [s.get("description", "") for s in steps_data]
+            step_descriptions = [
+                s.get("description", "").strip()
+                for s in steps_data
+                if s.get("description", "").strip()
+            ]
+            task_instructions = "; ".join(step_descriptions[:5]) or wf.description.strip() or wf.name
             objective = (
                 f"Scheduled workflow '{wf.name}': "
-                + "; ".join(step_descriptions[:5])
+                + task_instructions
             )
 
             # Collect tools referenced in steps
@@ -364,17 +388,19 @@ async def _execute_workflow(workflow_id: str, tenant_id: str) -> None:
             )
 
             try:
-                final_message, plan_id, _ = await create_and_execute_plan(
+                _final_message, plan_id, _ = await create_and_execute_plan(
                     user_prompt=objective,
                     blueprint=blueprint,
-                    session_id=uuid.uuid4().hex,
+                    session_id=f"workflow:{workflow_id}",
                     db=session,
                 )
-                wf.status = "completed"
-                wf.last_run_status = "completed"
+                plan = await session.get(ExecutionPlan, plan_id) if plan_id else None
+                run_status = plan.status if plan else "failed"
+                wf.status = run_status
+                wf.last_run_status = run_status
                 logger.info(
-                    "Workflow %s (tenant %s) completed — plan_id: %s",
-                    workflow_id, tenant_id, plan_id,
+                    "Workflow %s (tenant %s) finished with status %s — plan_id: %s",
+                    workflow_id, tenant_id, run_status, plan_id,
                 )
             finally:
                 clear_tool_context()
