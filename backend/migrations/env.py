@@ -25,6 +25,7 @@ import app.db.notification_models  # noqa: E402, F401
 import app.db.channel_models  # noqa: E402, F401
 import app.db.integration_models  # noqa: E402, F401  ← Phase 2 integration framework
 import app.db.oauth_models  # noqa: E402, F401  ← Phase 4 OAuth state management
+import app.db.provider_config_models  # noqa: E402, F401  ← Admin-Assisted Config Engine
 # Phase H/I — new tables for employee builder and workflow engine
 # (These are defined in models.py so Base already knows them — no extra import needed)
 config = context.config

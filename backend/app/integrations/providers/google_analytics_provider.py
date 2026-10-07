@@ -28,6 +28,7 @@ from typing import Any
 from app.integrations.provider import (
     CapabilityCategory,
     CapabilityResult,
+    ConfigurationField,
     ConnectionTestResult,
     IntegrationProvider,
     ProviderCapability,
@@ -97,6 +98,46 @@ class GoogleAnalyticsProvider(IntegrationProvider):
             "client_id",
             "client_secret",
         ]
+
+    def configuration_requirements(self) -> list[ConfigurationField]:
+        """
+        Server-level OAuth app credentials needed before any GA4 connection.
+        Same pattern as Google Search Console — both use Google OAuth2.
+        SECRET fields are stored encrypted — values never returned to LLM.
+        """
+        return [
+            ConfigurationField(
+                key="client_id",
+                display_name="Google Client ID",
+                description="OAuth 2.0 Client ID from Google Cloud Console.",
+                is_secret=False,
+                required=True,
+                field_type="identifier",
+                placeholder="*.apps.googleusercontent.com",
+                help_url="https://console.cloud.google.com/apis/credentials",
+            ),
+            ConfigurationField(
+                key="client_secret",
+                display_name="Google Client Secret",
+                description="OAuth 2.0 Client Secret — stored encrypted, never shown.",
+                is_secret=True,
+                required=True,
+                field_type="secret",
+                placeholder="GOCSPX-...",
+                help_url="https://console.cloud.google.com/apis/credentials",
+            ),
+            ConfigurationField(
+                key="redirect_uri",
+                display_name="Authorized Redirect URI",
+                description="Must match exactly what is registered in Google Cloud Console.",
+                is_secret=False,
+                required=True,
+                field_type="url",
+                placeholder="http://localhost:8000/api/v1/oauth/google/callback",
+                help_url="https://console.cloud.google.com/apis/credentials",
+            ),
+        ]
+
 
     def get_capabilities(self) -> list[ProviderCapability]:
         return [

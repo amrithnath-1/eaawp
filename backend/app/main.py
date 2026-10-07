@@ -61,6 +61,7 @@ from app.api.routers.nl_integration import router as nl_integration_router  # Ph
 from app.api.routers.employee_builder import router as employee_builder_router  # Phase H — employee builder
 from app.api.routers.workflow import router as workflow_router  # Phase I — workflow engine
 from app.api.routers.admin_customization import router as admin_customization_router  # Admin AI Customize
+from app.api.routers.admin_config import router as admin_config_router  # Admin Config Engine
 from app.middleware.observability import ObservabilityMiddleware  # Phase N
 
 logging.basicConfig(
@@ -185,6 +186,7 @@ app.include_router(nl_integration_router)  # Phase B — /api/v1/nl-integration/
 app.include_router(employee_builder_router)  # Phase H — /api/v1/employees/*
 app.include_router(workflow_router)  # Phase I — /api/v1/workflows/*
 app.include_router(admin_customization_router)  # Admin AI Customize — /api/v1/admin/customize/*
+app.include_router(admin_config_router)  # Admin Config Engine — /api/v1/admin/provider-config/*
 
 
 # ── Health check ──────────────────────────────────────────────────────────────

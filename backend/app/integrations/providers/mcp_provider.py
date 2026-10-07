@@ -45,6 +45,7 @@ import requests
 from app.integrations.provider import (
     CapabilityCategory,
     CapabilityResult,
+    ConfigurationField,
     ConnectionTestResult,
     IntegrationProvider,
     ProviderCapability,
@@ -235,6 +236,14 @@ class MCPIntegrationProvider(IntegrationProvider):
 
     def optional_credential_fields(self) -> list[str]:
         return ["api_key", "auth_header_name"]
+
+    def configuration_requirements(self) -> list[ConfigurationField]:
+        """
+        MCP server_url and api_key are per-connection credentials entered each time
+        a specific MCP server is connected. There is no global server-level
+        configuration shared across all connections. Returns [] accordingly.
+        """
+        return []
 
     def get_capabilities(self) -> list[ProviderCapability]:
         """

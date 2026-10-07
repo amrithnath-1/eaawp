@@ -32,6 +32,7 @@ import requests
 from app.integrations.provider import (
     CapabilityCategory,
     CapabilityResult,
+    ConfigurationField,
     ConnectionTestResult,
     IntegrationProvider,
     ProviderCapability,
@@ -95,6 +96,36 @@ class FacebookProvider(IntegrationProvider):
 
     def optional_credential_fields(self) -> list[str]:
         return ["app_id", "app_secret"]
+
+    def configuration_requirements(self) -> list[ConfigurationField]:
+        """
+        Server-level Facebook App credentials needed before any OAuth flow.
+        app_id and app_secret are registered once in the Meta Developer Console.
+        The per-user access_token comes from OAuth and is NOT a server-level field.
+        SECRET fields are stored encrypted — values never returned to LLM.
+        """
+        return [
+            ConfigurationField(
+                key="app_id",
+                display_name="Facebook App ID",
+                description="App ID from Meta Developer Console.",
+                is_secret=False,
+                required=True,
+                field_type="identifier",
+                placeholder="123456789",
+                help_url="https://developers.facebook.com/apps/",
+            ),
+            ConfigurationField(
+                key="app_secret",
+                display_name="Facebook App Secret",
+                description="App Secret — stored encrypted, never shown.",
+                is_secret=True,
+                required=True,
+                field_type="secret",
+                placeholder="...",
+                help_url="https://developers.facebook.com/apps/",
+            ),
+        ]
 
     def get_capabilities(self) -> list[ProviderCapability]:
         return [

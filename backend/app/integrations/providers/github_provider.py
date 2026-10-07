@@ -37,6 +37,7 @@ import requests
 from app.integrations.provider import (
     CapabilityCategory,
     CapabilityResult,
+    ConfigurationField,
     ConnectionTestResult,
     IntegrationProvider,
     ProviderCapability,
@@ -95,6 +96,14 @@ class GitHubProvider(IntegrationProvider):
 
     def required_credential_fields(self) -> list[str]:
         return ["github_token"]
+
+    def configuration_requirements(self) -> list[ConfigurationField]:
+        """
+        GitHub uses per-connection Personal Access Tokens — no global server-level
+        OAuth App credentials are required. Returns [] to indicate no pre-configuration.
+        The PAT is entered per-connection in the existing GitHub form.
+        """
+        return []
 
     def get_capabilities(self) -> list[ProviderCapability]:
         return [

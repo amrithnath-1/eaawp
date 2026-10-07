@@ -130,7 +130,9 @@ async def chat(
         tenant_integrations = []
 
     # Build reply and next action
-    reply, next_action, action_data = build_conversation_reply(intent, tenant_integrations)
+    reply, next_action, action_data = await build_conversation_reply(
+        intent, tenant_integrations, db=db, tenant_id=tenant_id
+    )
 
     # Build available providers list (public catalogue, no credentials)
     available_providers = [

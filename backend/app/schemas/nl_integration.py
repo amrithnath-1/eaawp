@@ -132,6 +132,8 @@ class IntegrationConversationResponse(BaseModel):
         "CLARIFY",
         "OPEN_GITHUB_FORM",
         "OPEN_MCP_FORM",
+        "OPEN_FACEBOOK_FORM",
+        "CONFIGURATION_REQUIRED",
         "UNAVAILABLE",
     ] = "NONE"
     action_data: dict[str, Any] = Field(

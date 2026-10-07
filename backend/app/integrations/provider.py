@@ -438,5 +438,65 @@ class IntegrationProvider(ABC):
         )
         return msg[:500]
 
+    def configuration_requirements(self) -> list["ConfigurationField"]:
+        """
+        Return the list of server-level configuration fields this provider requires
+        before any OAuth flow or connection can begin.
+
+        These are GLOBAL fields shared across all tenants (e.g. Google OAuth App
+        credentials stored in the server environment or the provider_server_configs
+        table). They are NOT per-connection credentials.
+
+        Default implementation returns [] — no pre-configuration needed.
+        Override for OAuth2 providers that require a registered App (client_id,
+        client_secret) before any user can authorize.
+
+        SECURITY: Field values are NEVER returned here. Only field metadata
+        (key, display_name, is_secret, required) is declared.
+        """
+        return []
+
     def __repr__(self) -> str:
         return f"<IntegrationProvider type={self.provider_type!r}>"
+
+
+# ── Configuration field metadata ──────────────────────────────────────────────
+
+@dataclass(frozen=True)
+class ConfigurationField:
+    """
+    Metadata describing a single server-level configuration field for a provider.
+
+    Used by the Admin-Assisted Configuration Engine to:
+    - Determine what fields are needed before a connection can be established.
+    - Render the correct input type in the admin configuration panel.
+    - Classify which fields must be stored encrypted (is_secret=True).
+
+    SECURITY: This dataclass describes FIELDS, never VALUES.
+    No credential value must ever appear in instances of this class.
+    """
+    key: str
+    display_name: str
+    description: str
+    is_secret: bool
+    required: bool = True
+    field_type: str = "text"       # "identifier" | "secret" | "url" | "text"
+    placeholder: str = ""
+    help_url: str = ""
+
+
+@dataclass
+class ConfigurationStatus:
+    """
+    Current configuration state for a provider within a tenant.
+
+    SECURITY: This dataclass contains ONLY booleans and field key names — never
+    actual credential values. Callers must ensure no value leaks into any field.
+    """
+    provider_type: str
+    state: str                      # NOT_CONFIGURED | PARTIALLY_CONFIGURED | CONFIGURED | VALID | INVALID
+    configured_fields: list[str]    # keys of fields that ARE configured — no values
+    missing_fields: list[str]       # keys of required fields that are NOT configured
+    oauth_ready: bool               # True when all required fields are configured
+    redirect_uri: str = ""          # safe metadata: the registered callback URL
+    message: str = ""               # human-readable status summary

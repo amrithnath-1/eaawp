@@ -11,6 +11,8 @@ Security invariants:
 - The LLM cannot supply credentials, tenant_id, or grant permissions directly.
 - System prompt instructs the LLM to refuse credential extraction requests.
 - If the LLM is unavailable, raise RuntimeError so the caller can return 503.
+- ConfigurationStatus is consumed AFTER LLM parsing — the LLM never sees it.
+- Reply text contains only field names and display labels — never values.
 """
 
 from __future__ import annotations
@@ -22,6 +24,7 @@ import uuid
 from typing import Any
 
 from langchain_core.messages import HumanMessage, SystemMessage
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.integrations.integration_registry import integration_registry
 from app.llm import get_llm_gateway
@@ -163,14 +166,23 @@ async def parse_integration_intent(
     return intent
 
 
-def build_conversation_reply(
+async def build_conversation_reply(
     intent: IntegrationIntent,
     tenant_integrations: list[dict],
+    db: AsyncSession | None = None,
+    tenant_id: str | None = None,
 ) -> tuple[str, str, dict]:
     """
     Build a natural-language reply and determine next_action based on intent.
     Returns: (reply_text, next_action, action_data)
     The reply never contains credentials, tokens, or sensitive data.
+
+    If db and tenant_id are provided, performs a configuration status check
+    for OAuth providers before returning REDIRECT_TO_OAUTH. If configuration
+    is missing, returns CONFIGURATION_REQUIRED with missing field metadata.
+
+    SECURITY: ConfigurationStatus is consumed here — the LLM never sees it.
+    Reply text contains only field display names and the callback URL, never values.
     """
     provider = intent.provider_type
     provider_info = next(
@@ -226,6 +238,51 @@ def build_conversation_reply(
             )
         if provider in ("google_search_console", "google_analytics"):
             pname = provider_info["display_name"] if provider_info else provider
+
+            # Check if server-level OAuth configuration is present before redirecting.
+            # ConfigurationStatus is consumed here — the LLM never sees it.
+            # Reply text includes only field display names and the callback URL — no values.
+            if db is not None and tenant_id is not None:
+                from app.services.provider_config_service import get_provider_configuration_status
+                config_status = await get_provider_configuration_status(provider, tenant_id, db)
+                if config_status.state in ("NOT_CONFIGURED", "PARTIALLY_CONFIGURED"):
+                    missing = config_status.missing_fields
+                    # Build field list using display names from provider metadata.
+                    # SECURITY: only display_name and is_secret classification used.
+                    provider_obj = integration_registry.get(provider)
+                    req_fields = provider_obj.configuration_requirements() if provider_obj else []
+                    req_map = {f.key: f for f in req_fields}
+                    field_lines = []
+                    for field_key in missing:
+                        fd = req_map.get(field_key)
+                        label = fd.display_name if fd else field_key
+                        secret_note = " (stored encrypted, never shown)" if fd and fd.is_secret else ""
+                        field_lines.append(f"• {label}{secret_note}")
+
+                    redirect_uri = config_status.redirect_uri
+                    reply = (
+                        f"I can connect {pname}, but Google OAuth is not fully configured yet.\n\n"
+                        f"I need these settings from Google Cloud Console "
+                        f"(https://console.cloud.google.com/apis/credentials):\n"
+                        + "\n".join(field_lines)
+                        + (
+                            f"\n\nIMPORTANT: Register this exact Redirect URI in Google Cloud Console:\n{redirect_uri}"
+                            if redirect_uri else ""
+                        )
+                        + "\n\nYou can submit these through the secure configuration panel, "
+                        + "or ask me to guide you step by step."
+                    )
+                    return (
+                        reply,
+                        "CONFIGURATION_REQUIRED",
+                        {
+                            "provider_type": provider,
+                            "missing_fields": missing,
+                            "redirect_uri": redirect_uri,
+                            "config_endpoint": f"/api/v1/admin/provider-config/{provider}",
+                        },
+                    )
+
             return (
                 "To connect {}, you will need to authorize access via their OAuth screen. "
                 "Click the Connect button to begin. "
@@ -245,6 +302,46 @@ def build_conversation_reply(
                 "Use the MCP Server tab to enter the HTTP server URL and optional authentication details in the secure form. "
                 "EAAWP will test access and discover tools; you must grant tools to an AI role before it can use them.",
                 "OPEN_MCP_FORM",
+                {"provider_type": provider},
+            )
+        if provider == "facebook":
+            # Check if server-level Facebook App credentials are configured.
+            if db is not None and tenant_id is not None:
+                from app.services.provider_config_service import get_provider_configuration_status
+                config_status = await get_provider_configuration_status(provider, tenant_id, db)
+                if config_status.state in ("NOT_CONFIGURED", "PARTIALLY_CONFIGURED"):
+                    missing = config_status.missing_fields
+                    pname_fb = provider_info["display_name"] if provider_info else "Meta / Facebook"
+                    provider_obj = integration_registry.get(provider)
+                    req_fields = provider_obj.configuration_requirements() if provider_obj else []
+                    req_map = {f.key: f for f in req_fields}
+                    field_lines = []
+                    for field_key in missing:
+                        fd = req_map.get(field_key)
+                        label = fd.display_name if fd else field_key
+                        secret_note = " (stored encrypted, never shown)" if fd and fd.is_secret else ""
+                        field_lines.append(f"• {label}{secret_note}")
+                    reply = (
+                        f"I can connect {pname_fb}, but Facebook App credentials are not fully configured yet.\n\n"
+                        f"I need these settings from the Meta Developer Console "
+                        f"(https://developers.facebook.com/apps/):\n"
+                        + "\n".join(field_lines)
+                        + "\n\nYou can submit these through the secure configuration panel."
+                    )
+                    return (
+                        reply,
+                        "CONFIGURATION_REQUIRED",
+                        {
+                            "provider_type": provider,
+                            "missing_fields": missing,
+                            "redirect_uri": "",
+                            "config_endpoint": f"/api/v1/admin/provider-config/{provider}",
+                        },
+                    )
+            return (
+                "Use the Facebook tab to enter your App credentials and begin the OAuth flow. "
+                "EAAWP will save them encrypted and guide you through the authorization.",
+                "OPEN_FACEBOOK_FORM",
                 {"provider_type": provider},
             )
         else:

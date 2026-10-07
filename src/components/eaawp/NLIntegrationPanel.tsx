@@ -10,7 +10,7 @@
  * Credentials are NEVER handled by this component — OAuth flows redirect
  * the browser through the backend callback.
  */
-import { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import { toast } from "sonner";
 import {
   Send, Loader2, CheckCircle, XCircle, ExternalLink,
@@ -25,11 +25,12 @@ import {
   useGaAuthorize,
   type NLConversationResponse,
 } from "@/hooks/use-api";
+import { AdminProviderConfigPanel } from "./AdminProviderConfigPanel";
 
 interface Message {
   role: "user" | "assistant";
   content: string;
-  next_action?: string;
+  next_action?: "NONE" | "REDIRECT_TO_OAUTH" | "SHOW_CAPABILITIES" | "REQUEST_CREDENTIALS" | "CONFIRM_GRANT" | "SHOW_STATUS" | "CLARIFY" | "OPEN_GITHUB_FORM" | "OPEN_MCP_FORM" | "OPEN_FACEBOOK_FORM" | "CONFIGURATION_REQUIRED" | "UNAVAILABLE";
   action_data?: Record<string, unknown>;
   timestamp: Date;
 }
@@ -85,9 +86,11 @@ export function NLIntegrationPanel({ onOpenTab }: { onOpenTab?: (tab: "github" |
           setMessages((prev) => [
             ...prev,
             {
-              role: "assistant",
+              role: "assistant" as const,
               content: data.reply,
-              next_action: data.next_action,
+              ...(data.next_action
+                ? { next_action: data.next_action as NonNullable<Message["next_action"]> }
+                : {}),
               action_data: data.action_data,
               timestamp: new Date(),
             },
@@ -124,6 +127,62 @@ export function NLIntegrationPanel({ onOpenTab }: { onOpenTab?: (tab: "github" |
         toast.info(`OAuth for ${provider} — use the Integration Manager to connect.`);
       }
     }
+  }
+
+  function renderMessageAction(msg: Message): React.ReactNode {
+    if (msg.role !== "assistant") return null;
+    const action = msg.next_action;
+    const data = msg.action_data;
+    if (!action || action === "NONE") return null;
+
+    if (action === "REDIRECT_TO_OAUTH" && data) {
+      return (
+        <button
+          onClick={() => handleAction(action, data)}
+          className="mt-1.5 inline-flex items-center gap-1.5 border border-foreground/20 bg-foreground/5 px-2.5 py-1 font-mono text-[10px] tracking-[0.08em] hover:bg-foreground/10"
+        >
+          <ExternalLink className="size-3" />
+          CONNECT WITH GOOGLE
+        </button>
+      );
+    }
+
+    if (action === "OPEN_GITHUB_FORM" || action === "OPEN_MCP_FORM") {
+      const label = action === "OPEN_GITHUB_FORM" ? "GITHUB" : "MCP SERVER";
+      const tab = action === "OPEN_GITHUB_FORM" ? "github" as const : "mcp" as const;
+      return (
+        <button
+          onClick={() => onOpenTab?.(tab)}
+          className="mt-1.5 inline-flex items-center gap-1.5 border border-foreground/20 bg-foreground/5 px-2.5 py-1 font-mono text-[10px] tracking-[0.08em] hover:bg-foreground/10"
+        >
+          <ExternalLink className="size-3" />
+          {`OPEN ${label} SETUP`}
+        </button>
+      );
+    }
+
+    if (action === "CONFIGURATION_REQUIRED" && data?.["provider_type"]) {
+      const providerType = String(data["provider_type"]);
+      const displayName = data["provider_display_name"]
+        ? String(data["provider_display_name"])
+        : providerType;
+      return (
+        <div className="mt-2">
+          <AdminProviderConfigPanel
+            providerType={providerType}
+            providerDisplayName={displayName}
+            onConfigured={() => {
+              const lastUserMsg = [...messages].reverse().find((m) => m.role === "user");
+              if (lastUserMsg) {
+                void send(lastUserMsg.content);
+              }
+            }}
+          />
+        </div>
+      );
+    }
+
+    return null;
   }
 
   return (
@@ -181,25 +240,8 @@ export function NLIntegrationPanel({ onOpenTab }: { onOpenTab?: (tab: "github" |
             >
               {msg.content}
             </div>
-            {/* Action button */}
-            {msg.role === "assistant" && msg.next_action === "REDIRECT_TO_OAUTH" && msg.action_data && (
-              <button
-                onClick={() => handleAction(msg.next_action!, msg.action_data!)}
-                className="mt-1.5 inline-flex items-center gap-1.5 border border-foreground/20 bg-foreground/5 px-2.5 py-1 font-mono text-[10px] tracking-[0.08em] hover:bg-foreground/10"
-              >
-                <ExternalLink className="size-3" />
-                CONNECT WITH GOOGLE
-              </button>
-            )}
-            {msg.role === "assistant" && (msg.next_action === "OPEN_GITHUB_FORM" || msg.next_action === "OPEN_MCP_FORM") && (
-              <button
-                onClick={() => onOpenTab?.(msg.next_action === "OPEN_GITHUB_FORM" ? "github" : "mcp")}
-                className="mt-1.5 inline-flex items-center gap-1.5 border border-foreground/20 bg-foreground/5 px-2.5 py-1 font-mono text-[10px] tracking-[0.08em] hover:bg-foreground/10"
-              >
-                <ExternalLink className="size-3" />
-                OPEN {msg.next_action === "OPEN_GITHUB_FORM" ? "GITHUB" : "MCP SERVER"} SETUP
-              </button>
-            )}
+            {/* Action buttons — rendered by helper to avoid TypeScript strict narrowing issues */}
+            {renderMessageAction(msg)}
             <div className="mt-0.5 font-mono text-[9px] text-muted-foreground/50">
               {msg.timestamp.toLocaleTimeString()}
             </div>
