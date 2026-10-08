@@ -322,17 +322,22 @@ class TestConversationReplyBuilder:
             **kwargs,
         )
 
+    def _run(self, coro):
+        """Run an async coroutine synchronously in tests."""
+        import asyncio
+        return asyncio.run(coro)
+
     def test_unknown_intent_returns_clarify(self):
         from app.services.nl_integration_service import build_conversation_reply
         intent = self._make_intent("UNKNOWN")
-        reply, action, data = build_conversation_reply(intent, [])
+        reply, action, data = self._run(build_conversation_reply(intent, []))
         assert action == "CLARIFY"
         assert len(reply) > 0
 
     def test_list_integrations_no_connections(self):
         from app.services.nl_integration_service import build_conversation_reply
         intent = self._make_intent("LIST_INTEGRATIONS")
-        reply, action, data = build_conversation_reply(intent, [])
+        reply, action, data = self._run(build_conversation_reply(intent, []))
         assert action == "NONE"
         assert "No integrations" in reply
 
@@ -340,19 +345,20 @@ class TestConversationReplyBuilder:
         from app.services.nl_integration_service import build_conversation_reply
         intent = self._make_intent("LIST_INTEGRATIONS")
         integrations = [{"provider_type": "google_search_console", "display_name": "GSC", "status": "connected"}]
-        reply, action, data = build_conversation_reply(intent, integrations)
+        reply, action, data = self._run(build_conversation_reply(intent, integrations))
         assert "google_search_console" in reply
 
     def test_connect_unknown_provider_clarify(self):
         from app.services.nl_integration_service import build_conversation_reply
         intent = self._make_intent("CONNECT_INTEGRATION", provider_type=None)
-        reply, action, data = build_conversation_reply(intent, [])
+        reply, action, data = self._run(build_conversation_reply(intent, []))
         assert action == "CLARIFY"
 
     def test_connect_oauth_provider_redirects(self):
         from app.services.nl_integration_service import build_conversation_reply
         intent = self._make_intent("CONNECT_INTEGRATION", provider_type="google_analytics")
-        reply, action, data = build_conversation_reply(intent, [])
+        # Without db/tenant_id, the config check is skipped → falls through to REDIRECT_TO_OAUTH
+        reply, action, data = self._run(build_conversation_reply(intent, []))
         assert action == "REDIRECT_TO_OAUTH"
         assert data["provider_type"] == "google_analytics"
 
@@ -363,7 +369,7 @@ class TestConversationReplyBuilder:
             provider_type="google_search_console",
             target_role_key=None,
         )
-        reply, action, data = build_conversation_reply(intent, [])
+        reply, action, data = self._run(build_conversation_reply(intent, []))
         assert action == "CLARIFY"
 
     def test_grant_full_params_confirm(self):
@@ -376,14 +382,14 @@ class TestConversationReplyBuilder:
             requested_capabilities=["get_search_analytics"],
             confidence=0.9,
         )
-        reply, action, data = build_conversation_reply(intent, [])
+        reply, action, data = self._run(build_conversation_reply(intent, []))
         assert action == "CONFIRM_GRANT"
         assert data["role_key"] == "DIGITAL_MARKETING_MANAGER"
 
     def test_check_status_not_connected(self):
         from app.services.nl_integration_service import build_conversation_reply
         intent = self._make_intent("CHECK_STATUS", provider_type="facebook")
-        reply, action, data = build_conversation_reply(intent, [])
+        reply, action, data = self._run(build_conversation_reply(intent, []))
         assert "not currently connected" in reply.lower()
 
     def test_reply_never_contains_token_patterns(self):
@@ -391,7 +397,7 @@ class TestConversationReplyBuilder:
         from app.schemas.nl_integration import IntegrationIntent
         for intent_type in ["CONNECT_INTEGRATION", "LIST_INTEGRATIONS", "UNKNOWN"]:
             intent = IntegrationIntent(intent_type=intent_type, confidence=0.9)
-            reply, _, _ = build_conversation_reply(intent, [])
+            reply, _, _ = self._run(build_conversation_reply(intent, []))
             assert "ya29." not in reply
             assert "Bearer" not in reply
 

@@ -89,6 +89,20 @@ Rules:
 5. The final step must always be type "response" with no tool.
 6. Steps may depend on prior steps (use depends_on as a list of step indices, 0-based).
 
+CRITICAL — INTEGRATION ACTION REQUESTS:
+- If the user is asking to CONNECT, DISCONNECT, or CHECK the status of an integration
+  (e.g. "Connect my GSC", "Connect Google Analytics", "Connect GitHub", "Connect MCP",
+   "Connect my database", "Is GSC connected?"), do NOT use fetch_knowledge_base.
+- Integration connection requests are ACTION requests, not information requests.
+- Respond with a single "response" step that says:
+  "I'll handle the Google Search Console connection through the integration setup flow.
+   Please use the integration panel or ask me again through the Integrations section."
+- Never answer "Connect my GSC" with an SOP or documentation from the knowledge base.
+
+INFORMATION vs ACTION distinction:
+- "How do I connect GSC?" → INFORMATION → MAY use fetch_knowledge_base
+- "Connect my GSC" → ACTION → must NOT use fetch_knowledge_base, must NOT return docs
+
 Campaign management rules (IMPORTANT):
 - get_campaigns, get_campaign_metrics, get_campaign_summary are READ tools (low risk, auto-execute).
 - analyze_campaign_performance, compare_campaigns, get_campaign_kpis are READ tools (low risk, auto-execute).

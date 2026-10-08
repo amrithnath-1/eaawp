@@ -139,6 +139,103 @@ async def execute_agent(
             step_summaries=[],
         )
 
+    # ── Integration action pre-flight ─────────────────────────────────────────
+    # MUST run BEFORE RAG retrieval and BEFORE the planner.
+    #
+    # If the user's prompt is an integration action request (connect GSC, connect
+    # GA, list integrations, check status, etc.) we route it through the existing
+    # NL Integration Service rather than the planner/RAG pipeline.
+    #
+    # This prevents the model from answering "Connect my GSC" with knowledge-base
+    # documentation instead of executing the integration flow.
+    #
+    # Heuristic: call parse_integration_intent() cheaply; if it returns a
+    # recognised, high-confidence action intent, handle it here and short-circuit.
+    # INFORMATION requests ("How do I connect GSC?") intentionally fall through
+    # to the planner so they can use the knowledge base.
+    _INTEGRATION_ACTION_INTENTS = frozenset({
+        "CONNECT_INTEGRATION",
+        "DISCONNECT_INTEGRATION",
+        "LIST_INTEGRATIONS",
+        "LIST_CAPABILITIES",
+        "GRANT_CAPABILITY",
+        "REVOKE_CAPABILITY",
+        "CHECK_STATUS",
+        "TEST_CONNECTION",
+    })
+    try:
+        from app.services.nl_integration_service import (
+            build_conversation_reply,
+            parse_integration_intent,
+        )
+        from app.integrations import manager as _int_mgr
+
+        _intent = await parse_integration_intent(request.user_prompt)
+
+        if (
+            _intent.intent_type in _INTEGRATION_ACTION_INTENTS
+            and _intent.confidence >= 0.70
+        ):
+            # Load current integrations for context (safe metadata — no credentials)
+            try:
+                _existing = await _int_mgr.list_integrations(
+                    tenant_id=authoritative_blueprint.tenant_id, db=db
+                )
+                _tenant_integrations = [
+                    {
+                        "id": i.id,
+                        "provider_type": i.provider_type,
+                        "display_name": i.display_name,
+                        "status": i.status,
+                        "is_enabled": i.is_enabled,
+                        "last_tested_at": i.last_tested_at.isoformat()
+                        if i.last_tested_at
+                        else None,
+                    }
+                    for i in _existing
+                ]
+            except Exception:
+                _tenant_integrations = []
+
+            _reply, _next_action, _action_data = await build_conversation_reply(
+                intent=_intent,
+                tenant_integrations=_tenant_integrations,
+                db=db,
+                tenant_id=authoritative_blueprint.tenant_id,
+            )
+
+            # Encode next_action and action_data in the response sources field
+            # so the frontend can read them without a schema change.
+            import json as _json
+            _meta_sources: list[str] = []
+            if _next_action != "NONE":
+                _meta_sources.append(
+                    f"__integration_action__:{_json.dumps({'next_action': _next_action, 'action_data': _action_data})}"
+                )
+
+            logger.info(
+                "Integration action intercepted: intent=%s provider=%s action=%s tenant=%s",
+                _intent.intent_type,
+                _intent.provider_type,
+                _next_action,
+                authoritative_blueprint.tenant_id,
+            )
+
+            return AgentExecutionResponse(
+                message=_reply,
+                tool_calls=[],
+                sources=_meta_sources,
+                requires_approval=False,
+                session_id=resolved_session_id,
+                plan_id=None,
+                plan_status=None,
+                step_summaries=[f"[INTEGRATION] {_intent.intent_type} → {_next_action}"],
+            )
+
+    except Exception as _intent_exc:
+        # Intent detection is best-effort — if it fails, continue to normal execution
+        logger.debug("Integration intent pre-flight failed (non-fatal): %s", _intent_exc)
+
     has_action_tools = any(is_action_tool(t) for t in authoritative_blueprint.allowed_tools)
 
     # ── Shared pre-work: RAG + data context ───────────────────────────────────

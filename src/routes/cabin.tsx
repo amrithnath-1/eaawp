@@ -1,7 +1,7 @@
 import type { ReactElement } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
-import { SendHorizonal, CheckCircle, Clock, XCircle, RefreshCw } from "lucide-react";
+import { SendHorizonal, CheckCircle, Clock, XCircle, RefreshCw, ExternalLink } from "lucide-react";
 import { toast } from "sonner";
 import { AppShell } from "@/components/eaawp/AppShell";
 import { AmoebaButton } from "@/components/eaawp/AmoebaButton";
@@ -9,13 +9,115 @@ import { useAgentStatus } from "@/state/useAgentStatus";
 import { ContextPanel } from "@/components/eaawp/ContextPanel";
 import { useSession } from "@/state/session";
 import { EmailDraftPreview, parseDraftPreview } from "@/components/eaawp/EmailDraftPreview";
+import { AdminProviderConfigPanel } from "@/components/eaawp/AdminProviderConfigPanel";
 import {
   useAgentExecute, DEFAULT_BLUEPRINT, useRoleConfig, roleConfigToBlueprint,
   useResumePlan, useRejectPlan, type ExecutionPlanFE,
+  useGscAuthorize, useGaAuthorize,
 } from "@/hooks/use-api";
 import { USE_REAL_API } from "@/lib/api-client";
 import { reportError } from "@/lib/error-reporting";
 import { cn } from "@/lib/utils";
+
+// ── Integration action metadata helpers ──────────────────────────────────────
+
+interface IntegrationActionMeta {
+  next_action: string;
+  action_data: {
+    provider_type?: string;
+    missing_fields?: string[];
+    redirect_uri?: string;
+    config_endpoint?: string;
+    integration_id?: string;
+    [key: string]: unknown;
+  };
+}
+
+function parseIntegrationAction(sources: string[]): IntegrationActionMeta | null {
+  const marker = sources.find((s) => s.startsWith("__integration_action__:"));
+  if (!marker) return null;
+  try {
+    return JSON.parse(marker.slice("__integration_action__:".length)) as IntegrationActionMeta;
+  } catch {
+    return null;
+  }
+}
+
+const PROVIDER_DISPLAY_NAMES: Record<string, string> = {
+  google_search_console: "Google Search Console",
+  google_analytics: "Google Analytics",
+  facebook: "Meta / Facebook",
+  github: "GitHub",
+  postgresql: "PostgreSQL",
+  mysql: "MySQL",
+  mcp: "MCP Server",
+};
+
+// ── Integration action UI card ────────────────────────────────────────────────
+
+function IntegrationActionCard({ meta }: { meta: IntegrationActionMeta }) {
+  const gscAuth = useGscAuthorize();
+  const gaAuth = useGaAuthorize();
+  const [configured, setConfigured] = useState(false);
+  const provider = meta.action_data.provider_type ?? "";
+  const providerName = PROVIDER_DISPLAY_NAMES[provider] ?? provider;
+
+  if (meta.next_action === "CONFIGURATION_REQUIRED") {
+    return (
+      <div className="mt-3 w-full">
+        <AdminProviderConfigPanel
+          providerType={provider}
+          providerDisplayName={providerName}
+          onConfigured={() => setConfigured(true)}
+        />
+        {configured && (
+          <div className="mt-2 border border-success/40 bg-success/5 p-2 text-[12px] text-success">
+            ✓ Configuration saved. You can now proceed with authorization.
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  if (meta.next_action === "REDIRECT_TO_OAUTH") {
+    const isGA = provider === "google_analytics";
+    return (
+      <div className="mt-3 w-full border border-border bg-surface p-3">
+        <p className="mb-2 text-[12px] text-muted-foreground">
+          Click below to authorize {providerName} via Google:
+        </p>
+        <button
+          disabled={gscAuth.isPending || gaAuth.isPending}
+          onClick={() => {
+            const auth = isGA ? gaAuth : gscAuth;
+            auth.mutate(undefined, {
+              onSuccess: (data) => {
+                window.location.href = data.authorization_url;
+              },
+              onError: (err) => {
+                toast.error(`Authorization failed: ${err.message}`);
+              },
+            });
+          }}
+          className="inline-flex items-center gap-2 border border-border bg-foreground/5 px-3 py-1.5 font-mono text-[11px] tracking-[0.08em] hover:bg-foreground/10 disabled:opacity-40"
+        >
+          <ExternalLink className="size-3.5" />
+          {gscAuth.isPending || gaAuth.isPending ? "OPENING…" : `CONNECT WITH GOOGLE — ${providerName.toUpperCase()}`}
+        </button>
+      </div>
+    );
+  }
+
+  if (meta.next_action === "SHOW_STATUS" && meta.action_data.integration_id) {
+    return (
+      <div className="mt-2 border border-success/40 bg-success/5 p-2 text-[12px] text-success">
+        ✓ {providerName} is already connected.
+      </div>
+    );
+  }
+
+  return null;
+}
 
 export const Route = createFileRoute("/cabin")({
   component: CabinPage,
@@ -358,7 +460,9 @@ function CabinPage() {
                     })()}
                     {t.sources && t.sources.length > 0 && (
                       <ul className="mt-2 flex flex-wrap gap-x-4 gap-y-1">
-                        {t.sources.map((s) => (
+                        {t.sources
+                          .filter((s) => !s.startsWith("__integration_action__:"))
+                          .map((s) => (
                           <li
                             key={s}
                             className={cn(
@@ -373,6 +477,11 @@ function CabinPage() {
                         ))}
                       </ul>
                     )}
+                    {/* Integration action UI — shown when Agent detects a connect/configure intent */}
+                    {t.from === "ai" && (() => {
+                      const meta = parseIntegrationAction(t.sources ?? []);
+                      return meta ? <IntegrationActionCard meta={meta} /> : null;
+                    })()}
                     {t.requiresApproval && (
                       <div className="mt-2 flex flex-wrap gap-1.5">
                         {/* Approve — decide the pending ApprovalRequest then resume the plan */}

@@ -259,17 +259,25 @@ export function AdminProviderConfigPanel({
         {/* Already-configured fields */}
         {status.configured_fields.length > 0 && (
           <div className="space-y-2">
-            {status.configured_fields.map((key) => (
-              <div key={key} className="flex items-center gap-2">
-                <CheckCircle className="size-3.5 shrink-0 text-success" />
-                <span className="text-[12px] text-foreground">
-                  {getFieldDisplayName(key)}:
-                </span>
-                <span className="font-mono text-[11px] text-muted-foreground">
-                  ******* (Configured ✓)
-                </span>
-              </div>
-            ))}
+            {status.configured_fields.map((key) => {
+              const isSecret = isSecretField(key);
+              const displayName = getFieldDisplayName(key);
+              return (
+                <div key={key} className="flex items-center gap-2">
+                  <CheckCircle className="size-3.5 shrink-0 text-success" />
+                  <span className="text-[12px] text-foreground">{displayName}:</span>
+                  {isSecret ? (
+                    <span className="font-mono text-[11px] text-success">
+                      Configured securely
+                    </span>
+                  ) : (
+                    <span className="font-mono text-[11px] text-success">
+                      Configured
+                    </span>
+                  )}
+                </div>
+              );
+            })}
           </div>
         )}
 

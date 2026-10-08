@@ -536,6 +536,7 @@ class TestE2EFlows:
 
     def test_flow9_nl_intent_connect_flow(self):
         """Flow 9: NL intent for CONNECT_INTEGRATION returns REDIRECT_TO_OAUTH."""
+        import asyncio
         from app.schemas.nl_integration import IntegrationIntent
         from app.services.nl_integration_service import build_conversation_reply
 
@@ -544,7 +545,8 @@ class TestE2EFlows:
             provider_type="google_analytics",
             confidence=0.95,
         )
-        reply, action, data = build_conversation_reply(intent, [])
+        # Without db/tenant_id the config check is skipped → falls through to REDIRECT_TO_OAUTH
+        reply, action, data = asyncio.run(build_conversation_reply(intent, []))
         assert action == "REDIRECT_TO_OAUTH"
         assert data["provider_type"] == "google_analytics"
         # Reply must NOT contain any credential values
