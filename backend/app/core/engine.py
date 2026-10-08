@@ -181,6 +181,19 @@ class DynamicAgentEngine:
             ]
             message_text = " ".join(text_parts)
 
+        # Strip fake audit log prefixes the LLM may hallucinate from persona language
+        if message_text:
+            import re as _re
+            _lines = message_text.split("\n")
+            _cleaned = [
+                ln for ln in _lines
+                if not _re.match(
+                    r"^\[AUDIT\s?LOG|^\[Action:|^INT-\d|^\[Data Source:|^\[Audit\]|^\[LOG\]",
+                    ln.strip(), _re.IGNORECASE,
+                )
+            ]
+            message_text = "\n".join(_cleaned).strip() or message_text.strip()
+
         # ── Combine all sources ───────────────────────────────────────────────
         combined_sources = list(dict.fromkeys(rag_sources + data_sources))
 

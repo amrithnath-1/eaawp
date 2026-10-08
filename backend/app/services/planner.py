@@ -89,14 +89,21 @@ Rules:
 5. The final step must always be type "response" with no tool.
 6. Steps may depend on prior steps (use depends_on as a list of step indices, 0-based).
 
+RESPONSE QUALITY RULES (MANDATORY):
+- NEVER begin any response with "[AUDIT LOG", "[Action:", "INT-", "Data Source:", or any internal reference prefix.
+- NEVER fabricate audit trail entries, reference IDs, or internal system codes.
+- NEVER start a response with markdown bold headers like "**Verify Ownership:**".
+- Responses must be natural, direct, and conversational — never formatted as internal SOPs.
+- Do NOT dump step-by-step IT procedures from the knowledge base in response to action requests.
+- If you have nothing to say, say it simply. Do not pad with internal jargon.
+
 CRITICAL — INTEGRATION ACTION REQUESTS:
 - If the user is asking to CONNECT, DISCONNECT, or CHECK the status of an integration
   (e.g. "Connect my GSC", "Connect Google Analytics", "Connect GitHub", "Connect MCP",
    "Connect my database", "Is GSC connected?"), do NOT use fetch_knowledge_base.
 - Integration connection requests are ACTION requests, not information requests.
-- Respond with a single "response" step that says:
-  "I'll handle the Google Search Console connection through the integration setup flow.
-   Please use the integration panel or ask me again through the Integrations section."
+- For connection requests, respond with a single "response" step acknowledging the
+  request and directing to the integration panel.
 - Never answer "Connect my GSC" with an SOP or documentation from the knowledge base.
 
 INFORMATION vs ACTION distinction:
@@ -474,7 +481,7 @@ async def create_and_execute_plan(
                 else:
                     _content = str(_resp.content) if _resp.content else ""
                 summary = (
-                    _content
+                    _clean_response(_content)
                     if _content.strip()
                     else ""
                 )
@@ -912,6 +919,14 @@ async def _synthesise_response(
         "Provide a clear, helpful, and concise answer to the user's question."
     )
 
+    # Ensure system prompt explicitly forbids fake audit log prefixes
+    _no_audit_suffix = (
+        " NEVER begin your response with [AUDIT LOG, [Action:, INT-, or any "
+        "internal system reference. Respond naturally and directly."
+    )
+    if "[AUDIT" not in system and "AUDIT LOG" not in system:
+        system = system + _no_audit_suffix
+
     if results_text:
         user_msg = (
             f"User's question / objective: {objective}\n\n"
@@ -944,12 +959,40 @@ async def _synthesise_response(
         else:
             content = str(response.content) if response.content else ""
         if content.strip():
-            return content
+            return _clean_response(content)
         logger.warning("_synthesise_response: LLM returned empty content for objective=%r", objective[:80])
         raise RuntimeError("The AI provider returned an empty response.")
     except Exception as exc:
         logger.error("Response synthesis failed (%s): %s", type(exc).__name__, exc, exc_info=True)
         raise RuntimeError("The AI provider failed to prepare a response.") from exc
+
+
+def _clean_response(text: str) -> str:
+    """
+    Strip fake audit log prefixes and internal system references that
+    the LLM may hallucinate from system persona language.
+
+    These patterns are NEVER legitimate response content — they are
+    artefacts of the model misinterpreting audit trail instructions.
+    """
+    import re
+    # Remove lines that start with fake audit/action log markers
+    lines = text.split("\n")
+    cleaned = []
+    for line in lines:
+        stripped = line.strip()
+        # Skip lines that look like fabricated audit/log/reference prefixes
+        if re.match(
+            r"^\[AUDIT\s?LOG|^\[Action:|^INT-\d|^\[Data Source:|^\[Audit\]|^\[LOG\]",
+            stripped,
+            re.IGNORECASE,
+        ):
+            continue
+        cleaned.append(line)
+
+    result = "\n".join(cleaned).strip()
+    # If we stripped everything, return original (don't make it worse)
+    return result if result else text.strip()
 
 
 def _sanitise_args(args: dict) -> dict:

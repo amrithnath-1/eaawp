@@ -96,7 +96,8 @@ _DMM_DEFAULTS: dict = {
         "You operate under strict data governance: you never send external communications "
         "without explicit human approval, and you always cite the data sources behind your "
         "insights. Your communication style is concise and data-first. "
-        "Every action you take is logged in the audit trail."
+        "IMPORTANT: Never begin a response with '[AUDIT LOG', '[Action:', 'INT-', or any "
+        "internal system reference. Respond naturally and directly to the user."
     ),
     "tool_scopes_json": json.dumps([
         {"name": "Query Campaign Analytics", "tool_key": "query_campaign_analytics",

@@ -142,17 +142,12 @@ async def execute_agent(
     # ── Integration action pre-flight ─────────────────────────────────────────
     # MUST run BEFORE RAG retrieval and BEFORE the planner.
     #
-    # If the user's prompt is an integration action request (connect GSC, connect
-    # GA, list integrations, check status, etc.) we route it through the existing
-    # NL Integration Service rather than the planner/RAG pipeline.
+    # Uses two-tier detection:
+    # 1. Fast keyword match (no LLM call, always works even when Gemini is rate-limited)
+    # 2. LLM intent parse for ambiguous cases
     #
     # This prevents the model from answering "Connect my GSC" with knowledge-base
     # documentation instead of executing the integration flow.
-    #
-    # Heuristic: call parse_integration_intent() cheaply; if it returns a
-    # recognised, high-confidence action intent, handle it here and short-circuit.
-    # INFORMATION requests ("How do I connect GSC?") intentionally fall through
-    # to the planner so they can use the knowledge base.
     _INTEGRATION_ACTION_INTENTS = frozenset({
         "CONNECT_INTEGRATION",
         "DISCONNECT_INTEGRATION",
@@ -163,6 +158,26 @@ async def execute_agent(
         "CHECK_STATUS",
         "TEST_CONNECTION",
     })
+
+    # Tier 1: keyword-based fast detection — no LLM call needed
+    _CONNECT_KEYWORDS = {
+        "connect", "integrate", "link", "setup", "set up", "authorize", "authorise",
+        "enable", "add integration", "connect with", "connect my", "need to connect",
+        "want to connect", "disconnect", "unlink", "remove integration",
+    }
+    _PROVIDER_KEYWORDS = {
+        "google search console", "search console", "gsc",
+        "google analytics", "analytics", "ga4", "ga ",
+        "github", "git hub",
+        "facebook", "meta", "instagram ads",
+        "mcp", "model context protocol",
+        "postgresql", "postgres", "mysql", "mariadb", "database", "db",
+    }
+    _prompt_lower = request.user_prompt.lower()
+    _has_connect_kw = any(kw in _prompt_lower for kw in _CONNECT_KEYWORDS)
+    _has_provider_kw = any(kw in _prompt_lower for kw in _PROVIDER_KEYWORDS)
+    _fast_is_integration_action = _has_connect_kw and _has_provider_kw
+
     try:
         from app.services.nl_integration_service import (
             build_conversation_reply,
@@ -170,12 +185,46 @@ async def execute_agent(
         )
         from app.integrations import manager as _int_mgr
 
-        _intent = await parse_integration_intent(request.user_prompt)
+        # Run LLM intent parse only if keyword match already suggests an action,
+        # OR always (it's cheap). Fall back to keyword result if LLM fails.
+        _intent = None
+        _use_integration_path = _fast_is_integration_action  # default from keywords
 
-        if (
-            _intent.intent_type in _INTEGRATION_ACTION_INTENTS
-            and _intent.confidence >= 0.70
-        ):
+        try:
+            _intent = await parse_integration_intent(request.user_prompt)
+            if _intent.intent_type in _INTEGRATION_ACTION_INTENTS and _intent.confidence >= 0.65:
+                _use_integration_path = True
+        except Exception as _llm_exc:
+            logger.debug("Intent parse LLM call failed (using keyword fallback): %s", _llm_exc)
+            # keyword detection already set _use_integration_path
+
+        if _use_integration_path:
+            # If LLM parse failed, synthesise a minimal intent from keywords
+            if _intent is None or _intent.intent_type == "UNKNOWN":
+                from app.schemas.nl_integration import IntegrationIntent
+                # Determine provider from keywords
+                _detected_provider = None
+                if "search console" in _prompt_lower or " gsc" in _prompt_lower or _prompt_lower.startswith("gsc"):
+                    _detected_provider = "google_search_console"
+                elif "google analytics" in _prompt_lower or " ga4" in _prompt_lower or " ga " in _prompt_lower:
+                    _detected_provider = "google_analytics"
+                elif "github" in _prompt_lower:
+                    _detected_provider = "github"
+                elif "facebook" in _prompt_lower or "meta" in _prompt_lower:
+                    _detected_provider = "facebook"
+                elif "mcp" in _prompt_lower or "model context" in _prompt_lower:
+                    _detected_provider = "mcp"
+                elif "postgresql" in _prompt_lower or "postgres" in _prompt_lower:
+                    _detected_provider = "postgresql"
+                elif "mysql" in _prompt_lower or "mariadb" in _prompt_lower:
+                    _detected_provider = "mysql"
+                _intent = IntegrationIntent(
+                    intent_type="CONNECT_INTEGRATION",
+                    provider_type=_detected_provider,
+                    confidence=0.85,
+                    reasoning="Keyword-based detection",
+                )
+
             # Load current integrations for context (safe metadata — no credentials)
             try:
                 _existing = await _int_mgr.list_integrations(
@@ -204,8 +253,6 @@ async def execute_agent(
                 tenant_id=authoritative_blueprint.tenant_id,
             )
 
-            # Encode next_action and action_data in the response sources field
-            # so the frontend can read them without a schema change.
             import json as _json
             _meta_sources: list[str] = []
             if _next_action != "NONE":
@@ -234,7 +281,7 @@ async def execute_agent(
 
     except Exception as _intent_exc:
         # Intent detection is best-effort — if it fails, continue to normal execution
-        logger.debug("Integration intent pre-flight failed (non-fatal): %s", _intent_exc)
+        logger.warning("Integration intent pre-flight failed: %s", _intent_exc)
 
     has_action_tools = any(is_action_tool(t) for t in authoritative_blueprint.allowed_tools)
 
