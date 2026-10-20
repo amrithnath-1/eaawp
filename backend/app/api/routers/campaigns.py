@@ -17,7 +17,8 @@ GET    /api/v1/campaigns/{id}/summary           campaign summary
 """
 from __future__ import annotations
 import json, logging, uuid
-from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
+from app.core.auth import get_current_tenant_id
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.session import get_db
 from app.schemas.campaign import (
@@ -34,15 +35,12 @@ from app.services.campaign_service import (
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/campaigns", tags=["campaigns"])
 
-def _tenant(x_tenant_id: str = Header(..., alias="X-Tenant-ID")) -> str:
-    return x_tenant_id
-
 
 @router.get("", response_model=list[CampaignOut])
 async def list_campaigns_endpoint(
     status: str | None = None,
     limit: int = 50,
-    tenant_id: str = Depends(_tenant),
+    tenant_id: str = Depends(get_current_tenant_id),
     db: AsyncSession = Depends(get_db),
 ) -> list[CampaignOut]:
     return await list_campaigns(tenant_id, db, status=status, limit=limit)
@@ -51,7 +49,7 @@ async def list_campaigns_endpoint(
 @router.post("", response_model=CampaignOut, status_code=201)
 async def create_campaign_endpoint(
     body: CampaignCreate,
-    tenant_id: str = Depends(_tenant),
+    tenant_id: str = Depends(get_current_tenant_id),
     db: AsyncSession = Depends(get_db),
 ) -> CampaignOut:
     return await create_campaign(body, tenant_id, db)
@@ -60,7 +58,7 @@ async def create_campaign_endpoint(
 @router.get("/{campaign_id}", response_model=CampaignOut)
 async def get_campaign_endpoint(
     campaign_id: str,
-    tenant_id: str = Depends(_tenant),
+    tenant_id: str = Depends(get_current_tenant_id),
     db: AsyncSession = Depends(get_db),
 ) -> CampaignOut:
     c = await get_campaign(campaign_id, tenant_id, db)
@@ -73,7 +71,7 @@ async def get_campaign_endpoint(
 async def update_campaign_endpoint(
     campaign_id: str,
     body: CampaignUpdate,
-    tenant_id: str = Depends(_tenant),
+    tenant_id: str = Depends(get_current_tenant_id),
     db: AsyncSession = Depends(get_db),
 ) -> CampaignOut:
     existing = await get_campaign(campaign_id, tenant_id, db)
@@ -88,7 +86,7 @@ async def update_campaign_endpoint(
 @router.delete("/{campaign_id}", response_model=CampaignOut)
 async def archive_campaign_endpoint(
     campaign_id: str,
-    tenant_id: str = Depends(_tenant),
+    tenant_id: str = Depends(get_current_tenant_id),
     db: AsyncSession = Depends(get_db),
 ) -> CampaignOut:
     c = await archive_campaign(campaign_id, tenant_id, db)
@@ -101,7 +99,7 @@ async def archive_campaign_endpoint(
 async def record_metric_endpoint(
     campaign_id: str,
     body: CampaignMetricCreate,
-    tenant_id: str = Depends(_tenant),
+    tenant_id: str = Depends(get_current_tenant_id),
     db: AsyncSession = Depends(get_db),
 ) -> CampaignMetricOut:
     m = await record_metric(campaign_id, body, tenant_id, db)
@@ -115,7 +113,7 @@ async def get_metrics_endpoint(
     campaign_id: str,
     metric_name: str | None = None,
     limit: int = 100,
-    tenant_id: str = Depends(_tenant),
+    tenant_id: str = Depends(get_current_tenant_id),
     db: AsyncSession = Depends(get_db),
 ) -> list[CampaignMetricOut]:
     return await get_metrics(campaign_id, tenant_id, db, metric_name=metric_name, limit=limit)
@@ -124,7 +122,7 @@ async def get_metrics_endpoint(
 @router.get("/{campaign_id}/summary", response_model=CampaignSummary)
 async def campaign_summary_endpoint(
     campaign_id: str,
-    tenant_id: str = Depends(_tenant),
+    tenant_id: str = Depends(get_current_tenant_id),
     db: AsyncSession = Depends(get_db),
 ) -> CampaignSummary:
     s = await get_campaign_summary(campaign_id, tenant_id, db)

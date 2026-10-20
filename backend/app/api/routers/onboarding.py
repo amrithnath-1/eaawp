@@ -13,17 +13,16 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field, field_validator
-from passlib.context import CryptContext
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.auth import get_current_tenant_id, hash_password, require_admin
 from app.db.models import Company, User, AIEmployee
 from app.db.session import get_db
 from app.schemas.api import CompanyOut
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/onboarding", tags=["onboarding"])
-_pwd = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 
 # ── Request schemas ───────────────────────────────────────────────────────────
@@ -108,7 +107,7 @@ async def onboard_new_company(
         tenant_id=company_id,
         email=body.admin_email,
         name=body.admin_name,
-        hashed_password=_pwd.hash(body.admin_password),
+        hashed_password=hash_password(body.admin_password),
         role="Company Admin",
         status="Active",
         is_active=True,
@@ -146,12 +145,18 @@ async def onboard_new_company(
 @router.get("/status/{tenant_id}", response_model=DMMStatusResponse)
 async def get_onboarding_status(
     tenant_id: str,
+    auth_tenant_id: str = Depends(get_current_tenant_id),
     db: AsyncSession = Depends(get_db),
 ) -> DMMStatusResponse:
     """
-    Return the onboarding/readiness status for a tenant.
+    Return the onboarding/readiness status for the caller's own tenant.
     Used by the DMM checklist UI.
+
+    The tenant in the URL must match the authenticated tenant.  A different
+    tenant answers 404 so that tenant IDs cannot be probed.
     """
+    if tenant_id != auth_tenant_id:
+        raise HTTPException(status_code=404, detail="Company not found.")
     # Company
     company_result = await db.execute(
         select(Company).where(Company.id == tenant_id, Company.is_active == True)
@@ -243,16 +248,20 @@ async def get_onboarding_status(
 @router.post("/activate-dmm", response_model=dict)
 async def activate_dmm(
     body: dict,
+    admin_user: User = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     """
-    Activate the DMM AI employee for a tenant.
+    Activate the DMM AI employee for the admin's own tenant.
     Validates configuration before activation.
-    Tenant must provide X-Tenant-ID.
+
+    The tenant always comes from the authenticated admin.  A ``tenant_id`` in
+    the body is accepted only for backward compatibility and must match.
     """
-    tenant_id = body.get("tenant_id", "")
-    if not tenant_id:
-        raise HTTPException(400, "tenant_id is required.")
+    tenant_id = admin_user.tenant_id
+    requested = body.get("tenant_id")
+    if requested and requested != tenant_id:
+        raise HTTPException(404, "Company not found.")
 
     # Verify company
     company_result = await db.execute(

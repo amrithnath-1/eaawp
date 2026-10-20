@@ -22,7 +22,8 @@ from __future__ import annotations
 import json
 import logging
 
-from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
+from app.core.auth import get_current_tenant_id
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -33,9 +34,6 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/email/drafts", tags=["email-drafts"])
 
-
-def _tenant(x_tenant_id: str = Header(..., alias="X-Tenant-ID")) -> str:
-    return x_tenant_id
 
 
 def _draft_to_dict(d: EmailDraft) -> dict:
@@ -60,7 +58,7 @@ def _draft_to_dict(d: EmailDraft) -> dict:
 @router.get("", response_model=list[dict])
 async def list_drafts(
     limit: int = 20,
-    tenant_id: str = Depends(_tenant),
+    tenant_id: str = Depends(get_current_tenant_id),
     db: AsyncSession = Depends(get_db),
 ) -> list[dict]:
     """List recent email drafts for this tenant."""
@@ -76,7 +74,7 @@ async def list_drafts(
 @router.get("/{draft_id}", response_model=dict)
 async def get_draft(
     draft_id: str,
-    tenant_id: str = Depends(_tenant),
+    tenant_id: str = Depends(get_current_tenant_id),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     """Get a specific email draft."""
@@ -95,7 +93,7 @@ async def get_draft(
 @router.post("/{draft_id}/cancel", response_model=dict)
 async def cancel_draft(
     draft_id: str,
-    tenant_id: str = Depends(_tenant),
+    tenant_id: str = Depends(get_current_tenant_id),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     """Cancel a pending email draft."""

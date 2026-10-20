@@ -42,7 +42,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db
 from app.config import settings
-from app.core.auth import get_optional_tenant_id
+from app.core.auth import as_utc, get_current_user
+from app.db.models import User
 from app.db.integration_models import Integration
 from app.db.oauth_models import OAuthState
 from app.integrations.integration_registry import integration_registry
@@ -146,10 +147,14 @@ def _build_google_authorize(
 
 async def _google_authorize_common(
     provider_type: str,
-    tenant_id: str,
+    user: User,
     db: AsyncSession,
 ) -> OAuthAuthorizeResponse:
-    """Shared logic for Google OAuth authorize (GSC and GA)."""
+    """Shared logic for Google OAuth authorize (GSC and GA).
+
+    The tenant and initiating user come from the verified JWT only.
+    """
+    tenant_id = user.tenant_id
     _require_google_config()
 
     provider = integration_registry.get(provider_type)
@@ -194,6 +199,7 @@ async def _google_authorize_common(
     oauth_state = OAuthState(
         state_token=state_token,
         tenant_id=tenant_id,
+        initiated_by_user_id=user.id,
         integration_id=integration.id,
         provider_type=provider_type,
         expires_at=expires_at,
@@ -227,27 +233,27 @@ async def _google_authorize_common(
 async def google_authorize(
     request: Request,
     db: Annotated[AsyncSession, Depends(get_db)],
-    tenant_id: str = Depends(get_optional_tenant_id),
+    user: User = Depends(get_current_user),
 ) -> OAuthAuthorizeResponse:
     """
     Initiate Google OAuth2 web server flow for Google Search Console.
     Use /google/analytics/authorize for Google Analytics.
     """
-    return await _google_authorize_common("google_search_console", tenant_id, db)
+    return await _google_authorize_common("google_search_console", user, db)
 
 
 @router.get("/google/analytics/authorize", response_model=OAuthAuthorizeResponse)
 async def google_analytics_authorize(
     request: Request,
     db: Annotated[AsyncSession, Depends(get_db)],
-    tenant_id: str = Depends(get_optional_tenant_id),
+    user: User = Depends(get_current_user),
 ) -> OAuthAuthorizeResponse:
     """
     Initiate Google OAuth2 web server flow for Google Analytics 4.
     Requests analytics.readonly scope.
     Both GSC and GA share the same Google OAuth client credentials.
     """
-    return await _google_authorize_common("google_analytics", tenant_id, db)
+    return await _google_authorize_common("google_analytics", user, db)
 
 
 @router.get("/google/callback", response_model=OAuthCallbackResponse)
@@ -306,15 +312,42 @@ async def google_callback(
     oauth_state = result.scalar_one_or_none()
 
     if not oauth_state:
-        logger.warning("Invalid or already used state token: %s", state)
+        logger.warning("OAuth callback rejected: unknown or already used state token")
         frontend_url = _build_frontend_redirect(error="invalid_state", error_description="Invalid or expired OAuth state token.")
         return RedirectResponse(url=frontend_url, status_code=302)
 
     # 4. Check expiration
     now = datetime.now(timezone.utc)
-    if oauth_state.expires_at < now:
-        logger.warning("Expired state token: %s (expired %s)", state, oauth_state.expires_at)
+    if as_utc(oauth_state.expires_at) < now:
+        logger.warning("OAuth callback rejected: expired state token (tenant=%s)", oauth_state.tenant_id)
         frontend_url = _build_frontend_redirect(error="expired_state", error_description="OAuth state token has expired.")
+        return RedirectResponse(url=frontend_url, status_code=302)
+
+    # 4b. The flow must belong to a user who is still active in the same
+    #     tenant.  The callback carries no Bearer token (it is a browser
+    #     redirect from Google), so this server-side binding is the check.
+    initiator = None
+    if oauth_state.initiated_by_user_id:
+        initiator_result = await db.execute(
+            select(User).where(
+                User.id == oauth_state.initiated_by_user_id,
+                User.tenant_id == oauth_state.tenant_id,
+                User.is_active == True,  # noqa: E712
+            )
+        )
+        initiator = initiator_result.scalar_one_or_none()
+    if initiator is None:
+        oauth_state.used = True  # burn the state; the user must restart the flow
+        db.add(oauth_state)
+        await db.commit()
+        logger.warning(
+            "OAuth callback rejected: no active initiating user (tenant=%s)",
+            oauth_state.tenant_id,
+        )
+        frontend_url = _build_frontend_redirect(
+            error="invalid_state",
+            error_description="Invalid or expired OAuth state token.",
+        )
         return RedirectResponse(url=frontend_url, status_code=302)
 
     # 5. Mark state as used (defend against replay attacks)

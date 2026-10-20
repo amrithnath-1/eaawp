@@ -1,6 +1,7 @@
 """EAAWP Content Intelligence Router"""
 from __future__ import annotations
-from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
+from app.core.auth import get_current_tenant_id
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.session import get_db
 from app.schemas.content import (
@@ -16,16 +17,13 @@ from app.services.content_service import (
 
 router = APIRouter(prefix="/api/v1/content", tags=["content"])
 
-def _tenant(x_tenant_id: str = Header(..., alias="X-Tenant-ID")) -> str:
-    return x_tenant_id
-
 
 @router.get("", response_model=list[ContentItemOut])
 async def list_content_ep(
     content_type: str | None = None,
     campaign_id: str | None = None,
     limit: int = 50,
-    tenant_id: str = Depends(_tenant),
+    tenant_id: str = Depends(get_current_tenant_id),
     db: AsyncSession = Depends(get_db),
 ) -> list[ContentItemOut]:
     return await list_content(tenant_id, db, content_type=content_type,
@@ -35,7 +33,7 @@ async def list_content_ep(
 @router.post("", response_model=ContentItemOut, status_code=201)
 async def create_content_ep(
     body: ContentItemCreate,
-    tenant_id: str = Depends(_tenant),
+    tenant_id: str = Depends(get_current_tenant_id),
     db: AsyncSession = Depends(get_db),
 ) -> ContentItemOut:
     return await create_content(body, tenant_id, db)
@@ -44,7 +42,7 @@ async def create_content_ep(
 @router.get("/{content_id}", response_model=ContentItemOut)
 async def get_content_ep(
     content_id: str,
-    tenant_id: str = Depends(_tenant),
+    tenant_id: str = Depends(get_current_tenant_id),
     db: AsyncSession = Depends(get_db),
 ) -> ContentItemOut:
     item = await get_content(content_id, tenant_id, db)
@@ -57,7 +55,7 @@ async def get_content_ep(
 async def update_content_ep(
     content_id: str,
     body: ContentItemUpdate,
-    tenant_id: str = Depends(_tenant),
+    tenant_id: str = Depends(get_current_tenant_id),
     db: AsyncSession = Depends(get_db),
 ) -> ContentItemOut:
     item = await update_content(content_id, body, tenant_id, db)
@@ -69,7 +67,7 @@ async def update_content_ep(
 @router.post("/generate/brief", response_model=ContentItemOut, status_code=201)
 async def generate_brief_ep(
     body: GenerateBriefRequest,
-    tenant_id: str = Depends(_tenant),
+    tenant_id: str = Depends(get_current_tenant_id),
     db: AsyncSession = Depends(get_db),
 ) -> ContentItemOut:
     return await generate_brief(body, tenant_id, db)
@@ -78,7 +76,7 @@ async def generate_brief_ep(
 @router.post("/generate/ideas", response_model=ContentItemOut, status_code=201)
 async def generate_ideas_ep(
     body: GenerateIdeasRequest,
-    tenant_id: str = Depends(_tenant),
+    tenant_id: str = Depends(get_current_tenant_id),
     db: AsyncSession = Depends(get_db),
 ) -> ContentItemOut:
     return await generate_ideas(body, tenant_id, db)
@@ -87,7 +85,7 @@ async def generate_ideas_ep(
 @router.post("/generate/draft", response_model=ContentItemOut, status_code=201)
 async def generate_draft_ep(
     body: GenerateDraftRequest,
-    tenant_id: str = Depends(_tenant),
+    tenant_id: str = Depends(get_current_tenant_id),
     db: AsyncSession = Depends(get_db),
 ) -> ContentItemOut:
     return await generate_draft(body, tenant_id, db)
@@ -96,7 +94,7 @@ async def generate_draft_ep(
 @router.post("/generate/variants", response_model=list[ContentItemOut], status_code=201)
 async def generate_variants_ep(
     body: GenerateVariantsRequest,
-    tenant_id: str = Depends(_tenant),
+    tenant_id: str = Depends(get_current_tenant_id),
     db: AsyncSession = Depends(get_db),
 ) -> list[ContentItemOut]:
     try:
@@ -108,7 +106,7 @@ async def generate_variants_ep(
 @router.post("/analyze", response_model=ContentItemOut)
 async def analyze_content_ep(
     body: AnalyzeContentRequest,
-    tenant_id: str = Depends(_tenant),
+    tenant_id: str = Depends(get_current_tenant_id),
     db: AsyncSession = Depends(get_db),
 ) -> ContentItemOut:
     try:

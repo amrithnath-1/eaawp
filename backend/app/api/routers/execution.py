@@ -22,12 +22,12 @@ from __future__ import annotations
 import logging
 import uuid
 
-from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.actions.registry import is_action_tool
 from app.config import settings
-from app.core.auth import get_optional_tenant_id
+from app.core.auth import get_current_tenant_id
 from app.core.engine import DynamicAgentEngine
 from app.core.prompt_guard import validate_user_prompt
 from app.db.session import get_db
@@ -63,9 +63,6 @@ def _simple_conversation_reply(prompt: str, role_name: str) -> str | None:
     return None
 
 
-def _tenant_optional(x_tenant_id: str = Header(default="default-tenant", alias="X-Tenant-ID")) -> str:
-    return x_tenant_id
-
 
 @router.post(
     "/execute",
@@ -74,7 +71,7 @@ def _tenant_optional(x_tenant_id: str = Header(default="default-tenant", alias="
 )
 async def execute_agent(
     request: AgentExecutionRequest,
-    tenant_id: str = Depends(get_optional_tenant_id),
+    tenant_id: str = Depends(get_current_tenant_id),
     db: AsyncSession = Depends(get_db),
 ) -> AgentExecutionResponse:
 

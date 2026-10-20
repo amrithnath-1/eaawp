@@ -19,6 +19,8 @@ import logging
 import uuid
 
 from fastapi import APIRouter, Depends, Header, HTTPException
+from app.core.auth import get_current_tenant_id
+from app.schemas.role_config import IMPLEMENTED_ROLES
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -38,9 +40,6 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/data", tags=["data-access"])
 
 
-def _tenant(x_tenant_id: str = Header(..., alias="X-Tenant-ID")) -> str:
-    return x_tenant_id
-
 
 # ── Controlled query ──────────────────────────────────────────────────────────
 
@@ -52,17 +51,22 @@ def _tenant(x_tenant_id: str = Header(..., alias="X-Tenant-ID")) -> str:
 async def query_company_data(
     body: CompanyDataQueryRequest,
     role_key: str = Header(default="DIGITAL_MARKETING_MANAGER", alias="X-Role-Key"),
-    tenant_id: str = Depends(_tenant),
+    tenant_id: str = Depends(get_current_tenant_id),
     db: AsyncSession = Depends(get_db),
 ) -> CompanyDataQueryResponse:
     """
     The agent sends structured query parameters; the backend builds and
     executes a safe read-only SQL query. Raw SQL is never accepted.
 
+    ``X-Role-Key`` is only an audit label and must name an implemented role;
+    it never widens access (entity permissions are tenant-level).
+
     Returns 403 if the entity is not authorized.
     Returns 422 if fields/filters are invalid.
     Returns 503 if the external database is unreachable.
     """
+    if role_key not in IMPLEMENTED_ROLES:
+        raise HTTPException(status_code=400, detail="Unknown role key.")
     try:
         return await execute_company_data_query(
             request=body,
@@ -86,7 +90,7 @@ async def query_company_data(
 
 @router.get("/mappings", response_model=list[SemanticMappingOut])
 async def list_mappings(
-    tenant_id: str = Depends(_tenant),
+    tenant_id: str = Depends(get_current_tenant_id),
     db: AsyncSession = Depends(get_db),
 ) -> list[SemanticMappingOut]:
     result = await db.execute(
@@ -101,7 +105,7 @@ async def list_mappings(
 @router.post("/mappings", response_model=SemanticMappingOut, status_code=201)
 async def create_mapping(
     body: SemanticMappingCreate,
-    tenant_id: str = Depends(_tenant),
+    tenant_id: str = Depends(get_current_tenant_id),
     db: AsyncSession = Depends(get_db),
 ) -> SemanticMappingOut:
     # Verify entity belongs to this tenant
@@ -137,7 +141,7 @@ async def create_mapping(
 async def update_mapping(
     mapping_id: str,
     body: SemanticMappingUpdate,
-    tenant_id: str = Depends(_tenant),
+    tenant_id: str = Depends(get_current_tenant_id),
     db: AsyncSession = Depends(get_db),
 ) -> SemanticMappingOut:
     result = await db.execute(
@@ -160,7 +164,7 @@ async def update_mapping(
 @router.delete("/mappings/{mapping_id}", response_model=dict)
 async def delete_mapping(
     mapping_id: str,
-    tenant_id: str = Depends(_tenant),
+    tenant_id: str = Depends(get_current_tenant_id),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     result = await db.execute(
@@ -181,7 +185,7 @@ async def delete_mapping(
 
 @router.get("/audits", response_model=list[dict])
 async def list_audits(
-    tenant_id: str = Depends(_tenant),
+    tenant_id: str = Depends(get_current_tenant_id),
     db: AsyncSession = Depends(get_db),
 ) -> list[dict]:
     result = await db.execute(

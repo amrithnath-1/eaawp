@@ -31,7 +31,8 @@ import json
 import logging
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
+from app.core.auth import get_current_tenant_id
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -214,9 +215,6 @@ _DMM_DEFAULTS: dict = {
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
-def _tenant(x_tenant_id: str = Header(..., alias="X-Tenant-ID")) -> str:
-    return x_tenant_id
-
 
 def _orm_to_schema(row: RoleConfiguration) -> RoleConfigOut:
     """Convert a RoleConfiguration ORM row to the output schema."""
@@ -376,7 +374,7 @@ def _validate_tool_scopes(
 )
 async def get_role_config(
     role_key: str,
-    tenant_id: str = Depends(_tenant),
+    tenant_id: str = Depends(get_current_tenant_id),
     db: AsyncSession = Depends(get_db),
 ) -> RoleConfigOut:
     if role_key not in IMPLEMENTED_ROLES:
@@ -400,7 +398,7 @@ async def get_role_config(
 async def replace_role_config(
     role_key: str,
     body: RoleConfigUpdate,
-    tenant_id: str = Depends(_tenant),
+    tenant_id: str = Depends(get_current_tenant_id),
     db: AsyncSession = Depends(get_db),
 ) -> RoleConfigOut:
     if role_key not in IMPLEMENTED_ROLES:
@@ -426,7 +424,7 @@ async def replace_role_config(
 async def update_role_config(
     role_key: str,
     body: RoleConfigUpdate,
-    tenant_id: str = Depends(_tenant),
+    tenant_id: str = Depends(get_current_tenant_id),
     db: AsyncSession = Depends(get_db),
 ) -> RoleConfigOut:
     if role_key not in IMPLEMENTED_ROLES:
@@ -452,7 +450,7 @@ async def update_role_config(
 async def validate_role_config(
     role_key: str,
     body: RoleConfigUpdate,
-    tenant_id: str = Depends(_tenant),
+    tenant_id: str = Depends(get_current_tenant_id),
 ) -> RoleConfigValidationResult:
     if role_key not in IMPLEMENTED_ROLES:
         raise HTTPException(
@@ -484,7 +482,7 @@ async def validate_role_config(
 )
 async def get_active_blueprint(
     role_key: str,
-    tenant_id: str = Depends(_tenant),
+    tenant_id: str = Depends(get_current_tenant_id),
     db: AsyncSession = Depends(get_db),
 ) -> ActiveBlueprintResponse:
     if role_key not in IMPLEMENTED_ROLES:

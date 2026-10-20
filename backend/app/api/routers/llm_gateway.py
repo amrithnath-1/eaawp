@@ -17,9 +17,10 @@ Available endpoints:
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Header
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
+from app.core.auth import get_current_tenant_id
 from app.llm import get_llm_gateway
 from app.llm.config import ALLOWED_MODELS, LLMProvider
 
@@ -43,12 +44,6 @@ class LLMStatusResponse(BaseModel):
     allowed_models: list[str]  # Application-controlled allowlist (safe to expose)
 
 
-# ── Dependency ────────────────────────────────────────────────────────────────
-
-def _tenant(x_tenant_id: str = Header(..., alias="X-Tenant-ID")) -> str:
-    return x_tenant_id
-
-
 # ── Routes ────────────────────────────────────────────────────────────────────
 
 @router.get(
@@ -62,7 +57,7 @@ def _tenant(x_tenant_id: str = Header(..., alias="X-Tenant-ID")) -> str:
     ),
 )
 async def get_llm_status(
-    tenant_id: str = Header(..., alias="X-Tenant-ID"),
+    tenant_id: str = Depends(get_current_tenant_id),
 ) -> LLMStatusResponse:
     """
     Return a safe summary of the LLM Gateway configuration.

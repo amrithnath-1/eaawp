@@ -104,7 +104,7 @@ class TestOnboardingService:
         mock_db.flush = AsyncMock()
 
         with patch("app.api.routers.role_config._get_or_seed", new_callable=AsyncMock, return_value=None), \
-             patch("app.api.routers.onboarding._pwd.hash", return_value="$2b$12$mockhash"):
+             patch("app.api.routers.onboarding.hash_password", return_value="$2b$12$mockhash"):
             from app.api.routers.onboarding import onboard_new_company
             req = OnboardCompanyRequest(
                 company_name="Fresh Corp",
@@ -138,7 +138,7 @@ class TestOnboardingService:
         mock_db.flush = AsyncMock()
 
         with patch("app.api.routers.role_config._get_or_seed", new_callable=AsyncMock), \
-             patch("app.api.routers.onboarding._pwd.hash", return_value="$2b$12$mockhash"):
+             patch("app.api.routers.onboarding.hash_password", return_value="$2b$12$mockhash"):
             from app.api.routers.onboarding import onboard_new_company
             req = OnboardCompanyRequest(
                 company_name="Isolation Corp",
@@ -308,7 +308,7 @@ class TestFreshCompanyEndToEnd:
 
         # Step 1: Create company
         with patch("app.api.routers.role_config._get_or_seed", new_callable=AsyncMock), \
-             patch("app.api.routers.onboarding._pwd.hash", return_value="$2b$12$mockhash"):
+             patch("app.api.routers.onboarding.hash_password", return_value="$2b$12$mockhash"):
             from app.api.routers.onboarding import onboard_new_company
             req = OnboardCompanyRequest(
                 company_name="E2E Test Corp",
@@ -349,7 +349,7 @@ class TestFreshCompanyEndToEnd:
         mock_db.flush = AsyncMock()
 
         with patch("app.api.routers.role_config._get_or_seed", new_callable=AsyncMock), \
-             patch("app.api.routers.onboarding._pwd.hash", return_value="$2b$12$mockhash"):
+             patch("app.api.routers.onboarding.hash_password", return_value="$2b$12$mockhash"):
             from app.api.routers.onboarding import onboard_new_company
             result_a = await onboard_new_company(
                 OnboardCompanyRequest(

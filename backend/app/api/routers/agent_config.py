@@ -1,7 +1,8 @@
 """Agent configuration router."""
 from __future__ import annotations
 import json
-from fastapi import APIRouter, Depends, HTTPException, Header
+from fastapi import APIRouter, Depends, HTTPException
+from app.core.auth import get_current_tenant_id
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.session import get_db
@@ -10,13 +11,10 @@ from app.schemas.api import AgentConfigOut, AgentConfigUpdate
 
 router = APIRouter(prefix="/api/v1/agent", tags=["agent"])
 
-def _tenant(x_tenant_id: str = Header(..., alias="X-Tenant-ID")) -> str:
-    return x_tenant_id
-
 @router.get("/config", response_model=AgentConfigOut)
 async def get_agent_config(
     ai_employee_id: str,
-    tenant_id: str = Depends(_tenant),
+    tenant_id: str = Depends(get_current_tenant_id),
     db: AsyncSession = Depends(get_db),
 ):
     result = await db.execute(
@@ -34,7 +32,7 @@ async def get_agent_config(
 async def update_agent_config(
     ai_employee_id: str,
     body: AgentConfigUpdate,
-    tenant_id: str = Depends(_tenant),
+    tenant_id: str = Depends(get_current_tenant_id),
     db: AsyncSession = Depends(get_db),
 ):
     result = await db.execute(

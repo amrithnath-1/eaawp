@@ -1,7 +1,8 @@
 """Schedules router — tenant-scoped."""
 from __future__ import annotations
 import uuid
-from fastapi import APIRouter, Depends, HTTPException, Header
+from fastapi import APIRouter, Depends, HTTPException
+from app.core.auth import get_current_tenant_id
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.session import get_db
@@ -10,13 +11,10 @@ from app.schemas.api import ScheduleOut, ScheduleCreate
 
 router = APIRouter(prefix="/api/v1/schedules", tags=["schedules"])
 
-def _tenant(x_tenant_id: str = Header(..., alias="X-Tenant-ID")) -> str:
-    return x_tenant_id
-
 @router.get("", response_model=list[ScheduleOut])
 async def list_schedules(
     ai_employee_id: str | None = None,
-    tenant_id: str = Depends(_tenant),
+    tenant_id: str = Depends(get_current_tenant_id),
     db: AsyncSession = Depends(get_db),
 ):
     stmt = select(Schedule).where(Schedule.tenant_id == tenant_id)
@@ -29,7 +27,7 @@ async def list_schedules(
 async def create_schedule(
     body: ScheduleCreate,
     ai_employee_id: str,
-    tenant_id: str = Depends(_tenant),
+    tenant_id: str = Depends(get_current_tenant_id),
     db: AsyncSession = Depends(get_db),
 ):
     schedule = Schedule(
@@ -46,7 +44,7 @@ async def create_schedule(
 @router.patch("/{schedule_id}/toggle", response_model=ScheduleOut)
 async def toggle_schedule(
     schedule_id: str,
-    tenant_id: str = Depends(_tenant),
+    tenant_id: str = Depends(get_current_tenant_id),
     db: AsyncSession = Depends(get_db),
 ):
     schedule = await db.get(Schedule, schedule_id)

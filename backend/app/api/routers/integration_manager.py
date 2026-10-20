@@ -29,7 +29,7 @@ Security
 - encrypted_credentials is NEVER returned in any response.
 - has_credentials (bool) is the only indicator of stored credentials.
 - execute/ always checks capability grants before dispatching to the provider.
-- All endpoints require X-Tenant-ID (consistent with rest of API).
+- All endpoints require a valid Bearer JWT; the tenant comes from the token.
 """
 
 from __future__ import annotations
@@ -78,10 +78,12 @@ router = APIRouter(
     summary="List all registered integration provider types",
     description=(
         "Returns a catalogue of every provider type the framework supports. "
-        "Safe to call without credentials — no secrets returned."
+        "Requires a signed-in user; no secrets returned."
     ),
 )
-async def list_providers() -> list[ProviderCatalogueItem]:
+async def list_providers(
+    _tenant_id: str = Depends(get_current_tenant_id),
+) -> list[ProviderCatalogueItem]:
     """Return all registered providers as a safe catalogue."""
     return [ProviderCatalogueItem(**item) for item in integration_registry.provider_catalogue()]
 
@@ -91,7 +93,9 @@ async def list_providers() -> list[ProviderCatalogueItem]:
     response_model=IntegrationFrameworkStatus,
     summary="Integration Framework health status",
 )
-async def framework_status() -> IntegrationFrameworkStatus:
+async def framework_status(
+    _tenant_id: str = Depends(get_current_tenant_id),
+) -> IntegrationFrameworkStatus:
     """Return a safe summary of the Integration Framework state."""
     types = integration_registry.list_types()
     return IntegrationFrameworkStatus(

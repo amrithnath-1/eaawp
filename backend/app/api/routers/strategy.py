@@ -1,6 +1,7 @@
 """EAAWP Marketing Strategy Router"""
 from __future__ import annotations
-from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
+from app.core.auth import get_current_tenant_id
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.session import get_db
 from app.schemas.strategy import ObjectiveCreate, ObjectiveUpdate, ObjectiveOut
@@ -11,14 +12,11 @@ from app.services.strategy_service import (
 
 router = APIRouter(prefix="/api/v1/strategy", tags=["strategy"])
 
-def _tenant(x_tenant_id: str = Header(..., alias="X-Tenant-ID")) -> str:
-    return x_tenant_id
-
 
 @router.get("/objectives", response_model=list[ObjectiveOut])
 async def list_objectives_endpoint(
     status: str | None = None,
-    tenant_id: str = Depends(_tenant),
+    tenant_id: str = Depends(get_current_tenant_id),
     db: AsyncSession = Depends(get_db),
 ) -> list[ObjectiveOut]:
     return await list_objectives(tenant_id, db, status=status)
@@ -27,7 +25,7 @@ async def list_objectives_endpoint(
 @router.post("/objectives", response_model=ObjectiveOut, status_code=201)
 async def create_objective_endpoint(
     body: ObjectiveCreate,
-    tenant_id: str = Depends(_tenant),
+    tenant_id: str = Depends(get_current_tenant_id),
     db: AsyncSession = Depends(get_db),
 ) -> ObjectiveOut:
     from app.schemas.strategy import CreateObjectiveInput
@@ -38,7 +36,7 @@ async def create_objective_endpoint(
 @router.get("/objectives/{obj_id}", response_model=ObjectiveOut)
 async def get_objective_endpoint(
     obj_id: str,
-    tenant_id: str = Depends(_tenant),
+    tenant_id: str = Depends(get_current_tenant_id),
     db: AsyncSession = Depends(get_db),
 ) -> ObjectiveOut:
     o = await get_objective(obj_id, tenant_id, db)
@@ -51,7 +49,7 @@ async def get_objective_endpoint(
 async def update_objective_endpoint(
     obj_id: str,
     body: ObjectiveUpdate,
-    tenant_id: str = Depends(_tenant),
+    tenant_id: str = Depends(get_current_tenant_id),
     db: AsyncSession = Depends(get_db),
 ) -> ObjectiveOut:
     o = await update_objective(obj_id, body, tenant_id, db)
@@ -63,7 +61,7 @@ async def update_objective_endpoint(
 @router.post("/analyze", response_model=dict)
 async def analyze_strategy_endpoint(
     body: dict,
-    tenant_id: str = Depends(_tenant),
+    tenant_id: str = Depends(get_current_tenant_id),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     analysis = await build_strategic_analysis(

@@ -413,7 +413,7 @@ class TestAuthBackwardCompat:
             create_access_token, create_refresh_token,
             hash_password, verify_password,
             get_current_user, get_current_tenant_id,
-            get_optional_tenant_id, require_admin, authenticate_user,
+            require_admin, authenticate_user,
         )
         # All should be callable
         assert callable(create_access_token)

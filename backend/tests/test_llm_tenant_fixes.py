@@ -105,12 +105,14 @@ class TestTenantContextFix:
         assert payload["tid"] == "real-tenant-123"
         assert payload["tid"] != "default-tenant"
 
-    def test_get_optional_tenant_id_checks_jwt_first(self):
-        from app.core.auth import get_optional_tenant_id
+    def test_tenant_comes_from_verified_user_only(self):
+        """Phase 2: tenant is derived from the verified user; no header fallback exists."""
         import inspect
-        src = inspect.getsource(get_optional_tenant_id)
+        from app.core import auth
+        assert not hasattr(auth, "get_optional_tenant_id")
+        src = inspect.getsource(auth.get_current_tenant_id)
         assert "user.tenant_id" in src
-        assert "token" in src
+        assert "X-Tenant-ID" not in src
 
     def test_tenant_isolation_preserved_in_manager(self):
         import inspect

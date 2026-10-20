@@ -35,7 +35,8 @@ import logging
 import uuid
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
+from app.core.auth import get_current_tenant_id
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -57,9 +58,6 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/monitoring", tags=["monitoring"])
 
 # ── Dependency helpers ────────────────────────────────────────────────────────
-
-def _tenant(x_tenant_id: str = Header(..., alias="X-Tenant-ID")) -> str:
-    return x_tenant_id
 
 
 # ── ORM → schema ──────────────────────────────────────────────────────────────
@@ -158,7 +156,7 @@ def _require_implemented_role(role_key: str) -> None:
 @router.get("/rules", response_model=list[MonitoringRuleOut])
 async def list_monitoring_rules(
     role_key: str = "DIGITAL_MARKETING_MANAGER",
-    tenant_id: str = Depends(_tenant),
+    tenant_id: str = Depends(get_current_tenant_id),
     db: AsyncSession = Depends(get_db),
 ) -> list[MonitoringRuleOut]:
     """List all monitoring rules for the tenant and role."""
@@ -182,7 +180,7 @@ async def list_monitoring_rules(
 async def create_monitoring_rule(
     body: MonitoringRuleCreate,
     role_key: str = "DIGITAL_MARKETING_MANAGER",
-    tenant_id: str = Depends(_tenant),
+    tenant_id: str = Depends(get_current_tenant_id),
     db: AsyncSession = Depends(get_db),
 ) -> MonitoringRuleOut:
     """
@@ -229,7 +227,7 @@ async def create_monitoring_rule(
 @router.get("/rules/{rule_id}", response_model=MonitoringRuleOut)
 async def get_monitoring_rule(
     rule_id: str,
-    tenant_id: str = Depends(_tenant),
+    tenant_id: str = Depends(get_current_tenant_id),
     db: AsyncSession = Depends(get_db),
 ) -> MonitoringRuleOut:
     rule = await _load_rule(rule_id, tenant_id, db)
@@ -242,7 +240,7 @@ async def get_monitoring_rule(
 async def update_monitoring_rule(
     rule_id: str,
     body: MonitoringRuleUpdate,
-    tenant_id: str = Depends(_tenant),
+    tenant_id: str = Depends(get_current_tenant_id),
     db: AsyncSession = Depends(get_db),
 ) -> MonitoringRuleOut:
     """Partially update a monitoring rule."""
@@ -289,7 +287,7 @@ async def update_monitoring_rule(
 @router.delete("/rules/{rule_id}", status_code=204, response_model=None)
 async def delete_monitoring_rule(
     rule_id: str,
-    tenant_id: str = Depends(_tenant),
+    tenant_id: str = Depends(get_current_tenant_id),
     db: AsyncSession = Depends(get_db),
 ) -> None:
     rule = await _load_rule(rule_id, tenant_id, db)
@@ -303,7 +301,7 @@ async def delete_monitoring_rule(
 @router.post("/rules/{rule_id}/enable", response_model=MonitoringRuleOut)
 async def enable_monitoring_rule(
     rule_id: str,
-    tenant_id: str = Depends(_tenant),
+    tenant_id: str = Depends(get_current_tenant_id),
     db: AsyncSession = Depends(get_db),
 ) -> MonitoringRuleOut:
     rule = await _load_rule(rule_id, tenant_id, db)
@@ -319,7 +317,7 @@ async def enable_monitoring_rule(
 @router.post("/rules/{rule_id}/disable", response_model=MonitoringRuleOut)
 async def disable_monitoring_rule(
     rule_id: str,
-    tenant_id: str = Depends(_tenant),
+    tenant_id: str = Depends(get_current_tenant_id),
     db: AsyncSession = Depends(get_db),
 ) -> MonitoringRuleOut:
     rule = await _load_rule(rule_id, tenant_id, db)
@@ -335,7 +333,7 @@ async def disable_monitoring_rule(
 async def get_rule_audit(
     rule_id: str,
     limit: int = 50,
-    tenant_id: str = Depends(_tenant),
+    tenant_id: str = Depends(get_current_tenant_id),
     db: AsyncSession = Depends(get_db),
 ) -> list[MonitoringAuditOut]:
     """Get the evaluation audit log for a specific monitoring rule."""
@@ -360,7 +358,7 @@ async def get_rule_audit(
 @router.post("/evaluate/{rule_id}", response_model=dict)
 async def manually_evaluate_rule(
     rule_id: str,
-    tenant_id: str = Depends(_tenant),
+    tenant_id: str = Depends(get_current_tenant_id),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     """
@@ -381,7 +379,7 @@ async def manually_evaluate_rule(
 
 @router.get("/status", response_model=dict)
 async def monitoring_status(
-    tenant_id: str = Depends(_tenant),
+    tenant_id: str = Depends(get_current_tenant_id),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     """Return monitoring scheduler status and rule counts for this tenant."""

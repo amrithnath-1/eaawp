@@ -1,6 +1,7 @@
 """EAAWP Marketing Channel Integration Router"""
 from __future__ import annotations
-from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
+from app.core.auth import get_current_tenant_id
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.session import get_db
 from app.services.channel_service import (
@@ -10,18 +11,15 @@ from app.services.channel_service import (
 
 router = APIRouter(prefix="/api/v1/channels", tags=["channels"])
 
-def _tenant(x_tenant_id: str = Header(..., alias="X-Tenant-ID")) -> str:
-    return x_tenant_id
-
 
 @router.get("", response_model=list[dict])
-async def list_channels(tenant_id: str = Depends(_tenant), db: AsyncSession = Depends(get_db)) -> list[dict]:
+async def list_channels(tenant_id: str = Depends(get_current_tenant_id), db: AsyncSession = Depends(get_db)) -> list[dict]:
     return await list_channel_integrations(tenant_id, db)
 
 
 @router.post("", response_model=dict, status_code=201)
 async def create_channel(
-    body: dict, tenant_id: str = Depends(_tenant), db: AsyncSession = Depends(get_db)
+    body: dict, tenant_id: str = Depends(get_current_tenant_id), db: AsyncSession = Depends(get_db)
 ) -> dict:
     return await create_channel_integration(
         tenant_id=tenant_id,
@@ -36,14 +34,14 @@ async def create_channel(
 
 @router.post("/{integration_id}/test", response_model=dict)
 async def test_channel(
-    integration_id: str, tenant_id: str = Depends(_tenant), db: AsyncSession = Depends(get_db)
+    integration_id: str, tenant_id: str = Depends(get_current_tenant_id), db: AsyncSession = Depends(get_db)
 ) -> dict:
     return await test_channel_integration(integration_id, tenant_id, db)
 
 
 @router.post("/{integration_id}/enable", response_model=dict)
 async def enable_channel(
-    integration_id: str, tenant_id: str = Depends(_tenant), db: AsyncSession = Depends(get_db)
+    integration_id: str, tenant_id: str = Depends(get_current_tenant_id), db: AsyncSession = Depends(get_db)
 ) -> dict:
     r = await enable_disable_channel(integration_id, tenant_id, True, db)
     if not r:
@@ -53,7 +51,7 @@ async def enable_channel(
 
 @router.post("/{integration_id}/disable", response_model=dict)
 async def disable_channel(
-    integration_id: str, tenant_id: str = Depends(_tenant), db: AsyncSession = Depends(get_db)
+    integration_id: str, tenant_id: str = Depends(get_current_tenant_id), db: AsyncSession = Depends(get_db)
 ) -> dict:
     r = await enable_disable_channel(integration_id, tenant_id, False, db)
     if not r:
@@ -64,6 +62,6 @@ async def disable_channel(
 @router.post("/{integration_id}/prepare", response_model=dict)
 async def prepare_content(
     integration_id: str, body: dict,
-    tenant_id: str = Depends(_tenant), db: AsyncSession = Depends(get_db)
+    tenant_id: str = Depends(get_current_tenant_id), db: AsyncSession = Depends(get_db)
 ) -> dict:
     return await prepare_content_for_channel(integration_id, tenant_id, body.get("content", {}), db)

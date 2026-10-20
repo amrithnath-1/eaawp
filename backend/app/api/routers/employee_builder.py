@@ -24,7 +24,8 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.auth import get_optional_tenant_id
+from app.core.auth import get_current_tenant_id, require_admin
+from app.db.models import User as _AuthUser
 from app.db.models import (
     AIEmployee,
     AgentConfiguration,
@@ -87,7 +88,7 @@ def _proposal_to_schema(row: EmployeeBlueprintProposalORM) -> EmployeeBlueprintP
 )
 async def build_employee(
     body: EmployeeBlueprintRequest,
-    tenant_id: str = Depends(get_optional_tenant_id),
+    tenant_id: str = Depends(get_current_tenant_id),
     db: AsyncSession = Depends(get_db),
 ) -> EmployeeBlueprintProposal:
     """
@@ -159,7 +160,7 @@ async def build_employee(
     summary="List employee blueprint proposals for this tenant",
 )
 async def list_blueprints(
-    tenant_id: str = Depends(get_optional_tenant_id),
+    tenant_id: str = Depends(get_current_tenant_id),
     db: AsyncSession = Depends(get_db),
 ) -> list[EmployeeBlueprintProposal]:
     result = await db.execute(
@@ -182,7 +183,7 @@ async def list_blueprints(
 async def approve_blueprint(
     proposal_id: str,
     body: EmployeeBlueprintDecision,
-    tenant_id: str = Depends(get_optional_tenant_id),
+    admin_user: _AuthUser = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ) -> EmployeeOut:
     """
@@ -190,6 +191,11 @@ async def approve_blueprint(
     Creates the AIEmployee + AgentConfiguration records.
     The employee starts in ACTIVE status.
     """
+    # Tenant and reviewer identity come from the verified admin JWT, never from
+    # the request body (``reviewed_by`` in the body is ignored).
+    tenant_id = admin_user.tenant_id
+    reviewer = admin_user.email or admin_user.id
+    body.reviewed_by = reviewer
     result = await db.execute(
         select(EmployeeBlueprintProposalORM).where(
             EmployeeBlueprintProposalORM.id == proposal_id,
@@ -270,9 +276,14 @@ async def approve_blueprint(
 async def reject_blueprint(
     proposal_id: str,
     body: EmployeeBlueprintDecision,
-    tenant_id: str = Depends(get_optional_tenant_id),
+    admin_user: _AuthUser = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ) -> EmployeeBlueprintProposal:
+    # Tenant and reviewer identity come from the verified admin JWT, never from
+    # the request body (``reviewed_by`` in the body is ignored).
+    tenant_id = admin_user.tenant_id
+    reviewer = admin_user.email or admin_user.id
+    body.reviewed_by = reviewer
     result = await db.execute(
         select(EmployeeBlueprintProposalORM).where(
             EmployeeBlueprintProposalORM.id == proposal_id,
@@ -302,7 +313,7 @@ async def reject_blueprint(
     summary="List AI employees for this tenant",
 )
 async def list_employees(
-    tenant_id: str = Depends(get_optional_tenant_id),
+    tenant_id: str = Depends(get_current_tenant_id),
     db: AsyncSession = Depends(get_db),
 ) -> list[EmployeeOut]:
     result = await db.execute(

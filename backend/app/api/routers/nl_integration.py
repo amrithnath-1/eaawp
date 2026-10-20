@@ -20,7 +20,7 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.auth import get_current_tenant_id, get_optional_tenant_id
+from app.core.auth import get_current_tenant_id
 from app.db.session import get_db
 from app.integrations import manager as mgr
 from app.integrations.integration_registry import integration_registry
@@ -52,7 +52,7 @@ router = APIRouter(prefix="/api/v1/nl-integration", tags=["nl-integration"])
 )
 async def parse_intent(
     body: NLIntegrationRequest,
-    tenant_id: str = Depends(get_optional_tenant_id),
+    tenant_id: str = Depends(get_current_tenant_id),
 ) -> IntegrationIntent:
     """
     Parse a natural-language string into a structured IntegrationIntent.
@@ -85,7 +85,7 @@ async def parse_intent(
 )
 async def chat(
     body: IntegrationConversationRequest,
-    tenant_id: str = Depends(get_optional_tenant_id),
+    tenant_id: str = Depends(get_current_tenant_id),
     db: AsyncSession = Depends(get_db),
 ) -> IntegrationConversationResponse:
     """

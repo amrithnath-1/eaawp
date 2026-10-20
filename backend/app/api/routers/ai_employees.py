@@ -1,7 +1,8 @@
 """AI Employees router — tenant-scoped."""
 from __future__ import annotations
 import uuid
-from fastapi import APIRouter, Depends, HTTPException, Header
+from fastapi import APIRouter, Depends, HTTPException
+from app.core.auth import get_current_tenant_id
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.session import get_db
@@ -10,12 +11,9 @@ from app.schemas.api import AIEmployeeOut, AIEmployeeCreate
 
 router = APIRouter(prefix="/api/v1/ai-employees", tags=["ai-employees"])
 
-def _tenant(x_tenant_id: str = Header(..., alias="X-Tenant-ID")) -> str:
-    return x_tenant_id
-
 @router.get("", response_model=list[AIEmployeeOut])
 async def list_ai_employees(
-    tenant_id: str = Depends(_tenant), db: AsyncSession = Depends(get_db)
+    tenant_id: str = Depends(get_current_tenant_id), db: AsyncSession = Depends(get_db)
 ):
     result = await db.execute(
         select(AIEmployee).where(
@@ -27,7 +25,7 @@ async def list_ai_employees(
 @router.get("/{ai_employee_id}", response_model=AIEmployeeOut)
 async def get_ai_employee(
     ai_employee_id: str,
-    tenant_id: str = Depends(_tenant),
+    tenant_id: str = Depends(get_current_tenant_id),
     db: AsyncSession = Depends(get_db),
 ):
     employee = await db.get(AIEmployee, ai_employee_id)
@@ -38,7 +36,7 @@ async def get_ai_employee(
 @router.post("", response_model=AIEmployeeOut, status_code=201)
 async def create_ai_employee(
     body: AIEmployeeCreate,
-    tenant_id: str = Depends(_tenant),
+    tenant_id: str = Depends(get_current_tenant_id),
     db: AsyncSession = Depends(get_db),
 ):
     employee = AIEmployee(id=str(uuid.uuid4()), tenant_id=tenant_id, **body.model_dump())
@@ -51,7 +49,7 @@ async def create_ai_employee(
 async def update_status(
     ai_employee_id: str,
     status: str,
-    tenant_id: str = Depends(_tenant),
+    tenant_id: str = Depends(get_current_tenant_id),
     db: AsyncSession = Depends(get_db),
 ):
     employee = await db.get(AIEmployee, ai_employee_id)

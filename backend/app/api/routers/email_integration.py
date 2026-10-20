@@ -28,7 +28,8 @@ import logging
 import uuid
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
+from app.core.auth import get_current_tenant_id
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -48,9 +49,6 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/email", tags=["email-integration"])
 
-
-def _tenant(x_tenant_id: str = Header(..., alias="X-Tenant-ID")) -> str:
-    return x_tenant_id
 
 
 def _integration_to_out(i: ExternalIntegration) -> EmailIntegrationOut:
@@ -109,7 +107,7 @@ async def _require_integration(
 @router.post("/integration", response_model=EmailIntegrationOut, status_code=201)
 async def create_email_integration(
     body: SMTPConfigCreate,
-    tenant_id: str = Depends(_tenant),
+    tenant_id: str = Depends(get_current_tenant_id),
     db: AsyncSession = Depends(get_db),
 ) -> EmailIntegrationOut:
     """
@@ -162,7 +160,7 @@ async def create_email_integration(
 
 @router.get("/integration", response_model=EmailIntegrationOut)
 async def get_email_integration(
-    tenant_id: str = Depends(_tenant),
+    tenant_id: str = Depends(get_current_tenant_id),
     db: AsyncSession = Depends(get_db),
 ) -> EmailIntegrationOut:
     """Get the safe integration status. Password is never returned."""
@@ -175,7 +173,7 @@ async def get_email_integration(
 @router.patch("/integration", response_model=EmailIntegrationOut)
 async def update_email_integration(
     body: SMTPConfigUpdate,
-    tenant_id: str = Depends(_tenant),
+    tenant_id: str = Depends(get_current_tenant_id),
     db: AsyncSession = Depends(get_db),
 ) -> EmailIntegrationOut:
     """Partially update the SMTP integration. If password is provided, it is re-encrypted."""
@@ -211,7 +209,7 @@ async def update_email_integration(
 
 @router.delete("/integration", response_model=None, status_code=204)
 async def delete_email_integration(
-    tenant_id: str = Depends(_tenant),
+    tenant_id: str = Depends(get_current_tenant_id),
     db: AsyncSession = Depends(get_db),
 ) -> None:
     """Remove the SMTP integration. All audit logs are preserved."""
@@ -225,7 +223,7 @@ async def delete_email_integration(
 
 @router.post("/integration/test", response_model=ConnectionTestResultOut)
 async def test_email_integration(
-    tenant_id: str = Depends(_tenant),
+    tenant_id: str = Depends(get_current_tenant_id),
     db: AsyncSession = Depends(get_db),
 ) -> ConnectionTestResultOut:
     """
@@ -272,7 +270,7 @@ async def test_email_integration(
 
 @router.post("/integration/enable", response_model=EmailIntegrationOut)
 async def enable_email_integration(
-    tenant_id: str = Depends(_tenant),
+    tenant_id: str = Depends(get_current_tenant_id),
     db: AsyncSession = Depends(get_db),
 ) -> EmailIntegrationOut:
     integration = await _require_integration(tenant_id, db)
@@ -283,7 +281,7 @@ async def enable_email_integration(
 
 @router.post("/integration/disable", response_model=EmailIntegrationOut)
 async def disable_email_integration(
-    tenant_id: str = Depends(_tenant),
+    tenant_id: str = Depends(get_current_tenant_id),
     db: AsyncSession = Depends(get_db),
 ) -> EmailIntegrationOut:
     integration = await _require_integration(tenant_id, db)
@@ -297,7 +295,7 @@ async def disable_email_integration(
 @router.get("/audit", response_model=list[dict])
 async def get_email_audit(
     limit: int = 50,
-    tenant_id: str = Depends(_tenant),
+    tenant_id: str = Depends(get_current_tenant_id),
     db: AsyncSession = Depends(get_db),
 ) -> list[dict]:
     """

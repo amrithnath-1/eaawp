@@ -1,6 +1,7 @@
 """EAAWP Funnel Analysis Router"""
 from __future__ import annotations
-from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
+from app.core.auth import get_current_tenant_id
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.session import get_db
 from app.schemas.funnel import FUNNEL_SEMANTIC_CONCEPTS
@@ -10,14 +11,11 @@ from app.services.funnel_service import (
 
 router = APIRouter(prefix="/api/v1/funnel", tags=["funnel"])
 
-def _tenant(x_tenant_id: str = Header(..., alias="X-Tenant-ID")) -> str:
-    return x_tenant_id
-
 
 @router.post("/analyze", response_model=dict)
 async def analyze_funnel_endpoint(
     body: dict,
-    tenant_id: str = Depends(_tenant),
+    tenant_id: str = Depends(get_current_tenant_id),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     from app.schemas.funnel import FUNNEL_STAGES
@@ -49,7 +47,7 @@ async def analyze_funnel_endpoint(
 async def campaign_funnel_endpoint(
     campaign_id: str,
     body: dict,
-    tenant_id: str = Depends(_tenant),
+    tenant_id: str = Depends(get_current_tenant_id),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     from app.services.campaign_service import get_metrics as svc_metrics

@@ -76,6 +76,16 @@ class OAuthState(Base):
         nullable=False, index=True,
     )
 
+    # The authenticated user who started the flow.  The callback is a browser
+    # redirect from Google and cannot carry a Bearer token, so the binding is
+    # recorded server-side here and re-checked (user still active, same
+    # tenant) before any token is stored.  NULL only for legacy rows, which
+    # the callback rejects.
+    initiated_by_user_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+
     # The integration_catalog row this flow will populate on success.
     # Created (status="not_configured") before the redirect and referenced here.
     integration_id: Mapped[str] = mapped_column(

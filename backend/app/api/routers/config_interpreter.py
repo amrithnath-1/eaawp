@@ -28,7 +28,9 @@ import json
 import logging
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
+from app.core.auth import get_current_tenant_id, require_admin
+from app.db.models import User as _AuthUser
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -52,9 +54,6 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/roles", tags=["nl-config"])
 
-
-def _tenant(x_tenant_id: str = Header(..., alias="X-Tenant-ID")) -> str:
-    return x_tenant_id
 
 
 def _row_to_proposal(row: ConfigChangeProposal) -> ConfigProposalOut:
@@ -89,7 +88,7 @@ def _row_to_proposal(row: ConfigChangeProposal) -> ConfigProposalOut:
 async def nl_configure(
     role_key: str,
     body: NLConfigRequest,
-    tenant_id: str = Depends(_tenant),
+    tenant_id: str = Depends(get_current_tenant_id),
     db: AsyncSession = Depends(get_db),
 ) -> ConfigProposalOut:
     if role_key not in IMPLEMENTED_ROLES:
@@ -147,7 +146,7 @@ async def nl_configure(
 )
 async def list_proposals(
     role_key: str,
-    tenant_id: str = Depends(_tenant),
+    tenant_id: str = Depends(get_current_tenant_id),
     db: AsyncSession = Depends(get_db),
 ) -> list[ConfigProposalOut]:
     if role_key not in IMPLEMENTED_ROLES:
@@ -177,9 +176,14 @@ async def approve_proposal(
     role_key: str,
     proposal_id: str,
     body: ProposalDecision,
-    tenant_id: str = Depends(_tenant),
+    admin_user: _AuthUser = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ) -> ConfigProposalOut:
+    # Tenant and reviewer identity come from the verified admin JWT, never from
+    # the request body (``reviewed_by`` in the body is ignored).
+    tenant_id = admin_user.tenant_id
+    reviewer = admin_user.email or admin_user.id
+    body.reviewed_by = reviewer
     if role_key not in IMPLEMENTED_ROLES:
         raise HTTPException(status_code=404, detail={"role_key": role_key, "status": "coming_soon"})
 
@@ -245,9 +249,14 @@ async def reject_proposal(
     role_key: str,
     proposal_id: str,
     body: ProposalDecision,
-    tenant_id: str = Depends(_tenant),
+    admin_user: _AuthUser = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ) -> ConfigProposalOut:
+    # Tenant and reviewer identity come from the verified admin JWT, never from
+    # the request body (``reviewed_by`` in the body is ignored).
+    tenant_id = admin_user.tenant_id
+    reviewer = admin_user.email or admin_user.id
+    body.reviewed_by = reviewer
     if role_key not in IMPLEMENTED_ROLES:
         raise HTTPException(status_code=404, detail={"role_key": role_key, "status": "coming_soon"})
 

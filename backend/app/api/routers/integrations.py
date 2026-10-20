@@ -31,7 +31,8 @@ import logging
 import uuid
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
+from app.core.auth import get_current_tenant_id
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -54,9 +55,6 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/integrations", tags=["integrations"])
 
-
-def _tenant(x_tenant_id: str = Header(..., alias="X-Tenant-ID")) -> str:
-    return x_tenant_id
 
 
 def _conn_to_schema(conn: DataConnection, entity_count: int = 0, allowed_count: int = 0) -> DataConnectionOut:
@@ -99,7 +97,7 @@ async def _get_conn_or_404(conn_id: str, tenant_id: str, db: AsyncSession) -> Da
 @router.post("/connections", response_model=DataConnectionOut, status_code=201)
 async def create_connection(
     body: DataConnectionCreate,
-    tenant_id: str = Depends(_tenant),
+    tenant_id: str = Depends(get_current_tenant_id),
     db: AsyncSession = Depends(get_db),
 ) -> DataConnectionOut:
     encrypted = encrypt_password(body.password)
@@ -126,7 +124,7 @@ async def create_connection(
 
 @router.get("/connections", response_model=list[DataConnectionOut])
 async def list_connections(
-    tenant_id: str = Depends(_tenant),
+    tenant_id: str = Depends(get_current_tenant_id),
     db: AsyncSession = Depends(get_db),
 ) -> list[DataConnectionOut]:
     result = await db.execute(
@@ -154,7 +152,7 @@ async def list_connections(
 @router.get("/connections/{conn_id}", response_model=DataConnectionOut)
 async def get_connection(
     conn_id: str,
-    tenant_id: str = Depends(_tenant),
+    tenant_id: str = Depends(get_current_tenant_id),
     db: AsyncSession = Depends(get_db),
 ) -> DataConnectionOut:
     conn = await _get_conn_or_404(conn_id, tenant_id, db)
@@ -172,7 +170,7 @@ async def get_connection(
 async def update_connection(
     conn_id: str,
     body: DataConnectionUpdate,
-    tenant_id: str = Depends(_tenant),
+    tenant_id: str = Depends(get_current_tenant_id),
     db: AsyncSession = Depends(get_db),
 ) -> DataConnectionOut:
     conn = await _get_conn_or_404(conn_id, tenant_id, db)
@@ -200,7 +198,7 @@ async def update_connection(
 @router.delete("/connections/{conn_id}", response_model=dict)
 async def delete_connection(
     conn_id: str,
-    tenant_id: str = Depends(_tenant),
+    tenant_id: str = Depends(get_current_tenant_id),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     conn = await _get_conn_or_404(conn_id, tenant_id, db)
@@ -214,7 +212,7 @@ async def delete_connection(
 @router.post("/connections/{conn_id}/test", response_model=ConnectionTestResponse)
 async def test_connection(
     conn_id: str,
-    tenant_id: str = Depends(_tenant),
+    tenant_id: str = Depends(get_current_tenant_id),
     db: AsyncSession = Depends(get_db),
 ) -> ConnectionTestResponse:
     conn = await _get_conn_or_404(conn_id, tenant_id, db)
@@ -264,7 +262,7 @@ async def test_connection(
 @router.post("/connections/{conn_id}/discover", response_model=list[SchemaEntityOut])
 async def discover_schema(
     conn_id: str,
-    tenant_id: str = Depends(_tenant),
+    tenant_id: str = Depends(get_current_tenant_id),
     db: AsyncSession = Depends(get_db),
 ) -> list[SchemaEntityOut]:
     conn = await _get_conn_or_404(conn_id, tenant_id, db)
@@ -345,7 +343,7 @@ async def discover_schema(
 @router.get("/connections/{conn_id}/entities", response_model=list[SchemaEntityOut])
 async def list_entities(
     conn_id: str,
-    tenant_id: str = Depends(_tenant),
+    tenant_id: str = Depends(get_current_tenant_id),
     db: AsyncSession = Depends(get_db),
 ) -> list[SchemaEntityOut]:
     conn = await _get_conn_or_404(conn_id, tenant_id, db)
@@ -366,7 +364,7 @@ async def list_entities(
 async def set_entity_permission(
     entity_id: str,
     body: EntityPermissionUpdate,
-    tenant_id: str = Depends(_tenant),
+    tenant_id: str = Depends(get_current_tenant_id),
     db: AsyncSession = Depends(get_db),
 ) -> SchemaEntityOut:
     result = await db.execute(
@@ -389,7 +387,7 @@ async def set_entity_permission(
 async def bulk_set_permission(
     conn_id: str,
     body: BulkEntityPermissionUpdate,
-    tenant_id: str = Depends(_tenant),
+    tenant_id: str = Depends(get_current_tenant_id),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     await _get_conn_or_404(conn_id, tenant_id, db)

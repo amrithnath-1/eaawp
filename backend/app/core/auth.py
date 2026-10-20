@@ -22,10 +22,11 @@ FastAPI dependency chain
   get_current_tenant_id(token) → str
   require_admin(user)    → User (raises 403 if not admin)
 
-The X-Tenant-ID header is still accepted for backward-compat with the
-existing development/demo flow, but it is only used as a fallback when
-no Authorization: Bearer header is present.  Authenticated paths always
-use the token-derived tenant_id.
+The X-Tenant-ID header is NOT an identity.  It is ignored by every
+dependency in this module: tenant_id always comes from the user record
+that the verified JWT points to.  A missing, malformed, expired or
+wrongly-typed token is rejected with 401 — there is no unauthenticated
+fallback.
 
 Never log token values, passwords, or secrets.
 """
@@ -38,7 +39,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from fastapi import Depends, Header, HTTPException, status
+from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from jose import JWTError, jwt
 import bcrypt as _bcrypt_lib
@@ -180,7 +181,7 @@ async def validate_refresh_token_db(
     if record.revoked:
         raise HTTPException(status_code=401, detail="Refresh token has been revoked")
     now = datetime.now(timezone.utc)
-    if record.expires_at < now:
+    if as_utc(record.expires_at) < now:
         raise HTTPException(status_code=401, detail="Refresh token expired")
 
     return payload
@@ -239,7 +240,11 @@ def _decode_token(token: str, expected_type: str) -> dict[str, Any]:
     )
     try:
         payload = jwt.decode(
-            token, settings.secret_key, algorithms=[settings.algorithm]
+            token,
+            settings.secret_key,
+            algorithms=[settings.algorithm],
+            # Tokens without an expiry or subject are never valid.
+            options={"require_exp": True, "require_sub": True},
         )
     except JWTError:
         raise credentials_exc
@@ -248,6 +253,11 @@ def _decode_token(token: str, expected_type: str) -> dict[str, Any]:
         raise credentials_exc
 
     return payload
+
+
+def as_utc(value: datetime) -> datetime:
+    """Treat a naive datetime (SQLite returns these) as UTC; leave aware ones alone."""
+    return value if value.tzinfo is not None else value.replace(tzinfo=timezone.utc)
 
 
 # ── FastAPI dependencies ──────────────────────────────────────────────────────
@@ -294,24 +304,6 @@ async def get_current_tenant_id(
     This is the correct way for ALL routers to obtain tenant_id — never
     trust a request parameter or header directly."""
     return user.tenant_id
-
-
-async def get_optional_tenant_id(
-    token: str | None = Depends(_oauth2_scheme),
-    x_tenant_id: str | None = Header(default="default-tenant", alias="X-Tenant-ID"),
-    db: AsyncSession = Depends(get_db),
-) -> str:
-    """
-    Same as get_current_tenant_id but returns a default for unauthenticated
-    requests.  Used by the execution router so existing demo mode keeps working.
-    """
-    if token:
-        try:
-            user = await get_current_user(token=token, db=db)
-            return user.tenant_id
-        except HTTPException:
-            pass
-    return x_tenant_id or "default-tenant"
 
 
 def require_admin(user: User = Depends(get_current_user)) -> User:

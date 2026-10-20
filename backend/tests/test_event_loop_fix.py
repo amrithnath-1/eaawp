@@ -100,7 +100,7 @@ class TestEndpointsReturn200:
     """
 
     @pytest.mark.asyncio
-    async def test_roles_endpoint_returns_200(self):
+    async def test_roles_endpoint_returns_200(self, world):
         """GET /api/v1/roles/DIGITAL_MARKETING_MANAGER must return 200, not 500."""
         from app.main import app
         from httpx import AsyncClient, ASGITransport
@@ -110,12 +110,12 @@ class TestEndpointsReturn200:
         ) as client:
             r = await client.get(
                 "/api/v1/roles/DIGITAL_MARKETING_MANAGER",
-                headers={"X-Tenant-ID": "demo-company-001"},
+                headers=world.auth("a_admin"),
             )
         assert r.status_code == 200, f"Expected 200, got {r.status_code}: {r.text[:200]}"
 
     @pytest.mark.asyncio
-    async def test_integrations_endpoint_returns_200(self):
+    async def test_integrations_endpoint_returns_200(self, world):
         """GET /api/v1/integration-manager/integrations must return 200, not 500."""
         from app.main import app
         from httpx import AsyncClient, ASGITransport
@@ -125,7 +125,7 @@ class TestEndpointsReturn200:
         ) as client:
             r = await client.get(
                 "/api/v1/integration-manager/integrations",
-                headers={"X-Tenant-ID": "demo-company-001"},
+                headers=world.auth("a_admin"),
             )
         assert r.status_code == 200, f"Expected 200, got {r.status_code}: {r.text[:200]}"
 
@@ -142,7 +142,7 @@ class TestEndpointsReturn200:
         assert r.status_code == 200
 
     @pytest.mark.asyncio
-    async def test_nl_integration_parse_returns_non_500(self):
+    async def test_nl_integration_parse_returns_non_500(self, world):
         """POST /api/v1/nl-integration/parse must not return 500."""
         from app.main import app
         from httpx import AsyncClient, ASGITransport
@@ -153,7 +153,7 @@ class TestEndpointsReturn200:
             r = await client.post(
                 "/api/v1/nl-integration/parse",
                 json={"instruction": "Connect Google Search Console"},
-                headers={"X-Tenant-ID": "demo-company-001"},
+                headers=world.auth("a_admin"),
             )
         # 200 if LLM available, 503 if not configured — both are acceptable
         # 500 is the failure we are guarding against
@@ -161,7 +161,7 @@ class TestEndpointsReturn200:
         assert r.status_code in (200, 503), f"Unexpected status {r.status_code}: {r.text[:200]}"
 
     @pytest.mark.asyncio
-    async def test_providers_endpoint_returns_200(self):
+    async def test_providers_endpoint_returns_200(self, world):
         """GET /api/v1/integration-manager/providers must return 200."""
         from app.main import app
         from httpx import AsyncClient, ASGITransport
@@ -169,7 +169,9 @@ class TestEndpointsReturn200:
             transport=ASGITransport(app=app, raise_app_exceptions=True),
             base_url="http://test",
         ) as client:
-            r = await client.get("/api/v1/integration-manager/providers")
+            r = await client.get(
+                "/api/v1/integration-manager/providers", headers=world.auth("a_admin")
+            )
         assert r.status_code == 200
         data = r.json()
         assert isinstance(data, list)

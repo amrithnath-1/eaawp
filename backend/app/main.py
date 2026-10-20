@@ -131,8 +131,10 @@ app = FastAPI(
     title=settings.app_name,
     description="Enterprise Agentic AI Workforce Platform — Backend API",
     version=settings.app_version,
-    docs_url="/docs",
-    redoc_url="/redoc",
+    # Interactive API docs expose the full route map; keep them off in production.
+    docs_url=None if settings.environment == "production" else "/docs",
+    redoc_url=None if settings.environment == "production" else "/redoc",
+    openapi_url=None if settings.environment == "production" else "/openapi.json",
     lifespan=lifespan,
 )
 

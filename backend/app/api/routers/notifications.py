@@ -1,6 +1,7 @@
 """EAAWP Notifications Router"""
 from __future__ import annotations
-from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
+from app.core.auth import get_current_tenant_id
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.session import get_db
 from app.services.notification_service import (
@@ -9,14 +10,11 @@ from app.services.notification_service import (
 
 router = APIRouter(prefix="/api/v1/notifications", tags=["notifications"])
 
-def _tenant(x_tenant_id: str = Header(..., alias="X-Tenant-ID")) -> str:
-    return x_tenant_id
-
 
 @router.get("", response_model=list[dict])
 async def list_ep(
     unread_only: bool = False, limit: int = 50,
-    tenant_id: str = Depends(_tenant), db: AsyncSession = Depends(get_db),
+    tenant_id: str = Depends(get_current_tenant_id), db: AsyncSession = Depends(get_db),
 ) -> list[dict]:
     notifications = await list_notifications(tenant_id, db, unread_only=unread_only, limit=limit)
     return [
@@ -31,7 +29,7 @@ async def list_ep(
 @router.post("/{notification_id}/read", response_model=dict)
 async def mark_read_ep(
     notification_id: str,
-    tenant_id: str = Depends(_tenant), db: AsyncSession = Depends(get_db),
+    tenant_id: str = Depends(get_current_tenant_id), db: AsyncSession = Depends(get_db),
 ) -> dict:
     ok = await mark_read(notification_id, tenant_id, db)
     if not ok:
@@ -41,7 +39,7 @@ async def mark_read_ep(
 
 @router.post("/read-all", response_model=dict)
 async def mark_all_read_ep(
-    tenant_id: str = Depends(_tenant), db: AsyncSession = Depends(get_db),
+    tenant_id: str = Depends(get_current_tenant_id), db: AsyncSession = Depends(get_db),
 ) -> dict:
     count = await mark_all_read(tenant_id, db)
     return {"marked_read": count}

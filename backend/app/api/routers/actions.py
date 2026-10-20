@@ -7,7 +7,7 @@ POST /api/v1/actions/audits/{audit_id}/approve    — approve + execute
 POST /api/v1/actions/audits/{audit_id}/reject     — reject (no execution)
 GET  /api/v1/actions/tools                        — list registered action tools
 
-All endpoints require X-Tenant-ID header.
+All endpoints require a valid Bearer JWT; the tenant comes from the token.
 Approving an action re-validates permissions before executing.
 """
 
@@ -55,7 +55,9 @@ async def _ensure_not_plan_linked(approval_request_id: str | None, tenant_id: st
 # ── List registered action tools ──────────────────────────────────────────────
 
 @router.get("/tools", response_model=list[dict])
-async def list_action_tools() -> list[dict]:
+async def list_action_tools(
+    _tenant_id: str = Depends(get_current_tenant_id),
+) -> list[dict]:
     """List all registered action tools with their metadata."""
     return [
         {

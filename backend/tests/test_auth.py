@@ -25,7 +25,7 @@ Security requirements verified:
 21.  TokenResponse never contains password field.
 22.  Auth router /me requires valid token.
 23.  Tenant_id derived from token, not from X-Tenant-ID header alone.
-24.  get_optional_tenant_id falls back to header in dev mode.
+24.  There is NO header fallback: get_optional_tenant_id no longer exists.
 25.  Two different tenants have completely isolated token spaces.
 """
 
@@ -348,6 +348,7 @@ class TestTenantIsolation:
         assert hasattr(auth, "hash_password")
         assert hasattr(auth, "get_current_user")
         assert hasattr(auth, "get_current_tenant_id")
-        assert hasattr(auth, "get_optional_tenant_id")
+        # Phase 2: the unauthenticated X-Tenant-ID fallback was removed on purpose.
+        assert not hasattr(auth, "get_optional_tenant_id")
         assert hasattr(auth, "require_admin")
         assert hasattr(auth, "authenticate_user")
