@@ -24,6 +24,17 @@ import {
   ShieldCheck,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { API_BASE_URL } from "@/lib/api-client";
+
+/** JSON headers plus the session's bearer token (tenant comes from the token). */
+function authHeaders(): Record<string, string> {
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  try {
+    const token = window.localStorage.getItem("eaawp.access_token");
+    if (token) headers["Authorization"] = `Bearer ${token}`;
+  } catch { /* ignore */ }
+  return headers;
+}
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -87,8 +98,8 @@ export function AdminProviderConfigPanel({
     setLoading(true);
     setError(null);
     try {
-      const resp = await fetch(`/api/v1/admin/provider-config/${providerType}/status`, {
-        headers: { "Content-Type": "application/json" },
+      const resp = await fetch(`${API_BASE_URL}/api/v1/admin/provider-config/${providerType}/status`, {
+        headers: authHeaders(),
         credentials: "include",
       });
       if (resp.status === 401) {
@@ -139,9 +150,9 @@ export function AdminProviderConfigPanel({
     setSubmitting(true);
     setError(null);
     try {
-      const resp = await fetch(`/api/v1/admin/provider-config/${providerType}`, {
+      const resp = await fetch(`${API_BASE_URL}/api/v1/admin/provider-config/${providerType}`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: authHeaders(),
         credentials: "include",
         body: JSON.stringify({ fields }),
       });

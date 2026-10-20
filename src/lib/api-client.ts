@@ -23,6 +23,16 @@ export class ApiError extends Error {
   }
 }
 
+function handleSessionExpired(): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.removeItem("eaawp.access_token");
+    window.localStorage.removeItem("eaawp.refresh_token");
+    window.localStorage.removeItem("eaawp.session");
+  } catch { /* ignore */ }
+  if (window.location.pathname !== "/") window.location.assign("/");
+}
+
 async function request<T>(
   method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE",
   path: string,
@@ -31,12 +41,10 @@ async function request<T>(
 ): Promise<T> {
   const url = `${API_BASE_URL}${path}`;
 
-  // Inject JWT access token and tenant ID from session if available
+  // Inject the JWT access token. The tenant is derived server-side from the
+  // verified token; no tenant header is sent (the backend ignores it).
   const accessToken = typeof window !== "undefined"
     ? window.localStorage.getItem("eaawp.access_token")
-    : null;
-  const tenantId = typeof window !== "undefined"
-    ? window.localStorage.getItem("eaawp.last_company_id")
     : null;
 
   const headers: Record<string, string> = {
@@ -44,7 +52,6 @@ async function request<T>(
     Accept: "application/json",
   };
   if (accessToken) headers["Authorization"] = `Bearer ${accessToken}`;
-  if (tenantId) headers["X-Tenant-ID"] = tenantId;
 
   const res = await fetch(url, {
     method,
@@ -52,6 +59,12 @@ async function request<T>(
     ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
     ...(signal !== undefined ? { signal } : {}),
   });
+
+  if (res.status === 401 && accessToken) {
+    // Token missing/expired/invalid on the server: drop the stale session so
+    // the route guard sends the user back to the login page.
+    handleSessionExpired();
+  }
 
   if (!res.ok) {
     let errorBody: unknown;

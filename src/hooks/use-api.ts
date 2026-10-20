@@ -402,7 +402,6 @@ const MOCK_ROLE_CONFIG: RoleConfigFull = {
   updated_at: new Date().toISOString(),
 };
 
-const ROLE_CONFIG_HEADERS = { "X-Tenant-ID": (typeof window !== "undefined" ? window.localStorage.getItem("eaawp.last_company_id") ?? "default-tenant" : "default-tenant") };
 
 /**
  * Fetch the full role configuration for a given role key.
@@ -522,7 +521,6 @@ export interface ConfigProposal {
   approved_by: string | null;
 }
 
-const NL_CONFIG_HEADERS = { "X-Tenant-ID": (typeof window !== "undefined" ? window.localStorage.getItem("eaawp.last_company_id") ?? "default-tenant" : "default-tenant") };
 
 /**
  * Submit a natural-language configuration instruction.
@@ -710,7 +708,6 @@ export interface RetrievalResponse {
   total_found: number;
 }
 
-const KB_HEADERS = { "X-Tenant-ID": (typeof window !== "undefined" ? window.localStorage.getItem("eaawp.last_company_id") ?? "default-tenant" : "default-tenant") };
 
 /** List all knowledge documents for the tenant. */
 export function useKnowledgeDocuments() {
@@ -764,12 +761,8 @@ export function useUploadDocument() {
       const accessToken = typeof window !== "undefined"
         ? window.localStorage.getItem("eaawp.access_token")
         : null;
-      const tenantId = typeof window !== "undefined"
-        ? window.localStorage.getItem("eaawp.last_company_id")
-        : null;
       const headers: Record<string, string> = {};
       if (accessToken) headers["Authorization"] = `Bearer ${accessToken}`;
-      if (tenantId) headers["X-Tenant-ID"] = tenantId;
       return fetch(`${API_BASE_URL}/api/v1/knowledge/upload`, {
         method: "POST",
         headers,
@@ -952,7 +945,6 @@ export interface ConnectionTestResponse {
   error_message: string | null;
 }
 
-const INT_HEADERS = { "X-Tenant-ID": (typeof window !== "undefined" ? window.localStorage.getItem("eaawp.last_company_id") ?? "default-tenant" : "default-tenant") };
 
 async function intFetch<T>(method: string, path: string, body?: unknown): Promise<T> {
   return apiFetch<T>(method, path, body);
@@ -1119,7 +1111,6 @@ export interface SemanticMappingCreate {
   created_by?: string;
 }
 
-const DATA_HEADERS = { "X-Tenant-ID": (typeof window !== "undefined" ? window.localStorage.getItem("eaawp.last_company_id") ?? "default-tenant" : "default-tenant") };
 
 async function dataFetch<T>(method: string, path: string, body?: unknown): Promise<T> {
   return apiFetch<T>(method, path, body);
@@ -1212,7 +1203,6 @@ export interface ActionDecisionResult {
   details: Record<string, unknown>;
 }
 
-const ACTION_HEADERS = { "X-Tenant-ID": (typeof window !== "undefined" ? window.localStorage.getItem("eaawp.last_company_id") ?? "default-tenant" : "default-tenant") };
 
 async function actionFetch<T>(method: string, path: string, body?: unknown): Promise<T> {
   return apiFetch<T>(method, path, body);
@@ -1337,7 +1327,6 @@ export interface ExecutionPlanFE {
   completed_at: string | null;
 }
 
-const PLAN_HEADERS = { "X-Tenant-ID": (typeof window !== "undefined" ? window.localStorage.getItem("eaawp.last_company_id") ?? "default-tenant" : "default-tenant") };
 
 /** Fetch a specific execution plan with all its steps. */
 export function useExecutionPlan(planId: string | null) {
@@ -1597,7 +1586,6 @@ const MOCK_MONITORING_STATUS: MonitoringStatusFE = {
 
 // ── API helpers ───────────────────────────────────────────────────────────────
 
-const MON_HEADERS = { "X-Tenant-ID": (typeof window !== "undefined" ? window.localStorage.getItem("eaawp.last_company_id") ?? "default-tenant" : "default-tenant") };
 
 async function monFetch<T>(
   method: string,
@@ -1941,7 +1929,6 @@ const MOCK_EMAIL_INTEGRATION: EmailIntegrationFE = {
 
 // ── API helpers ───────────────────────────────────────────────────────────────
 
-const EMAIL_HEADERS = { "X-Tenant-ID": (typeof window !== "undefined" ? window.localStorage.getItem("eaawp.last_company_id") ?? "default-tenant" : "default-tenant") };
 
 async function emailFetch<T>(method: string, path: string, body?: unknown): Promise<T> {
   return apiFetch<T>(method, path, body);
@@ -2218,7 +2205,6 @@ const MOCK_CAMPAIGNS: CampaignFE[] = [
   },
 ];
 
-const CAMP_HEADERS = { "X-Tenant-ID": (typeof window !== "undefined" ? window.localStorage.getItem("eaawp.last_company_id") ?? "default-tenant" : "default-tenant") };
 
 async function campFetch<T>(method: string, path: string, body?: unknown): Promise<T> {
   return apiFetch<T>(method, path, body);
@@ -2370,7 +2356,6 @@ export interface CampaignComparisonFE {
   sources: string[];
 }
 
-const PERF_HEADERS = { "X-Tenant-ID": (typeof window !== "undefined" ? window.localStorage.getItem("eaawp.last_company_id") ?? "default-tenant" : "default-tenant") };
 
 async function perfFetch<T>(method: string, path: string, body?: unknown): Promise<T> {
   return apiFetch<T>(method, path, body);
@@ -2463,7 +2448,6 @@ export interface FunnelMetricsFE {
   analysis_note: string;
 }
 
-const FUNNEL_HEADERS = { "X-Tenant-ID": (typeof window !== "undefined" ? window.localStorage.getItem("eaawp.last_company_id") ?? "default-tenant" : "default-tenant") };
 
 async function funnelFetch<T>(method: string, path: string, body?: unknown): Promise<T> {
   return apiFetch<T>(method, path, body);
@@ -2553,7 +2537,6 @@ export interface StrategicAnalysisFE {
   rag_sources: string[];
 }
 
-const STRAT_HEADERS = { "X-Tenant-ID": (typeof window !== "undefined" ? window.localStorage.getItem("eaawp.last_company_id") ?? "default-tenant" : "default-tenant") };
 
 async function stratFetch<T>(method: string, path: string, body?: unknown): Promise<T> {
   return apiFetch<T>(method, path, body);
@@ -2668,7 +2651,6 @@ export interface AnalyzeContentBody {
   channel?: string;
 }
 
-const CONTENT_HEADERS = { "X-Tenant-ID": (typeof window !== "undefined" ? window.localStorage.getItem("eaawp.last_company_id") ?? "default-tenant" : "default-tenant") };
 
 async function contentFetch<T>(method: string, path: string, body?: unknown): Promise<T> {
   return apiFetch<T>(method, path, body);
@@ -2753,7 +2735,6 @@ export interface NotificationFE {
   created_at: string;
 }
 
-const NOTIF_HEADERS = { "X-Tenant-ID": (typeof window !== "undefined" ? window.localStorage.getItem("eaawp.last_company_id") ?? "default-tenant" : "default-tenant") };
 
 async function notifFetch<T>(method: string, path: string, body?: unknown): Promise<T> {
   return apiFetch<T>(method, path, body);
@@ -2803,7 +2784,6 @@ export interface MarketingSummaryFE {
   note: string;
 }
 
-const REPORT_HEADERS = { "X-Tenant-ID": (typeof window !== "undefined" ? window.localStorage.getItem("eaawp.last_company_id") ?? "default-tenant" : "default-tenant") };
 
 export function useMarketingSummary(periodDays: number = 7) {
   return useQuery<MarketingSummaryFE>({
@@ -2835,7 +2815,6 @@ export interface ChannelIntegrationFE {
   created_at: string;
 }
 
-const CHAN_HEADERS = { "X-Tenant-ID": (typeof window !== "undefined" ? window.localStorage.getItem("eaawp.last_company_id") ?? "default-tenant" : "default-tenant") };
 
 async function chanFetch<T>(method: string, path: string, body?: unknown): Promise<T> {
   return apiFetch<T>(method, path, body);
@@ -3015,14 +2994,13 @@ export const AI_WORKFORCE_ROLES: AIWorkforceRole[] = [
 
 // ── Phase 4 — Integration Manager (Google Search Console & future providers) ──
 //
-// All requests to /api/v1/integration-manager/** include X-Tenant-ID so the
+// All requests to /api/v1/integration-manager/** are authenticated by the JWT bearer token, so the
 // backend can scope the query to the correct tenant.
 // Credentials are NEVER read back from the server — only has_credentials (bool)
 // and account_info (safe metadata) are returned.
 // ─────────────────────────────────────────────────────────────────────────────
 
 const INT_MGR_BASE = "/api/v1/integration-manager";
-const INT_MGR_HEADERS = { "X-Tenant-ID": (typeof window !== "undefined" ? window.localStorage.getItem("eaawp.last_company_id") ?? "default-tenant" : "default-tenant") } as const;
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -3608,12 +3586,6 @@ export interface AdminCustomizationResult {
   executed_by: string;
   audit_id: string;
 }
-
-const ADMIN_CUSTOMIZE_HEADERS = {
-  "X-Tenant-ID": (typeof window !== "undefined"
-    ? window.localStorage.getItem("eaawp.last_company_id") ?? "default-tenant"
-    : "default-tenant"),
-} as const;
 
 export function useGenerateCustomizationPlan() {
   return useMutation<CustomizationPlan, Error, { instruction: string; requested_by?: string }>({
