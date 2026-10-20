@@ -16,7 +16,11 @@ connect_args: dict = {"check_same_thread": False} if settings.is_sqlite else {}
 
 engine = create_async_engine(
     settings.database_url,
-    echo=(settings.environment == "development"),
+    # SQL echo logs every statement; with bound parameters that would write
+    # password hashes, OAuth state tokens and personal data to the log.
+    # Opt in explicitly (SQL_ECHO=true) when debugging; parameters stay hidden.
+    echo=settings.sql_echo,
+    hide_parameters=True,
     connect_args=connect_args,
 )
 

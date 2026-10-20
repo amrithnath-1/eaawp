@@ -177,6 +177,9 @@ async def update_campaign(
         c.metadata_json = json.dumps(body.metadata)
 
     await db.flush()
+    # ``updated_at`` is refreshed server-side (onupdate); reload it inside the
+    # async context so serialising the row does not trigger a lazy load.
+    await db.refresh(c)
     return _campaign_to_out(c)
 
 
@@ -196,6 +199,7 @@ async def archive_campaign(
         return None
     c.status = "cancelled"
     await db.flush()
+    await db.refresh(c)  # reload server-side ``updated_at`` inside the async context
     return _campaign_to_out(c)
 
 

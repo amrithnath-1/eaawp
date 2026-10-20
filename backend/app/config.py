@@ -25,6 +25,8 @@ class Settings(BaseSettings):
 
     # ── Database ──────────────────────────────────────────────────────────────
     database_url: str = "sqlite+aiosqlite:///./eaawp.db"
+    # Log every SQL statement (parameters stay hidden). Debugging aid only.
+    sql_echo: bool = False
 
     # ── Security ──────────────────────────────────────────────────────────────
     secret_key: str = "dev-insecure-key-replace-in-production"
