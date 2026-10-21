@@ -289,32 +289,28 @@ async def execute_agent(
     # POST /agent/pending-tasks/{id}/resume run it once setup is complete.
     from app.services import task_readiness as _ready
 
-    _requirement = await _ready.detect_requirement(
-        request.user_prompt, tenant_id, role_key, db
-    )
-    if _requirement is not None:
-        _assessment = await _ready.assess(_requirement, tenant_id, role_key, db)
-        if not _assessment.ready:
-            _task = await _ready.save_pending(
-                tenant_id=tenant_id, user_id=user.id, role_key=role_key,
-                role_name=authoritative_blueprint.role_name,
-                session_id=resolved_session_id, prompt=request.user_prompt,
-                a=_assessment, db=db,
-            )
-            _reply, _next, _data = _ready.setup_message(_assessment, is_admin=is_admin_user(user))
-            _data = {**_data, "pending_task_id": _task.id}
-            import json as _json2
-            return AgentExecutionResponse(
-                message=_reply,
-                tool_calls=[],
-                sources=[f"__integration_action__:{_json2.dumps({'next_action': _next, 'action_data': _data})}"],
-                requires_approval=False,
-                session_id=resolved_session_id,
-                plan_id=None,
-                plan_status="awaiting_setup",
-                step_summaries=[f"[SETUP] {_assessment.state} → {_next}"],
-                pending_task_id=_task.id,
-            )
+    _assessment = await _ready.first_unmet(request.user_prompt, tenant_id, role_key, db)
+    if _assessment is not None:
+        _task = await _ready.save_pending(
+            tenant_id=tenant_id, user_id=user.id, role_key=role_key,
+            role_name=authoritative_blueprint.role_name,
+            session_id=resolved_session_id, prompt=request.user_prompt,
+            a=_assessment, db=db,
+        )
+        _reply, _next, _data = _ready.setup_message(_assessment, is_admin=is_admin_user(user))
+        _data = {**_data, "pending_task_id": _task.id}
+        import json as _json2
+        return AgentExecutionResponse(
+            message=_reply,
+            tool_calls=[],
+            sources=[f"__integration_action__:{_json2.dumps({'next_action': _next, 'action_data': _data})}"],
+            requires_approval=False,
+            session_id=resolved_session_id,
+            plan_id=None,
+            plan_status="awaiting_setup",
+            step_summaries=[f"[SETUP] {_assessment.state} → {_next}"],
+            pending_task_id=_task.id,
+        )
 
     has_action_tools = any(is_action_tool(t) for t in authoritative_blueprint.allowed_tools)
 

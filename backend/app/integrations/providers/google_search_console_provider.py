@@ -28,8 +28,9 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import google.auth.transport.requests
@@ -40,6 +41,7 @@ from googleapiclient import discovery
 from googleapiclient import errors as google_errors
 
 from app.config import settings
+from app.integrations.providers.google_analytics_provider import GAApiError, resolve_report_date
 from app.integrations.provider import (
     CapabilityCategory,
     CapabilityResult,
@@ -85,6 +87,8 @@ class GSCApiError(Exception):
 
 class GoogleSearchConsoleProvider(IntegrationProvider):
     """EAAWP provider for Google Search Console read-only API."""
+
+    property_parameter = "site_url"
 
     def __init__(self) -> None:
         # No persistent client — each request builds fresh credentials from stored tokens.
@@ -196,17 +200,21 @@ class GoogleSearchConsoleProvider(IntegrationProvider):
                     "properties": {
                         "site_url": {
                             "type": "string",
-                            "description": "The Search Console property URL (e.g., sc-domain:example.com or https://www.example.com/)",
+                            "description": (
+                                "The Search Console property (sc-domain:example.com or https://www.example.com/). "
+                                "Omit to use the company's selected property."
+                            ),
                         },
                         "start_date": {
                             "type": "string",
-                            "format": "date",
-                            "description": "Start date (YYYY-MM-DD)",
+                            "description": "Start date: YYYY-MM-DD or a relative form such as '28daysAgo'. Defaults to 28daysAgo.",
                         },
                         "end_date": {
                             "type": "string",
-                            "format": "date",
-                            "description": "End date (YYYY-MM-DD)",
+                            "description": (
+                                "End date: YYYY-MM-DD or 'yesterday' / 'NdaysAgo'. Defaults to 3daysAgo "
+                                "because Search Console data lags by 2-3 days."
+                            ),
                         },
                         "dimensions": {
                             "type": "array",
@@ -220,7 +228,7 @@ class GoogleSearchConsoleProvider(IntegrationProvider):
                             "description": f"Maximum number of rows to return (≤{_MAX_ROWS})",
                         },
                     },
-                    "required": ["site_url", "start_date", "end_date"],
+                    "required": [],
                 },
             ),
             ProviderCapability(
@@ -235,10 +243,10 @@ class GoogleSearchConsoleProvider(IntegrationProvider):
                     "properties": {
                         "site_url": {
                             "type": "string",
-                            "description": "The Search Console property URL",
+                            "description": "The Search Console property URL. Omit to use the selected property.",
                         },
                     },
-                    "required": ["site_url"],
+                    "required": [],
                 },
             ),
         ]
@@ -335,24 +343,65 @@ class GoogleSearchConsoleProvider(IntegrationProvider):
             source_label="Google Search Console",
         )
 
+    async def list_properties(self, credentials: dict[str, Any]) -> list[dict[str, str]]:
+        """Properties this account can query (verified owners/users only)."""
+        response = await self._call_api_safe(credentials, "sites", "list", {}, allow_empty=True)
+        entries = response.get("siteEntry", []) if isinstance(response, dict) else []
+        out = []
+        for e in entries if isinstance(entries, list) else []:
+            if e.get("permissionLevel") == "siteUnverifiedUser":
+                continue   # cannot query data for a site the user has not verified
+            out.append({"id": e.get("siteUrl", ""), "label": e.get("siteUrl", ""),
+                        "detail": e.get("permissionLevel", "")})
+        return out[:_MAX_ROWS]
+
+    async def _resolve_site(self, credentials: dict[str, Any], given: Any) -> str:
+        """The given property, else the only accessible one; never guess between several."""
+        if given:
+            return self._validate_site_url(given)
+        props = await self.list_properties(credentials)
+        if not props:
+            raise GSCApiError("This Google account has no verified Search Console properties that EAAWP can read.")
+        if len(props) > 1:
+            names = "; ".join(p["id"] for p in props[:10])
+            raise GSCApiError(
+                "Several Search Console properties are available, so I need to know which one to use: "
+                f"{names}. Ask for the property by name, or have an administrator select a default."
+            )
+        return props[0]["id"]
+
+    @staticmethod
+    def _validate_site_url(value: Any) -> str:
+        text = str(value or "").strip()
+        if text.startswith("sc-domain:") and len(text) > len("sc-domain:") and " " not in text:
+            return text
+        if re.match(r"^https?://[^\s/]+(/\S*)?$", text):
+            return text
+        raise GSCApiError(
+            "site_url must be a Search Console property such as sc-domain:example.com or https://www.example.com/."
+        )
+
+    @staticmethod
+    def _date(value: Any, today: Any) -> Any:
+        try:
+            return resolve_report_date(value, today)
+        except GAApiError as exc:
+            raise GSCApiError(str(exc))
+
     async def _execute_search_analytics(
         self, credentials: dict[str, Any], parameters: dict[str, Any]
     ) -> CapabilityResult:
         """Query search performance metrics."""
-        # Validate date range
-        start_date = parameters["start_date"]
-        end_date = parameters["end_date"]
-        try:
-            start_dt = datetime.strptime(start_date, "%Y-%m-%d").date()
-            end_dt = datetime.strptime(end_date, "%Y-%m-%d").date()
-        except ValueError as exc:
-            raise GSCApiError(f"Invalid date format: {exc}")
+        today = datetime.utcnow().date()
+        start_dt = self._date(parameters.get("start_date") or "28daysAgo", today)
+        end_dt = self._date(parameters.get("end_date") or "3daysAgo", today)
+        if end_dt < start_dt:
+            raise GSCApiError("end_date is before start_date")
         if (end_dt - start_dt).days > _MAX_DAYS_RANGE:
             raise GSCApiError(f"Date range exceeds maximum {_MAX_DAYS_RANGE} days")
-        if end_dt > datetime.utcnow().date():
+        if end_dt > today:
             raise GSCApiError("End date cannot be in the future")
 
-        # Validate dimensions
         dimensions = parameters.get("dimensions", [])
         if not isinstance(dimensions, list):
             dimensions = []
@@ -360,54 +409,52 @@ class GoogleSearchConsoleProvider(IntegrationProvider):
         if invalid_dims:
             raise GSCApiError(f"Unsupported dimension(s): {sorted(invalid_dims)}")
 
-        row_limit = min(
-            int(parameters.get("row_limit", 100)),
-            _MAX_ROWS,
-        )
+        try:
+            row_limit = max(1, min(int(parameters.get("row_limit", 100)), _MAX_ROWS))
+        except (TypeError, ValueError):
+            raise GSCApiError("row_limit must be a whole number")
 
-        # Prepare API request body
+        site = await self._resolve_site(credentials, parameters.get("site_url"))
         body = {
-            "startDate": start_date,
-            "endDate": end_date,
+            "startDate": start_dt.isoformat(),
+            "endDate": end_dt.isoformat(),
             "dimensions": dimensions,
             "rowLimit": row_limit,
-            "dimensionFilterGroups": [],  # No filters for Phase 4
+            "dimensionFilterGroups": [],  # read-only, unfiltered
         }
         response = await self._call_api_safe(
-            credentials,
-            "searchAnalytics",
-            "query",
-            {"siteUrl": parameters["site_url"], "requestBody": body},
+            credentials, "searchAnalytics", "query", {"siteUrl": site, "requestBody": body},
+            allow_empty=True,   # Google omits "rows" (or returns {}) when there is no data
         )
         rows = response.get("rows", []) if isinstance(response, dict) else []
         data = []
         for row in rows[:row_limit]:
             keys = row.get("keys", [])
-            data.append({
+            item: dict[str, Any] = {}
+            for name, key in zip(dimensions, keys):
+                item[name] = key
+            item.update({
                 "dimensions": keys,
                 "clicks": row.get("clicks", 0),
                 "impressions": row.get("impressions", 0),
                 "ctr": row.get("ctr", 0.0),
                 "position": row.get("position", 0.0),
             })
+            data.append(item)
+        label = (
+            f"Google Search Console (property {site}, {start_dt.isoformat()} to {end_dt.isoformat()}; "
+            "Google reports this data with a 2-3 day delay)"
+        )
         return CapabilityResult(
-            data=data,
-            row_count=len(data),
-            truncated=len(rows) > row_limit,
-            source_label="Google Search Console",
+            data=data, row_count=len(data), truncated=len(rows) > row_limit, source_label=label,
         )
 
     async def _execute_site_metadata(
         self, credentials: dict[str, Any], parameters: dict[str, Any]
     ) -> CapabilityResult:
         """Retrieve site metadata (verification, permissions)."""
-        response = await self._call_api_safe(
-            credentials,
-            "sites",
-            "get",
-            {"siteUrl": parameters["site_url"]},
-        )
-        # Google's response is a dict with siteUrl, permissionLevel, verification status
+        site = await self._resolve_site(credentials, parameters.get("site_url"))
+        response = await self._call_api_safe(credentials, "sites", "get", {"siteUrl": site})
         return CapabilityResult(
             data=dict(response) if isinstance(response, dict) else response,
             row_count=1,
@@ -437,32 +484,54 @@ class GoogleSearchConsoleProvider(IntegrationProvider):
             client_secret=credentials.get("client_secret"),
         )
 
-        # Build service
-        service = discovery.build(
-            "searchconsole",
-            "v1",
-            credentials=creds,
-            cache_discovery=False,
-        )
-        api_resource = getattr(service, resource)()
-        api_method = getattr(api_resource, method)
-
-        # Execute (convert sync call to async)
         loop = asyncio.get_running_loop()
+
+        def _run() -> Any:
+            # Building the client can hit the network; keep it off the event loop.
+            service = discovery.build("searchconsole", "v1", credentials=creds, cache_discovery=False)
+            return getattr(getattr(service, resource)(), method)(**params).execute()
+
         try:
-            request = api_method(**params)
-            response = await loop.run_in_executor(None, request.execute)
+            response = await loop.run_in_executor(None, _run)
         except google_errors.HttpError as http_err:
-            # Extract safe error message without credentials
-            safe_msg = f"Google API error ({http_err.status_code}): {http_err.reason}"
-            raise GSCApiError(safe_msg, http_err)
+            status = getattr(http_err, "status_code", None) or getattr(getattr(http_err, "resp", None), "status", None)
+            msg = self._explain_http_error(status, str(http_err.reason or ""))
+            raise GSCApiError(self._scrub(msg, credentials), http_err)
         except Exception as exc:
-            safe_msg = self._sanitise_error(str(exc))
+            safe_msg = self._scrub(self._sanitise_error(str(exc)), credentials)
             raise GSCApiError(safe_msg, exc)
 
         if not response and not allow_empty:
             raise GSCApiError(f"Empty response from Google API {resource}.{method}")
         return response
+
+    @staticmethod
+    def _scrub(message: str, credentials: dict[str, Any]) -> str:
+        """Remove any stored credential value that an upstream error happened to echo."""
+        for key in ("access_token", "refresh_token", "client_secret", "client_id"):
+            value = credentials.get(key)
+            if isinstance(value, str) and len(value) >= 8:
+                message = message.replace(value, "[REDACTED]")
+        return message
+
+    def _explain_http_error(self, status: Any, reason: str) -> str:
+        """Readable, credential-free reason. Keeps the 'Google API error (N)' prefix."""
+        reason = self._sanitise_error(reason)[:200]
+        base = f"Google API error ({status}): {reason}"
+        if status == 401:
+            return f"{base}. Google rejected the stored authorisation; reconnect Search Console."
+        if status == 403:
+            low = reason.lower()
+            if "has not been used" in low or "disabled" in low or "accessnotconfigured" in low:
+                return (f"{base}. The Search Console API is not enabled in the Google Cloud project "
+                        "used for this connection; an administrator must enable it.")
+            return (f"{base}. The connected Google account does not have permission for this "
+                    "Search Console property.")
+        if status == 404:
+            return f"{base}. Search Console could not find that property."
+        if status == 429:
+            return f"{base}. Search Console is rate-limiting requests; try again shortly."
+        return base
 
     async def _should_refresh_token(self, credentials: dict[str, Any]) -> bool:
         """Check if access_token is expired or about to expire (5‑minute buffer)."""

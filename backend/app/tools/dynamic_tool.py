@@ -467,7 +467,31 @@ def _derived_lines(rows: list[Any]) -> list[str]:
                 )
                 out.append(f"Share of {metric} by {label_key}: {shares}")
         break  # one worked example metric is enough; the rows carry the rest
+    out.extend(_search_derived_lines(dict_rows))
     return out
+
+
+def _search_derived_lines(dict_rows: list[dict]) -> list[str]:
+    """Search Console extras: overall CTR from clicks/impressions, and the dates present."""
+    out: list[str] = []
+    try:
+        clicks = sum(float(str(r["clicks"]).replace(",", "")) for r in dict_rows)
+        imps = sum(float(str(r["impressions"]).replace(",", "")) for r in dict_rows)
+    except (KeyError, ValueError):
+        clicks = imps = -1.0
+    if imps > 0 and clicks >= 0:
+        out.append(f"Overall CTR across these rows (total clicks / total impressions): {clicks / imps * 100:.2f}%")
+    if all("date" in r for r in dict_rows):
+        dates = sorted(str(r["date"]) for r in dict_rows)
+        out.append(f"Dates with data: {dates[0]} to {dates[-1]} ({len(dates)} days)")
+    return out
+
+
+def _is_redundant_dimensions(key: str, value: Any, row: dict) -> bool:
+    """Search Console rows carry both named columns and a raw ``dimensions`` list; show one."""
+    if key != "dimensions" or not isinstance(value, list):
+        return False
+    return not value or all(any(v == o for k, o in row.items() if k != key) for v in value)
 
 
 def _is_number(v: Any) -> bool:
@@ -519,6 +543,7 @@ def _format_result_for_llm(
                 safe_row = {
                     k: v for k, v in row.items()
                     if k.lower() not in _FORBIDDEN_PARAM_FIELDS
+                    and not _is_redundant_dimensions(k, v, row)
                 }
                 row_str = " | ".join(f"{k}: {v}" for k, v in safe_row.items())
             else:

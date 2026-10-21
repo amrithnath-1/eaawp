@@ -827,7 +827,9 @@ async def _generate_plan(
     if data_context_block:
         context_parts.append(data_context_block[:800])
 
+    from datetime import datetime as _dt, timezone as _tz
     user_msg = (
+        f"Today (UTC): {_dt.now(_tz.utc).date().isoformat()}\n"
         f"Available tools: {tools_str}\n\n"
         + ("\n\n".join(context_parts) + "\n\n" if context_parts else "")
         + f"User request: {user_prompt}"

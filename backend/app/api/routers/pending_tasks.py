@@ -3,6 +3,7 @@ Requests waiting for an integration to be set up, and resuming them.
 
   GET  /api/v1/agent/pending-tasks               own waiting requests (admins: the company's)
   POST /api/v1/agent/pending-tasks/{id}/authorize admin approves read-only access for the role
+  POST /api/v1/agent/pending-tasks/{id}/select-property admin chooses which site/property to report on
   POST /api/v1/agent/pending-tasks/{id}/resume    run the saved request now (if ready)
   POST /api/v1/agent/pending-tasks/{id}/cancel    drop it
 
@@ -120,6 +121,42 @@ async def authorize_pending_task(
     db.add(AuditLog(
         id=str(uuid.uuid4()), tenant_id=task.tenant_id, ai_employee_id=None, actor=admin.email,
         event=f"admin granted {task.role_key} read access: {req.provider_type}.{','.join(a.missing_capabilities)}",
+        department="admin", status="ok",
+    ))
+    await db.flush()
+    return await _describe(task, admin, db)
+
+
+class SelectPropertyBody(BaseModel):
+    property_id: str
+
+
+@router.post("/{task_id}/select-property", response_model=PendingTaskOut)
+async def select_property(
+    task_id: str, body: SelectPropertyBody,
+    admin: User = Depends(require_admin), db: AsyncSession = Depends(get_db),
+) -> PendingTaskOut:
+    """
+    Admin picks the property (Search Console site) to report on.  The choice is
+    accepted only if the connected Google account can really read it, so a
+    typed or forged value cannot point the connection at someone else's site.
+    """
+    task = await _load(task_id, admin, db)
+    req = readiness.requirement_of(task)
+    if req is None or task.status != "waiting_setup" or not req.needs_property:
+        raise HTTPException(status_code=409, detail="This task is not waiting for a property choice")
+    a = await readiness.assess(req, task.tenant_id, task.role_key, db)
+    if a.state != "needs_property" or not a.integration_id:
+        raise HTTPException(status_code=409, detail="No property choice is needed right now")
+    try:
+        await integration_manager.set_default_property(
+            a.integration_id, task.tenant_id, body.property_id, db
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    db.add(AuditLog(
+        id=str(uuid.uuid4()), tenant_id=task.tenant_id, ai_employee_id=None, actor=admin.email,
+        event=f"admin selected {req.provider_type} property for reporting",
         department="admin", status="ok",
     ))
     await db.flush()

@@ -108,6 +108,14 @@ class GAApiError(Exception):
 class GoogleAnalyticsProvider(IntegrationProvider):
     """EAAWP provider for Google Analytics 4 Data API (read-only)."""
 
+    property_parameter = "property_id"
+
+    async def list_properties(self, credentials: dict[str, Any]) -> list[dict[str, str]]:
+        return [
+            {"id": p["property_id"], "label": p["display_name"] or p["property_id"], "detail": p["account"]}
+            for p in await self._property_summaries(credentials)
+        ]
+
     @property
     def provider_type(self) -> str:
         return "google_analytics"

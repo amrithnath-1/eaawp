@@ -313,6 +313,15 @@ class IntegrationProvider(ABC):
         The list must be deterministic — same result on every call.
         """
 
+    # ── Optional: a selectable "property" (site / GA property / ...) ──────────
+    #: Name of the capability parameter that identifies the property, or None.
+    property_parameter: str | None = None
+
+    async def list_properties(self, credentials: dict[str, Any]) -> list[dict[str, str]]:
+        """Selectable properties as ``[{"id","label","detail"}]``. Override when
+        ``property_parameter`` is set. Must be read-only."""
+        return []
+
     def get_capability(self, key: str) -> ProviderCapability | None:
         """Return a specific capability by key, or None if not found."""
         return next((c for c in self.get_capabilities() if c.key == key), None)

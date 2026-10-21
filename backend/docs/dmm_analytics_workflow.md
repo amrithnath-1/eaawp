@@ -47,5 +47,5 @@ registered, then connecting a real GA4 property.
 ## Known limits
 * Detection is keyword based; unusual phrasing of a GA question will not trigger the gate
   (the planner then has no GA tool and says so rather than inventing numbers).
-* Other providers (Search Console, GitHub, MCP, SQL) share the fixed tool bridge but have no
-  readiness gate yet.
+* Other providers (GitHub, MCP, SQL) share the fixed tool bridge but have no readiness gate yet.
+  (Search Console has one - see `seo_search_console_workflow.md`.)

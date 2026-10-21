@@ -30,7 +30,7 @@ from app.integrations.integration_registry import integration_registry
 from app.integrations.provider import CapabilityCategory, RiskLevel
 from app.services.provider_config_service import get_provider_configuration_status
 
-State = Literal["ready", "needs_configuration", "needs_authorization", "needs_grant"]
+State = Literal["ready", "needs_configuration", "needs_authorization", "needs_grant", "needs_property"]
 
 
 @dataclass(frozen=True)
@@ -39,6 +39,7 @@ class Requirement:
     capabilities: tuple[str, ...]
     purpose: str
     roles: tuple[str, ...] = ()   # roles this gate applies to (empty = all)
+    needs_property: bool = False  # an admin must have selected which property to read
 
 
 GA4_TRAFFIC = Requirement(
@@ -46,6 +47,28 @@ GA4_TRAFFIC = Requirement(
     capabilities=("run_report",),
     purpose="read website traffic reports from Google Analytics 4",
     roles=("DIGITAL_MARKETING_MANAGER",),
+)
+
+GSC_SEO = Requirement(
+    provider_type="google_search_console",
+    capabilities=("get_search_analytics",),
+    purpose="read search performance (clicks, impressions, CTR, position) from Google Search Console",
+    roles=("DIGITAL_MARKETING_MANAGER",),
+    needs_property=True,
+)
+
+# An explicit mention of Search Console is always a Search Console request.
+_GSC_EXPLICIT = re.compile(r"\b(google )?search console\b|\bgsc\b", re.I)
+# Vocabulary that only exists in search performance data (bare "clicks"/"ctr" are
+# too generic - ads and email use them too).
+_GSC_SEO = re.compile(
+    r"\bsearch impressions?\b|\b(organic|search)\b[^.?!]{0,40}\b(clicks|impressions)\b"
+    r"|\b(clicks|impressions)\b[^.?!]{0,40}\b(from|in|on) (organic|google) search\b"
+    r"|\baverage (search )?position\b|\bavg\.? position\b"
+    r"|\b(search|top|ranking|organic)\s+(quer(y|ies)|keywords?)\b|\btop\s+(pages|queries|keywords)\b"
+    r"|\bkeyword (rankings?|positions?|performance)\b|\b(organic )?search (performance|rankings?|visibility)\b"
+    r"|\bwhat (do|did) (people|users) search\b",
+    re.I,
 )
 
 # An explicit mention of Google Analytics always means GA.
@@ -67,6 +90,7 @@ class Assessment:
     redirect_uri: str = ""
     integration_id: str | None = None
     missing_capabilities: list[str] = field(default_factory=list)
+    properties: list[dict] = field(default_factory=list)   # choices for needs_property
 
     @property
     def ready(self) -> bool:
@@ -80,19 +104,38 @@ async def _has_company_data_mappings(tenant_id: str, db: AsyncSession) -> bool:
     return row.first() is not None
 
 
+async def detect_requirements(
+    prompt: str, tenant_id: str, role_key: str, db: AsyncSession
+) -> list[Requirement]:
+    """Every integration this request needs, most specific first."""
+    text = prompt or ""
+    found: list[Requirement] = []
+    if _GSC_EXPLICIT.search(text) or _GSC_SEO.search(text):
+        found.append(GSC_SEO)
+    if _GA_EXPLICIT.search(text):
+        found.append(GA4_TRAFFIC)
+    elif _GA_TRAFFIC.search(text) and not found and not await _has_company_data_mappings(tenant_id, db):
+        found.append(GA4_TRAFFIC)
+    return [r for r in found if not r.roles or role_key in r.roles]
+
+
 async def detect_requirement(
     prompt: str, tenant_id: str, role_key: str, db: AsyncSession
 ) -> Requirement | None:
-    """The integration this request needs, or None."""
-    text = prompt or ""
-    req = None
-    if _GA_EXPLICIT.search(text):
-        req = GA4_TRAFFIC
-    elif _GA_TRAFFIC.search(text) and not await _has_company_data_mappings(tenant_id, db):
-        req = GA4_TRAFFIC
-    if req and req.roles and role_key not in req.roles:
-        return None
-    return req
+    """The first integration this request needs, or None."""
+    found = await detect_requirements(prompt, tenant_id, role_key, db)
+    return found[0] if found else None
+
+
+async def first_unmet(
+    prompt: str, tenant_id: str, role_key: str, db: AsyncSession
+) -> "Assessment | None":
+    """The first requirement of this request that is not ready, or None when all are."""
+    for req in await detect_requirements(prompt, tenant_id, role_key, db):
+        a = await assess(req, tenant_id, role_key, db)
+        if not a.ready:
+            return a
+    return None
 
 
 async def assess(req: Requirement, tenant_id: str, role_key: str, db: AsyncSession) -> Assessment:
@@ -122,6 +165,8 @@ async def assess(req: Requirement, tenant_id: str, role_key: str, db: AsyncSessi
         have = {g for (g,) in grants.all()}
         missing = [c for c in req.capabilities if c not in have]
         if not missing:
+            if req.needs_property:
+                return await _check_property(req, integ, tenant_id, db)
             return Assessment("ready", req, integration_id=integ.id)
         best = best or Assessment(
             "needs_grant", req, integration_id=integ.id, missing_capabilities=missing
@@ -136,6 +181,30 @@ async def assess(req: Requirement, tenant_id: str, role_key: str, db: AsyncSessi
             missing_fields=list(cfg.missing_fields), redirect_uri=cfg.redirect_uri,
         )
     return Assessment("needs_authorization", req, redirect_uri=cfg.redirect_uri)
+
+
+async def _check_property(
+    req: Requirement, integ: Integration, tenant_id: str, db: AsyncSession
+) -> Assessment:
+    """
+    A property must be chosen before reading data.  An admin's stored choice wins;
+    a single accessible property is selected automatically; several need a choice.
+    If they cannot be listed, the task proceeds and the real error is reported.
+    """
+    from app.integrations import manager
+
+    if manager.default_property_of(integ):
+        return Assessment("ready", req, integration_id=integ.id)
+    try:
+        props = await manager.list_selectable_properties(integ.id, tenant_id, db)
+    except Exception:
+        return Assessment("ready", req, integration_id=integ.id)
+    if len(props) == 1:
+        await manager.set_default_property(integ.id, tenant_id, props[0]["id"], db)
+        return Assessment("ready", req, integration_id=integ.id)
+    if len(props) > 1:
+        return Assessment("needs_property", req, integration_id=integ.id, properties=props[:50])
+    return Assessment("ready", req, integration_id=integ.id)
 
 
 def _provider_name(provider_type: str) -> str:
@@ -173,6 +242,19 @@ def setup_message(a: Assessment, *, is_admin: bool) -> tuple[str, str, dict]:
             "Google (read-only). I’ll be ready to run this once they have.",
             "ADMIN_REQUIRED", data,
         )
+    if a.state == "needs_property":
+        data.update(integration_id=a.integration_id, properties=a.properties)
+        if is_admin:
+            return (
+                f"{saved}{name} has access to several properties. Choose which one this AI employee "
+                "should report on and I’ll run the request.",
+                "SELECT_PROPERTY", data,
+            )
+        return (
+            f"{saved}{name} has access to several properties and an administrator needs to choose "
+            "which one to report on. I’ll be ready to run this once they have.",
+            "ADMIN_REQUIRED", data,
+        )
     data.update(integration_id=a.integration_id, capabilities=a.missing_capabilities)
     if is_admin:
         return (
@@ -206,6 +288,7 @@ async def save_pending(
         "capabilities": list(a.requirement.capabilities),
         "purpose": a.requirement.purpose,
         "roles": list(a.requirement.roles),
+        "needs_property": a.requirement.needs_property,
     })
     if existing:
         existing.blocking_state = a.state
@@ -228,7 +311,7 @@ def requirement_of(task: PendingTask) -> Requirement | None:
     try:
         d = json.loads(task.requirement_json or "{}")
         return Requirement(d["provider_type"], tuple(d["capabilities"]), d.get("purpose", ""),
-                           tuple(d.get("roles", ())))
+                           tuple(d.get("roles", ())), bool(d.get("needs_property", False)))
     except (KeyError, ValueError, TypeError):
         return None
 

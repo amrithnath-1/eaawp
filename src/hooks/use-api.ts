@@ -3301,6 +3301,16 @@ export function useAuthorizePendingTask() {
   });
 }
 
+/** Admin: choose which property (Search Console site) the task reports on. */
+export function useSelectPendingTaskProperty() {
+  const qc = useQueryClient();
+  return useMutation<PendingTaskFE, Error, { id: string; propertyId: string }>({
+    mutationFn: ({ id, propertyId }) =>
+      apiClient.post<PendingTaskFE>(`/api/v1/agent/pending-tasks/${id}/select-property`, { property_id: propertyId }),
+    onSuccess: () => { void qc.invalidateQueries({ queryKey: PENDING_TASKS_KEY }); },
+  });
+}
+
 export function useResumePendingTask() {
   const qc = useQueryClient();
   return useMutation<AgentExecutionResponse, Error, string>({

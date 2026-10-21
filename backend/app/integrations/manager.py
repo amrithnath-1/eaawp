@@ -280,6 +280,63 @@ async def delete_integration(
 # Connection Test
 # ═══════════════════════════════════════════════════════════════════════════════
 
+def default_property_of(row: Integration) -> str:
+    """The property an administrator selected for this connection ('' if none)."""
+    try:
+        value = json.loads(row.account_info_json or "{}").get("default_property", "")
+    except (ValueError, AttributeError, TypeError):
+        return ""
+    return value if isinstance(value, str) else ""
+
+
+async def list_selectable_properties(
+    integration_id: str, tenant_id: str, db: AsyncSession
+) -> list[dict[str, str]]:
+    """
+    Fresh list of properties the connected account can read, for an admin to
+    choose from.  Raises ValueError with a safe message when it cannot be listed.
+    """
+    row = await _get_integration_or_raise(integration_id, tenant_id, db)
+    provider = integration_registry.get_or_raise(row.provider_type)
+    if not getattr(provider, "property_parameter", None):
+        return []
+    if row.status != "connected" or not row.is_enabled or not row.encrypted_credentials:
+        raise ValueError("The integration is not connected.")
+    credentials: dict[str, Any] = {}
+    try:
+        credentials = _decrypt_credentials(row.encrypted_credentials)
+        before = credentials.get("access_token"), credentials.get("token_expiry")
+        try:
+            props = await provider.list_properties(credentials)
+        except Exception as exc:
+            raise ValueError(provider._sanitise_error(str(exc))) from None
+        after = credentials.get("access_token"), credentials.get("token_expiry")
+        if after != before and credentials.get("access_token"):
+            row.encrypted_credentials = _encrypt_credentials(credentials)
+            await db.flush()
+        return props
+    finally:
+        credentials.clear()
+
+
+async def set_default_property(
+    integration_id: str, tenant_id: str, property_id: str, db: AsyncSession
+) -> str:
+    """Store the admin's choice - only if the account can really read that property."""
+    props = await list_selectable_properties(integration_id, tenant_id, db)
+    if property_id not in {p["id"] for p in props}:
+        raise ValueError("That property is not one of the properties this Google account can access.")
+    row = await _get_integration_or_raise(integration_id, tenant_id, db)
+    try:
+        info = json.loads(row.account_info_json or "{}")
+    except ValueError:
+        info = {}
+    info["default_property"] = property_id
+    row.account_info_json = json.dumps(info)
+    await db.flush()
+    return property_id
+
+
 async def test_integration(
     integration_id: str,
     tenant_id: str,
@@ -334,7 +391,10 @@ async def test_integration(
     row.last_tested_at = now
     row.error_message = result_error
     if result_success:
-        row.account_info_json = json.dumps(result_account_info)
+        previous_default = default_property_of(row)
+        row.account_info_json = json.dumps(
+            {**result_account_info, **({"default_property": previous_default} if previous_default else {})}
+        )
         row.is_enabled = True   # auto-enable on first successful test
     await db.flush()
 
@@ -590,6 +650,13 @@ async def execute_capability(
         )
 
     provider = integration_registry.get_or_raise(row.provider_type)
+
+    # The company's selected property fills in when the caller did not name one.
+    prop_param = getattr(provider, "property_parameter", None)
+    if prop_param and not parameters.get(prop_param):
+        chosen = default_property_of(row)
+        if chosen:
+            parameters = {**parameters, prop_param: chosen}
 
     credentials: dict[str, Any] = {}
     try:

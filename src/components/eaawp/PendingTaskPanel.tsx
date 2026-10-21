@@ -16,8 +16,8 @@ import { toast } from "sonner";
 import { ExternalLink, Loader2 } from "lucide-react";
 import { AdminProviderConfigPanel } from "@/components/eaawp/AdminProviderConfigPanel";
 import {
-  useAuthorizePendingTask, useCancelPendingTask, useGaAuthorize, usePendingTasks,
-  useResumePendingTask, type AgentExecutionResponse, type PendingTaskFE,
+  useAuthorizePendingTask, useCancelPendingTask, useGaAuthorize, useGscAuthorize, usePendingTasks,
+  useResumePendingTask, useSelectPendingTaskProperty, type AgentExecutionResponse, type PendingTaskFE,
 } from "@/hooks/use-api";
 import { apiErrorMessage } from "@/lib/api-client";
 
@@ -32,10 +32,13 @@ function TaskRow({ task, onResult }: { task: PendingTaskFE; onResult: (prompt: s
   const resume = useResumePendingTask();
   const cancel = useCancelPendingTask();
   const gaAuth = useGaAuthorize();
+  const gscAuth = useGscAuthorize();
+  const selectProperty = useSelectPendingTaskProperty();
+  const [chosen, setChosen] = useState("");
   const [configured, setConfigured] = useState(false);
   const provider = String(task.action_data["provider_type"] ?? "");
   const providerName = PROVIDER_NAMES[provider] ?? provider;
-  const busy = authorize.isPending || resume.isPending || cancel.isPending || gaAuth.isPending;
+  const busy = authorize.isPending || resume.isPending || cancel.isPending || gaAuth.isPending || gscAuth.isPending || selectProperty.isPending;
   const btn = "border px-2 py-1 font-mono text-[10px] tracking-[0.12em] disabled:opacity-40";
 
   function run() {
@@ -68,17 +71,42 @@ function TaskRow({ task, onResult }: { task: PendingTaskFE; onResult: (prompt: s
       )}
 
       <div className="mt-2 flex flex-wrap gap-1.5">
-        {task.next_action === "REDIRECT_TO_OAUTH" && provider === "google_analytics" && (
+        {task.next_action === "REDIRECT_TO_OAUTH" && (provider === "google_analytics" || provider === "google_search_console") && (
           <button
             disabled={busy}
             className={`${btn} border-border hover:bg-foreground/5`}
-            onClick={() => gaAuth.mutate(undefined, {
+            onClick={() => (provider === "google_search_console" ? gscAuth : gaAuth).mutate(undefined, {
               onSuccess: (r) => { window.location.href = r.authorization_url; },
               onError: (e) => toast.error(apiErrorMessage(e)),
             })}
           >
             <ExternalLink className="mr-1 inline size-3" />CONNECT WITH GOOGLE
           </button>
+        )}
+        {task.next_action === "SELECT_PROPERTY" && (
+          <div className="flex flex-wrap items-center gap-1.5">
+            <select
+              aria-label="Property to report on"
+              value={chosen}
+              onChange={(e) => setChosen(e.target.value)}
+              className="h-7 border border-input bg-background px-2 text-[11px]"
+            >
+              <option value="">Choose a property…</option>
+              {((task.action_data["properties"] as { id: string; label: string; detail?: string }[] | undefined) ?? []).map((p) => (
+                <option key={p.id} value={p.id}>{p.label}{p.detail ? ` (${p.detail})` : ""}</option>
+              ))}
+            </select>
+            <button
+              disabled={busy || !chosen}
+              className={`${btn} border-primary/60 text-primary hover:bg-primary/10`}
+              onClick={() => selectProperty.mutate({ id: task.id, propertyId: chosen }, {
+                onSuccess: () => toast.success("Property selected."),
+                onError: (e) => toast.error(apiErrorMessage(e)),
+              })}
+            >
+              USE THIS PROPERTY
+            </button>
+          </div>
         )}
         {task.next_action === "GRANT_REQUIRED" && (
           <button
