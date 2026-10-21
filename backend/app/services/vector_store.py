@@ -40,7 +40,7 @@ import numpy as np
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import DocumentChunk
+from app.db.models import DocumentChunk, KnowledgeDocument
 
 logger = logging.getLogger(__name__)
 
@@ -168,6 +168,27 @@ def _cosine_similarity(a: np.ndarray, b: np.ndarray) -> float:
 
 # ── Retrieval ─────────────────────────────────────────────────────────────────
 
+ACCESS_LEVELS = ("All staff", "Managers", "Admins", "AI only")
+MANAGER_ROLES = frozenset({"manager"})
+
+
+def allowed_access_levels(user_role: str | None, is_admin: bool, human_direct: bool) -> list[str]:
+    """
+    Which document access levels the ASKER may read.
+      All staff - everyone;  Managers - managers and admins;  Admins - admins only;
+      AI only   - usable by the AI employee when answering (human_direct=False) but never browsable/retrievable by a person directly.
+    An unknown asker (no user, e.g. an unattended run) gets the most conservative set.
+    """
+    levels = ["All staff"]
+    if is_admin or (user_role or "").strip().lower() in MANAGER_ROLES:
+        levels.append("Managers")
+    if is_admin:
+        levels.append("Admins")
+    if not human_direct:
+        levels.append("AI only")
+    return levels
+
+
 async def retrieve_similar_chunks(
     query: str,
     tenant_id: str,
@@ -176,6 +197,7 @@ async def retrieve_similar_chunks(
     # client parameter kept for backward compatibility — ignored
     openai_client: Any = None,
     top_k: int = 4,
+    access_levels: list[str] | None = None,
 ) -> list[ScoredChunk]:
     """
     Embed the query with Gemini and return the top-k most similar chunks.
@@ -190,7 +212,11 @@ async def retrieve_similar_chunks(
 
     The openai_client parameter is kept for call-site backward compatibility
     but is not used — Gemini is always the embedding provider.
+
+    access_levels: the document access levels the asker may read (see allowed_access_levels). None means
+    the most conservative default (All staff only), never "everything".
     """
+    levels = list(access_levels) if access_levels is not None else ["All staff"]
     query_vec_list = await embed_query_gemini(query)
 
     query_vec = np.array(query_vec_list, dtype=np.float32)
@@ -203,8 +229,13 @@ async def retrieve_similar_chunks(
             DocumentChunk.text,
             DocumentChunk.embedding_json,
             DocumentChunk.role_scope,
-        ).where(
+            KnowledgeDocument.name.label("doc_name"),
+            KnowledgeDocument.doc_type.label("doc_type"),
+        ).join(KnowledgeDocument, KnowledgeDocument.id == DocumentChunk.document_id).where(
             DocumentChunk.tenant_id == tenant_id,
+            KnowledgeDocument.tenant_id == tenant_id,
+            KnowledgeDocument.status == "indexed",
+            KnowledgeDocument.access_level.in_(levels),
             DocumentChunk.role_scope.in_(accessible_scopes),
         )
     )
@@ -231,8 +262,8 @@ async def retrieve_similar_chunks(
         scored.append((score, ScoredChunk(
             chunk_id=row.id,
             document_id=row.document_id,
-            document_name="",   # filled by caller from doc metadata
-            doc_type="",
+            document_name=row.doc_name,
+            doc_type=row.doc_type,
             role_scope=row.role_scope,
             text=row.text,
             score=score,
@@ -240,6 +271,11 @@ async def retrieve_similar_chunks(
 
     scored.sort(key=lambda x: x[0], reverse=True)
     return [sc for _, sc in scored[:top_k]]
+
+
+VALID_ROLE_SCOPES = frozenset({
+    "Global / Shared", "Sales Agent Only", "Finance Agent Only", "HR Agent Only", "Operations Agent Only", "Customer Service Agent Only",
+})
 
 
 def _accessible_scopes(role_scope: str) -> list[str]:

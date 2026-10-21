@@ -125,13 +125,12 @@ async def update_content(content_id: str, body: ContentItemUpdate, tenant_id: st
 async def _fetch_rag_context(tenant_id: str, query: str, db: AsyncSession) -> tuple[str, list[str]]:
     """Retrieve relevant knowledge chunks for content generation."""
     try:
-        from app.config import settings
-        from openai import AsyncOpenAI
         from app.services.vector_store import retrieve_similar_chunks
-        client = AsyncOpenAI(api_key=settings.openai_api_key)
-        chunks = await retrieve_similar_chunks(
+        chunks = await retrieve_similar_chunks(     # embeddings come from Gemini; no OpenAI client involved
             query=query, tenant_id=tenant_id, role_scope="DIGITAL_MARKETING_MANAGER",
-            db=db, openai_client=client, top_k=4,
+            db=db, top_k=4,
+            # content may be published: only company-wide ("All staff") and AI-only material, never Managers/Admins documents
+            access_levels=["All staff", "AI only"],
         )
         if not chunks:
             return "", []

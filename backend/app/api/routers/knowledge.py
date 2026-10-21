@@ -32,7 +32,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
-from app.core.auth import get_current_user, require_admin
+from app.core.auth import get_current_user, is_admin_user, require_admin
 from app.db.models import DocumentChunk, KnowledgeDocument, User
 from app.db.session import get_db
 from app.schemas.knowledge import (
@@ -44,7 +44,7 @@ from app.schemas.knowledge import (
     RetrievedChunk,
 )
 from app.services.document_processor import process_document, save_upload
-from app.services.vector_store import retrieve_similar_chunks
+from app.services.vector_store import allowed_access_levels, retrieve_similar_chunks
 
 logger = logging.getLogger(__name__)
 
@@ -107,6 +107,11 @@ async def upload_document(
 
     if len(file_bytes) == 0:
         raise HTTPException(status_code=400, detail="File is empty.")
+
+    # Validate role_scope (an unknown scope would make the document silently unretrievable)
+    from app.services.vector_store import VALID_ROLE_SCOPES
+    if role_scope not in VALID_ROLE_SCOPES:
+        raise HTTPException(status_code=400, detail=f"role_scope must be one of {sorted(VALID_ROLE_SCOPES)}")
 
     # Validate access_level
     valid_access = {"All staff", "Managers", "Admins", "AI only"}
@@ -184,11 +189,11 @@ async def list_documents(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> list[KnowledgeDocumentOut]:
-    result = await db.execute(
-        select(KnowledgeDocument)
-        .where(KnowledgeDocument.tenant_id == current_user.tenant_id)
-        .order_by(KnowledgeDocument.uploaded_at.desc())
-    )
+    q = select(KnowledgeDocument).where(KnowledgeDocument.tenant_id == current_user.tenant_id)
+    if not is_admin_user(current_user):
+        # people only see documents they may read themselves; "AI only" material is not browsable by anyone but admins
+        q = q.where(KnowledgeDocument.access_level.in_(allowed_access_levels(current_user.role, False, human_direct=True)))
+    result = await db.execute(q.order_by(KnowledgeDocument.uploaded_at.desc()))
     docs = result.scalars().all()
     return [_doc_to_schema(d) for d in docs]
 
@@ -206,6 +211,8 @@ async def get_document(
     db: AsyncSession = Depends(get_db),
 ) -> KnowledgeDocumentOut:
     doc = await _get_doc_or_404(doc_id, current_user.tenant_id, db)
+    if not is_admin_user(current_user) and doc.access_level not in allowed_access_levels(current_user.role, False, human_direct=True):
+        raise HTTPException(status_code=404, detail="Document not found.")      # same answer as a missing document
     return _doc_to_schema(doc)
 
 
@@ -289,20 +296,19 @@ async def retrieve(
     db: AsyncSession = Depends(get_db),
 ) -> RetrievalResponse:
     tenant_id = current_user.tenant_id
-    if not settings.openai_api_key:
-        raise HTTPException(status_code=503, detail="OpenAI API key not configured.")
+    if not settings.gemini_api_key:
+        raise HTTPException(status_code=503, detail="Knowledge search is not configured (Gemini embeddings key missing).")
 
-    from openai import AsyncOpenAI
-    client = AsyncOpenAI(api_key=settings.openai_api_key)
-
+    admin = is_admin_user(current_user)
     try:
         scored_chunks = await retrieve_similar_chunks(
             query=body.query,
             tenant_id=tenant_id,
-            role_scope=body.role_scope,
+            # Only administrators may ask "as" another role; everyone else sees company-wide material only.
+            role_scope=body.role_scope if admin else "",
             db=db,
-            openai_client=client,
             top_k=body.top_k,
+            access_levels=allowed_access_levels(current_user.role, admin, human_direct=True),
         )
     except Exception as exc:
         logger.error("Retrieval failed: %s", exc)

@@ -64,6 +64,7 @@ _dynamic_tools_ctx: contextvars.ContextVar = contextvars.ContextVar(
 )
 # Who is asking (user id + admin flag), so read tools over personal records can enforce visibility.
 _user_ctx: contextvars.ContextVar = contextvars.ContextVar("eaawp_tool_user", default=(None, False))
+_user_role_ctx: contextvars.ContextVar = contextvars.ContextVar("eaawp_tool_user_role", default="")
 
 
 def set_tool_context(
@@ -75,6 +76,7 @@ def set_tool_context(
     dynamic_tools: "dict[str, Any] | None" = None,
     user_id: str | None = None,
     is_admin: bool = False,
+    user_role: str = "",
 ) -> None:
     """Called by the execution router before engine.execute() to inject context.
 
@@ -90,6 +92,7 @@ def set_tool_context(
     _guarded_tools_ctx.set(guarded_tools or [])
     _dynamic_tools_ctx.set(dynamic_tools or {})
     _user_ctx.set((user_id, bool(is_admin)))
+    _user_role_ctx.set(user_role or "")
 
 
 def clear_tool_context() -> None:
@@ -101,6 +104,7 @@ def clear_tool_context() -> None:
     _guarded_tools_ctx.set(None)
     _dynamic_tools_ctx.set(None)
     _user_ctx.set((None, False))
+    _user_role_ctx.set("")
 
 
 # -- Starter tools -------------------------------------------------------------
@@ -126,10 +130,14 @@ async def fetch_knowledge_base(query: str) -> str:
     if not _rag_settings.gemini_api_key:
         raise RuntimeError("Knowledge-base search is unavailable because Gemini embeddings are not configured.")
     try:
-        from app.services.vector_store import retrieve_similar_chunks
+        from app.services.vector_store import allowed_access_levels, retrieve_similar_chunks
+        _uid, _adm = _user_ctx.get()
         _chunks = await retrieve_similar_chunks(
             query=query, tenant_id=_tid, role_scope=_rk,
             db=_db, top_k=4,
+            # The AI answers ON BEHALF OF the asker: they never get more than they could read themselves
+            # (the exception, "AI only" documents, exists precisely for the AI to use).
+            access_levels=allowed_access_levels(_user_role_ctx.get(), bool(_adm), human_direct=False),
         )
         if not _chunks:
             return f"No relevant knowledge base entries found for: '{query[:100]}'"

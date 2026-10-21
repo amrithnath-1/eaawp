@@ -80,3 +80,10 @@ no wildcard CORS; read-only by default; one-click approvals only for LOW-risk re
 
 ## Next
 Phases A and D merged locally -> owner live-verifies Search Console -> Phase E (multi-agent workforce / Meeting Room backend).
+
+
+## Phase K (part 2): knowledge base access control (branch feat/phase-k-knowledge)
+Status: IMPLEMENTED, MOCK-TESTED ONLY (embedder faked; no live Gemini). See docs/knowledge_base.md.
+- Fixed: document `access_level` was stored but never enforced; `/retrieve` honoured client `role_scope`, required an OpenAI key, listings leaked restricted document names, agent tool printed blank source names, no text-size cap, unvalidated `role_scope`.
+- Tests: tests/test_knowledge_access.py (19), 7 mutations killed.
+- Still open: MCP user flow, MySQL, Phase L, Phase M.

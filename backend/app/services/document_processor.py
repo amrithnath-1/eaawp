@@ -47,6 +47,7 @@ UPLOAD_DIR.mkdir(exist_ok=True)
 # Chunking parameters
 CHUNK_SIZE = 800
 CHUNK_OVERLAP = 100
+MAX_EXTRACTED_CHARS = 2_000_000   # bounds embedding cost/time for a single document
 
 
 # ── Text extraction ───────────────────────────────────────────────────────────
@@ -153,6 +154,11 @@ async def process_document(
         text = extract_text(file_bytes, doc.doc_type, doc.name)
         if not text.strip():
             raise ValueError("No text could be extracted from this document.")
+        if len(text) > MAX_EXTRACTED_CHARS:
+            raise ValueError(
+                f"Document text is too large to index ({len(text):,} characters; limit {MAX_EXTRACTED_CHARS:,}). "
+                "Split it into smaller documents."
+            )
 
         # Chunk
         chunks = chunk_text(text)

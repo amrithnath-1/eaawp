@@ -347,12 +347,15 @@ async def execute_agent(
     if "fetch_knowledge_base" in authoritative_blueprint.allowed_tools:
         try:
             # Gemini embeddings — no OpenAI client required
+            from app.services.vector_store import allowed_access_levels
             rag_chunks = await retrieve_similar_chunks(
                 query=request.user_prompt,
                 tenant_id=authoritative_blueprint.tenant_id,
                 role_scope=role_key,
                 db=db,
                 top_k=4,
+                # on behalf of the asker: never more than they could read themselves ("AI only" is for the AI)
+                access_levels=allowed_access_levels(user.role, is_admin_user(user), human_direct=False),
             )
         except Exception as exc:  # noqa: BLE001
             logger.warning("RAG retrieval failed: %s", exc)
@@ -406,6 +409,7 @@ async def execute_agent(
         dynamic_tools=dynamic_tool_map,
         user_id=user.id,
         is_admin=is_admin_user(user),
+        user_role=user.role or "",
     )
 
     # ── Phase J: Retrieve relevant memories for context ───────────────────────
