@@ -28,6 +28,8 @@ PUBLIC_ROUTES: dict[tuple[str, str], str] = {
     ("POST", "/api/v1/auth/refresh"): "Exchanges a valid, unrevoked refresh token (validated in the DB).",
     ("POST", "/api/v1/auth/logout"): "Revokes the presented refresh token.",
     ("POST", "/api/v1/onboarding/company"): "Self-service company registration (creates a new tenant + its admin).",
+    ("POST", "/api/v1/team/invitations/lookup"): "Invitee has no account yet; gated by a 256-bit secret single-use token (stored only as SHA-256), rate-limited, one generic error for every invalid state.",
+    ("POST", "/api/v1/team/invitations/accept"): "Invitee creates their account with the secret invitation token; expires in 7 days, single-use, rate-limited, generic error when invalid.",
     ("GET", "/api/v1/oauth/google/callback"): (
         "Browser redirect from Google; cannot carry a Bearer token. Protected by a "
         "single-use, expiring state token bound to the initiating user and tenant."

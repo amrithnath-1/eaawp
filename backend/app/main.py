@@ -66,6 +66,7 @@ from app.api.routers.employee_lifecycle import router as employee_lifecycle_rout
 from app.api.routers.datasets import router as datasets_router  # Data Analyst
 from app.api.routers.clerk import router as clerk_router  # Institutional Clerk
 from app.api.routers.medical import router as medical_router  # Medical Assistant (clinic support)
+from app.api.routers.team import router as team_router  # invitations + member administration
 from app.api.routers.admin_customization import router as admin_customization_router  # Admin AI Customize
 from app.api.routers.admin_config import router as admin_config_router  # Admin Config Engine
 from app.middleware.observability import ObservabilityMiddleware  # Phase N
@@ -240,6 +241,7 @@ app.include_router(employee_lifecycle_router)  # employee detail/revise/versions
 app.include_router(datasets_router)  # datasets + analysis reports
 app.include_router(clerk_router)  # service requests + documents
 app.include_router(medical_router)  # clinic appointments
+app.include_router(team_router)  # team invitations / members
 app.include_router(admin_customization_router)  # Admin AI Customize — /api/v1/admin/customize/*
 app.include_router(admin_config_router)  # Admin Config Engine — /api/v1/admin/provider-config/*
 

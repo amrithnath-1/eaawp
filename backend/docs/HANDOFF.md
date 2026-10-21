@@ -3,6 +3,9 @@
 Base branch: `master`. Never push/deploy without explicit approval. Nothing here claims live verification
 unless stated.
 
+## Phase J (part 1): Team invitations + members (branch feat/phase-j-invitations)
+- Single-use expiring hashed invitation links, accept page (`/accept-invite`), `/team` admin page (invite, resend, revoke, change role, deactivate/reactivate with token revocation). See `docs/team_invitations.md`. Migration `d7e1f26a8b34`. Status: IMPLEMENTED, MOCK-TESTED ONLY. No email delivery yet (part 3); internal messaging is part 2.
+
 ## Phase I: Medical Assistant (branch feat/phase-i-medical-assistant)
 - Deterministic emergency/crisis/advice guard before the model, appointment requests + staff queue + verbatim-grounded intake summary, `MEDICAL_ASSISTANT` role (read tools + approval-gated status update), never stored in shared memory, `/clinic` page. See `docs/medical_assistant.md`. Migration `c6d0e15f7a23`. `execute_agent`: guarded-only action tools now count as action tools (affects all roles). Status: IMPLEMENTED, MOCK-TESTED ONLY. Data is unencrypted at rest (documented).
 
@@ -39,12 +42,13 @@ IMPLEMENTED AND VERIFIED / IMPLEMENTED, MOCK-TESTED ONLY / IMPLEMENTED BUT NOT V
 | Meeting Room (E), AI Employee Builder lifecycle (F), Data Analyst (G) | IMPLEMENTED, MOCK-TESTED ONLY (scripted LLM; real server + browser exercised) |
 | Institutional Clerk (H) | IMPLEMENTED, MOCK-TESTED ONLY (scripted LLM; real server + browser exercised) |
 | Medical Assistant (I) | IMPLEMENTED, MOCK-TESTED ONLY (scripted LLM; unencrypted at rest) |
-| Invitations/messaging, knowledge/DB connectivity, marketplace | PLANNED (see roadmap) |
+| Team invitations + member admin (J1) | IMPLEMENTED, MOCK-TESTED ONLY (no email delivery) |
+| Messaging, authorized email, knowledge/DB connectivity, marketplace | PLANNED (see roadmap) |
 
 ## Run / test
 * Backend tests: `cd backend; python -m pytest -q` (venv with `requirements`). Frontend: `npx tsc --noEmit`, `npm run build`.
 * Windows run + migration steps: `docs/local_windows_runtime.md`.
-* Migration head: `c6d0e15f7a23`. Rehearse any migration on a copy first.
+* Migration head: `d7e1f26a8b34`. Rehearse any migration on a copy first.
 
 ## Architecture pointers
 * Tool bridge: `app/tools/dynamic_tool.py` -> `app/integrations/manager.py` (`execute_capability`: tenant, status, role grant, decrypt in memory).

@@ -35,6 +35,7 @@ REVIEWED: dict[tuple[str, str], str] = {
     ("api/routers/execution.py", "PlanStep"): "Child rows of an ExecutionPlan fetched with tenant_id in the preceding statement.",
     ("api/routers/integrations.py", "SchemaEntity"): "Child rows of a DataConnection already verified for this tenant.",
     ("api/routers/oauth_router.py", "OAuthState"): "By 256-bit single-use state token; tenant is read FROM the row and re-validated against the initiating user.",
+    ("services/team_service.py", "Invitation"): "Invitee has no session/tenant yet: looked up by the SHA-256 of a 256-bit single-use secret token; tenant is read FROM the row.",
     ("api/routers/planning.py", "PlanStep"): "Child rows of an ExecutionPlan already fetched/verified for this tenant.",
 }
 

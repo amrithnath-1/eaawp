@@ -10,6 +10,7 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as AcceptInviteRouteImport } from './routes/accept-invite'
 import { Route as ActivityRouteImport } from './routes/activity'
 import { Route as ApprovalsRouteImport } from './routes/approvals'
 import { Route as AuditRouteImport } from './routes/audit'
@@ -27,12 +28,18 @@ import { Route as RecentsRouteImport } from './routes/recents'
 import { Route as RolesRouteImport } from './routes/roles'
 import { Route as ScheduledRouteImport } from './routes/scheduled'
 import { Route as SettingsRouteImport } from './routes/settings'
+import { Route as TeamRouteImport } from './routes/team'
 import { Route as WorkflowsRouteImport } from './routes/workflows'
 import { Route as WorkspaceRouteImport } from './routes/workspace'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AcceptInviteRoute = AcceptInviteRouteImport.update({
+  id: '/accept-invite',
+  path: '/accept-invite',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ActivityRoute = ActivityRouteImport.update({
@@ -120,6 +127,11 @@ const SettingsRoute = SettingsRouteImport.update({
   path: '/settings',
   getParentRoute: () => rootRouteImport,
 } as any)
+const TeamRoute = TeamRouteImport.update({
+  id: '/team',
+  path: '/team',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const WorkflowsRoute = WorkflowsRouteImport.update({
   id: '/workflows',
   path: '/workflows',
@@ -133,6 +145,7 @@ const WorkspaceRoute = WorkspaceRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/accept-invite': typeof AcceptInviteRoute
   '/activity': typeof ActivityRoute
   '/approvals': typeof ApprovalsRoute
   '/audit': typeof AuditRoute
@@ -150,11 +163,13 @@ export interface FileRoutesByFullPath {
   '/roles': typeof RolesRoute
   '/scheduled': typeof ScheduledRoute
   '/settings': typeof SettingsRoute
+  '/team': typeof TeamRoute
   '/workflows': typeof WorkflowsRoute
   '/workspace': typeof WorkspaceRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/accept-invite': typeof AcceptInviteRoute
   '/activity': typeof ActivityRoute
   '/approvals': typeof ApprovalsRoute
   '/audit': typeof AuditRoute
@@ -172,12 +187,14 @@ export interface FileRoutesByTo {
   '/roles': typeof RolesRoute
   '/scheduled': typeof ScheduledRoute
   '/settings': typeof SettingsRoute
+  '/team': typeof TeamRoute
   '/workflows': typeof WorkflowsRoute
   '/workspace': typeof WorkspaceRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/accept-invite': typeof AcceptInviteRoute
   '/activity': typeof ActivityRoute
   '/approvals': typeof ApprovalsRoute
   '/audit': typeof AuditRoute
@@ -195,6 +212,7 @@ export interface FileRoutesById {
   '/roles': typeof RolesRoute
   '/scheduled': typeof ScheduledRoute
   '/settings': typeof SettingsRoute
+  '/team': typeof TeamRoute
   '/workflows': typeof WorkflowsRoute
   '/workspace': typeof WorkspaceRoute
 }
@@ -202,6 +220,7 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/accept-invite'
     | '/activity'
     | '/approvals'
     | '/audit'
@@ -219,11 +238,13 @@ export interface FileRouteTypes {
     | '/roles'
     | '/scheduled'
     | '/settings'
+    | '/team'
     | '/workflows'
     | '/workspace'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/accept-invite'
     | '/activity'
     | '/approvals'
     | '/audit'
@@ -241,11 +262,13 @@ export interface FileRouteTypes {
     | '/roles'
     | '/scheduled'
     | '/settings'
+    | '/team'
     | '/workflows'
     | '/workspace'
   id:
     | '__root__'
     | '/'
+    | '/accept-invite'
     | '/activity'
     | '/approvals'
     | '/audit'
@@ -263,12 +286,14 @@ export interface FileRouteTypes {
     | '/roles'
     | '/scheduled'
     | '/settings'
+    | '/team'
     | '/workflows'
     | '/workspace'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  AcceptInviteRoute: typeof AcceptInviteRoute
   ActivityRoute: typeof ActivityRoute
   ApprovalsRoute: typeof ApprovalsRoute
   AuditRoute: typeof AuditRoute
@@ -286,6 +311,7 @@ export interface RootRouteChildren {
   RolesRoute: typeof RolesRoute
   ScheduledRoute: typeof ScheduledRoute
   SettingsRoute: typeof SettingsRoute
+  TeamRoute: typeof TeamRoute
   WorkflowsRoute: typeof WorkflowsRoute
   WorkspaceRoute: typeof WorkspaceRoute
 }
@@ -297,6 +323,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/accept-invite': {
+      id: '/accept-invite'
+      path: '/accept-invite'
+      fullPath: '/accept-invite'
+      preLoaderRoute: typeof AcceptInviteRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/activity': {
@@ -418,6 +451,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SettingsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/team': {
+      id: '/team'
+      path: '/team'
+      fullPath: '/team'
+      preLoaderRoute: typeof TeamRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/workflows': {
       id: '/workflows'
       path: '/workflows'
@@ -437,6 +477,7 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  AcceptInviteRoute: AcceptInviteRoute,
   ActivityRoute: ActivityRoute,
   ApprovalsRoute: ApprovalsRoute,
   AuditRoute: AuditRoute,
@@ -454,6 +495,7 @@ const rootRouteChildren: RootRouteChildren = {
   RolesRoute: RolesRoute,
   ScheduledRoute: ScheduledRoute,
   SettingsRoute: SettingsRoute,
+  TeamRoute: TeamRoute,
   WorkflowsRoute: WorkflowsRoute,
   WorkspaceRoute: WorkspaceRoute,
 }

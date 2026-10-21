@@ -23,6 +23,7 @@ import {
   Database,
   ClipboardList,
   Stethoscope,
+  UserPlus,
   X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -41,6 +42,7 @@ const NAV = [
   { to: "/data",        label: "Data",        icon: Database },
   { to: "/clerk",       label: "Clerk",       icon: ClipboardList },
   { to: "/clinic",      label: "Clinic",      icon: Stethoscope },
+  { to: "/team",        label: "Team",        icon: UserPlus },
   { to: "/activity",    label: "Activity",    icon: BotMessageSquare },
   { to: "/scheduled",   label: "Scheduled",   icon: CalendarClock },
   { to: "/library",     label: "Library",     icon: Library },

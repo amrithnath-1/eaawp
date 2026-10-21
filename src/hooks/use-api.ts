@@ -4068,3 +4068,45 @@ export function useScreenText() {
     mutationFn: (text) => intMgrFetch("POST", "/api/v1/clinic/screen", { text }),
   });
 }
+
+// ── Team: invitations + members (Phase J) ─────────────────────────────────────────
+export interface TeamMemberFE { id: string; email: string; name: string; role: string; status: string; is_active: boolean; created_at: string }
+export interface InvitationFE { id: string; email: string; role: string; status: "pending" | "accepted" | "revoked" | "expired"; invited_by_name: string; expires_at: string; created_at: string; accepted_at: string | null }
+export interface InvitationIssuedFE extends InvitationFE { token: string; accept_path: string }
+export function useTeamMeta(enabled = true) {
+  return useQuery<{ roles: string[]; invite_ttl_days: number }>({ queryKey: ["team-meta"] as const, enabled, staleTime: 300_000, queryFn: () => intMgrFetch("GET", "/api/v1/team/meta") });
+}
+export function useTeamMembers(enabled = true) {
+  return useQuery<TeamMemberFE[]>({ queryKey: ["team-members"] as const, enabled, queryFn: () => intMgrFetch<TeamMemberFE[]>("GET", "/api/v1/team/members") });
+}
+export function useInvitations(enabled = true) {
+  return useQuery<InvitationFE[]>({ queryKey: ["team-invitations"] as const, enabled, queryFn: () => intMgrFetch<InvitationFE[]>("GET", "/api/v1/team/invitations") });
+}
+export function useInvite() {
+  const qc = useQueryClient();
+  return useMutation<InvitationIssuedFE, Error, { email: string; role: string }>({
+    mutationFn: (v) => intMgrFetch<InvitationIssuedFE>("POST", "/api/v1/team/invitations", v),
+    onSuccess: () => { void qc.invalidateQueries({ queryKey: ["team-invitations"] }); },
+  });
+}
+export function useInvitationAction() {
+  const qc = useQueryClient();
+  return useMutation<InvitationIssuedFE | InvitationFE, Error, { id: string; action: "resend" | "revoke" }>({
+    mutationFn: (v) => intMgrFetch("POST", `/api/v1/team/invitations/${v.id}/${v.action}`),
+    onSuccess: () => { void qc.invalidateQueries({ queryKey: ["team-invitations"] }); },
+  });
+}
+export function useMemberAction() {
+  const qc = useQueryClient();
+  return useMutation<TeamMemberFE, Error, { id: string; action: "role" | "deactivate" | "reactivate"; role?: string }>({
+    mutationFn: (v) => intMgrFetch<TeamMemberFE>("POST", `/api/v1/team/members/${v.id}/${v.action}`, v.action === "role" ? { role: v.role } : undefined),
+    onSuccess: () => { void qc.invalidateQueries({ queryKey: ["team-members"] }); },
+  });
+}
+/** Public (no login): the invitee has no session yet. */
+export async function publicInviteCall<T>(path: "lookup" | "accept", body: Record<string, string>): Promise<T> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/team/invitations/${path}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(typeof data?.detail === "string" ? data.detail : "Something went wrong. Please try again.");
+  return data as T;
+}
