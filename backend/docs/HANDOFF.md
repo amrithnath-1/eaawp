@@ -6,21 +6,13 @@ unless stated.
 ## Phase J (part 3): Authorized invitation email (branch feat/phase-j-invite-email)
 - Optional emailing of an invitation link on explicit admin action via the company's SMTP integration (invitee address only, fixed template, allowed-origin link, 20/hour cap, safe audit). Fixed pre-existing 500 when re-saving an SMTP config. See `docs/team_invitations.md`. No migration. Status: IMPLEMENTED, MOCK-TESTED + exercised against a local SMTP server; NOT verified with a real mail provider.
 
-## CHECKPOINT (paused at the owner's request, 2026-10-21 ~19:05 IST)
-- **Branch:** `master` (local). **Last code commit:** `fa30e09` (Phase J part 2). Working tree clean at that point; this file is the only change after it.
-- **Unpushed:** 11 local commits ahead of origin/master (including the HANDOFF commit). NOTHING has been pushed, deployed, reset or discarded. Push needs the owner's explicit approval.
-- **Completed (all MOCK-TESTED ONLY; scripted LLM, no live Google/LLM):** phases A-J2: runtime stabilisation, Universal AI Core, Digital Marketing Manager (GA4 + Search Console), workflows/scheduling, Meeting Room, AI Employee Builder lifecycle, Data Analyst (G), Institutional Clerk (H), Medical Assistant (I), team invitations + member admin (J1), internal messaging (J2).
-- **Test results at `fa30e09`:** full backend suite `2077 passed, 5 skipped, 0 failed` (7m14s). Frontend `npm run build` and `tsc --noEmit` clean. Each of G-J2 also exercised in a real browser against a real uvicorn server with a scripted LLM; mutation checks run on each new rule set (all surviving mutants got a new test).
-- **Migration head:** `e8f2a37b9c45` (chain ... c6d0e15f7a23 -> d7e1f26a8b34 -> e8f2a37b9c45). The owner's local DB has NOT been migrated by me; back up, then `alembic upgrade head` on a copy first (`docs/local_windows_runtime.md`).
-- **Not verified / known gaps:** no live LLM call; no real Google API call (owner's Windows Search Console test still pending); agent memory retrieval is broken for all roles (pre-existing dict-vs-attribute bug, untouched); medical/message data unencrypted at rest; no email/notification delivery anywhere yet; messaging is polling, not push; clinic staff = admin.
-- **Unfinished:** Phase J part 3 (authorized email sending: needs a configured provider + approval flow), K, L, M (below).
-- **Exact next steps on resume:**
-  1. `git status` (expect clean on master) and `git log --oneline -3` (expect `fa30e09` or the docs commit on top).
-  2. Phase J3: authorized email via the existing email integration/drafts (`app/api/routers/email_*`, `email_draft_models.py`): send invitation links and message notifications only after admin approval; mock-test with a fake sender; never claim live delivery.
-  3. Phase K: knowledge + database connectivity (MCP, read-only SQL, secrets via the secure admin form only).
-  4. Phase L: marketplace / entitlements / module activation.
-  5. Phase M: responsive UI polish, notifications, activity history, production-readiness and Windows install docs.
-  6. Per phase: branch -> backend + frontend + migration + tests -> mutation checks -> browser run -> full suite -> commit with trailers -> `git merge --ff-only` into master -> HANDOFF + report. Never push without approval.
+## CURRENT STATE (updated after resuming; supersedes the earlier pause checkpoint)
+- **Branch:** `master` (local). **Last code commit:** `7382ea0` (Phase J part 3). Nothing pushed/deployed; 13 local commits ahead of origin/master by the hook's count (push needs the owner's explicit approval).
+- **Completed (MOCK-TESTED ONLY unless noted):** phases A-J3 (see sections below). J3 invitation email was also exercised against a real local SMTP server; no real mail provider yet.
+- **Test results at `7382ea0`:** full backend suite `2088 passed, 5 skipped, 0 failed`; frontend build + tsc clean; real-browser runs for G-J3 with a scripted LLM.
+- **Migration head:** `e8f2a37b9c45` (J3 added no migration). Owner's local DB not migrated by me; back up and rehearse on a copy first.
+- **Known gaps:** no live LLM / Google call; agent memory retrieval broken for all roles (pre-existing); medical/message data unencrypted at rest; messaging is polling; no automatic notification emails.
+- **Next:** Phase K (knowledge + database connectivity, MCP, read-only SQL, secrets via secure admin form only), L (marketplace/entitlements/module activation), M (responsive UI, notifications, activity history, production readiness, Windows install docs). Per phase: branch -> backend+frontend+migration+tests -> mutation checks -> browser run -> full suite -> commit with trailers -> `git merge --ff-only` into master -> HANDOFF + report.
 
 ## Phase J (part 2): Internal messaging (branch feat/phase-j-messaging)
 - 1:1 messages between active members of a company, private to the two participants (admins cannot read them), unread badge, `/messages` page. See `docs/internal_messaging.md`. Migration `e8f2a37b9c45`. Status: IMPLEMENTED, MOCK-TESTED ONLY. Polling, no push/email notification, no groups/attachments.
