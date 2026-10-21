@@ -25,6 +25,7 @@ import {
   User, Zap, Globe, Clock,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { EmployeeDetailPanel } from "@/components/eaawp/EmployeeDetailPanel";
 import {
   useBuildEmployee,
   useEmployeeBlueprints,
@@ -154,23 +155,28 @@ function BlueprintCard({
 
 // ── Active employees list ─────────────────────────────────────────────────────
 function EmployeeCard({ employee }: { employee: EmployeeOut }) {
+  const [open, setOpen] = useState(false);
   const statusColor =
     employee.status === "ACTIVE" ? "text-success border-success/40" :
     employee.status === "PAUSED" ? "text-warning border-warning/40" :
     "text-muted-foreground border-muted-foreground/40";
 
   return (
-    <div className="border border-border bg-surface p-2.5 flex items-center gap-3">
-      <User className="size-4 text-muted-foreground shrink-0" />
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2 flex-wrap">
-          <span className="font-mono text-[11px] tracking-[0.06em]">{employee.name}</span>
-          <span className={cn("border px-1.5 py-0.5 font-mono text-[9px] tracking-[0.06em]", statusColor)}>
-            {employee.status}
-          </span>
+    <div className="border border-border bg-surface">
+      <button onClick={() => setOpen((o) => !o)} aria-expanded={open} className="flex w-full items-center gap-3 p-2.5 text-left">
+        <User className="size-4 text-muted-foreground shrink-0" />
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="font-mono text-[11px] tracking-[0.06em]">{employee.name}</span>
+            <span className={cn("border px-1.5 py-0.5 font-mono text-[9px] tracking-[0.06em]", statusColor)}>
+              {employee.status}
+            </span>
+          </div>
+          <p className="text-[11px] text-muted-foreground">{employee.role_key}</p>
         </div>
-        <p className="text-[11px] text-muted-foreground">{employee.role_key}</p>
-      </div>
+        {open ? <ChevronDown className="size-3.5 text-muted-foreground" /> : <ChevronRight className="size-3.5 text-muted-foreground" />}
+      </button>
+      {open && <EmployeeDetailPanel employeeId={employee.id} />}
     </div>
   );
 }

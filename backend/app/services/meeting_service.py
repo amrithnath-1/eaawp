@@ -78,6 +78,8 @@ async def roster(db: AsyncSession, tenant_id: str) -> list[dict]:
         select(RoleConfiguration).where(RoleConfiguration.tenant_id == tenant_id)
         .order_by(RoleConfiguration.role_key)
     )).scalars().all()
+    from app.services.employee_lifecycle import employee_is_blocked
+    rows = [r for r in rows if not await employee_is_blocked(db, tenant_id, r.role_key)]    # paused employees get no work
     rows = sorted(rows, key=lambda r: (r.role_key not in LEAD_FIRST, r.role_key))
     return [
         {"role_key": r.role_key, "role_name": r.role_name or r.role_key.replace("_", " ").title(),
@@ -165,6 +167,8 @@ async def add_message(db: AsyncSession, m: Meeting, sender_kind: str, sender_nam
 async def create_meeting(db: AsyncSession, user: User, objective: str, title: str = "") -> Meeting:
     """Create + plan. The caller starts the run (``spawn``) after committing."""
     roles = await roster(db, user.tenant_id)
+    if not roles:
+        raise ValueError("No AI employee is available right now (all are paused).")
     m = Meeting(id=str(uuid.uuid4()), tenant_id=user.tenant_id, title=(title or objective)[:200],
                 objective=objective, status="planning", created_by=user.id)
     db.add(m)

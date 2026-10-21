@@ -78,7 +78,7 @@ class EmployeeBlueprintRequest(BaseModel):
 class EmployeeBlueprintDecision(BaseModel):
     """Approve or reject an employee blueprint proposal."""
     decision: Literal["approve", "reject"]
-    reviewed_by: str = Field(..., min_length=1, max_length=128)
+    reviewed_by: str = Field(default="", max_length=128)  # ignored: the reviewer is always the authenticated admin
     review_note: str = Field(default="", max_length=1000)
 
 

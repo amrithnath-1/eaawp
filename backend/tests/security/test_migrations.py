@@ -15,7 +15,7 @@ import pytest
 
 BACKEND = pathlib.Path(__file__).resolve().parents[2]
 PREVIOUS = "u8v2w37x9y15"
-HEAD = "y2z6a71b3c19"
+HEAD = "z3a7b82c4d20"
 
 
 def alembic(db: pathlib.Path, *args: str) -> str:
@@ -158,4 +158,26 @@ def test_meeting_room_migration_is_additive_and_reversible(tmp_path):
     assert cols(db, "meetings") == {} and cols(db, "meeting_tasks") == {} and cols(db, "meeting_messages") == {}
     con = sqlite3.connect(db)
     assert con.execute("SELECT name FROM workflows WHERE id='w1'").fetchone() == ("Weekly",)
+    con.close()
+
+
+def test_employee_versions_migration_is_additive_and_reversible(tmp_path):
+    import sqlite3
+    db = tmp_path / "empver.db"
+    alembic(db, "upgrade", "y2z6a71b3c19")
+    con = sqlite3.connect(db)
+    con.execute("INSERT INTO companies (id, name, industry, region, employees, is_active) VALUES ('t','T','x','x',1,1)")
+    con.execute("INSERT INTO ai_employees (id, tenant_id, role_key, name, status, is_active) VALUES ('e1','t','R','Emp','ACTIVE',1)")
+    con.commit(); con.close()
+    alembic(db, "upgrade", "head")
+    assert {"ai_employee_id", "version", "status", "snapshot_json", "change_summary"} <= set(cols(db, "employee_versions"))
+    con = sqlite3.connect(db)
+    con.execute("INSERT INTO employee_versions (id, tenant_id, ai_employee_id, version) VALUES ('v1','t','e1',1)")
+    with pytest.raises(sqlite3.IntegrityError):                      # one row per (employee, version number)
+        con.execute("INSERT INTO employee_versions (id, tenant_id, ai_employee_id, version) VALUES ('v2','t','e1',1)")
+    con.close()
+    alembic(db, "downgrade", "y2z6a71b3c19")
+    assert cols(db, "employee_versions") == {}
+    con = sqlite3.connect(db)
+    assert con.execute("SELECT name FROM ai_employees WHERE id='e1'").fetchone() == ("Emp",)
     con.close()

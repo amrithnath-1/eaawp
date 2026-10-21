@@ -128,7 +128,10 @@ async def list_meetings(user: User = Depends(get_current_user), db: AsyncSession
 @router.post("", response_model=MeetingDetail, status_code=201)
 async def create_meeting(body: MeetingCreate, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)) -> MeetingDetail:
     validate_user_prompt(body.objective)
-    m = await ms.create_meeting(db, user, body.objective.strip(), body.title.strip())
+    try:
+        m = await ms.create_meeting(db, user, body.objective.strip(), body.title.strip())
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     await db.commit()                       # the background run reads committed rows
     ms.spawn(m.id)
     return await _detail(m, db)
@@ -153,6 +156,8 @@ async def post_message(meeting_id: str, body: MessageCreate, user: User = Depend
         raise HTTPException(status_code=409, detail="The meeting is still being planned")
     await ms.add_message(db, m, "user", user.name or user.email, body.content.strip())
     roles = await ms.roster(db, m.tenant_id)
+    if not roles:
+        raise HTTPException(status_code=409, detail="No AI employee is available right now (all are paused).")
     await ms.append_plan(db, m, body.content.strip(), roles, context=m.summary or m.objective)
     was_terminal = m.status in _TERMINAL
     if was_terminal:

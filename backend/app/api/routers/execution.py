@@ -96,6 +96,10 @@ async def execute_agent(
         if _known:
             role_key = _known
 
+    from app.services.employee_lifecycle import employee_is_blocked as _blocked
+    if await _blocked(db, tenant_id, role_key):
+        raise HTTPException(status_code=403, detail="This AI employee is paused. An administrator can resume it from the Employees page.")
+
     # ── Server-side blueprint override ────────────────────────────────────────
     # The client supplies the role_name and user_prompt but MUST NOT be trusted
     # for allowed_tools, guarded_tools, tenant_id, or system_persona.  Those

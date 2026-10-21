@@ -119,6 +119,13 @@ async def build_employee(
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
+    # Show the administrator what would REALLY be applied: unknown tools removed, risky actions guarded.
+    from app.services import employee_lifecycle as lifecycle
+    _enabled, _guarded, _dropped = lifecycle.classify_tools(proposal.allowed_tools, proposal.guarded_tools)
+    proposal.allowed_tools, proposal.guarded_tools = _enabled, _guarded
+    if _dropped:
+        proposal.extra_data = {**proposal.extra_data, "removed_unknown_tools": _dropped}
+
     # Persist proposal
     row = EmployeeBlueprintProposalORM(
         id=proposal.id,
@@ -214,32 +221,62 @@ async def approve_blueprint(
     if body.decision != "approve":
         raise HTTPException(status_code=400, detail="Use /reject for rejections")
 
+    from app.services import employee_lifecycle as lifecycle
+
+    # The employee's role key must be unique in the company: never overwrite another role's configuration.
+    role_key = row.role_key
+    n = 1
+    while await lifecycle.role_key_taken(db, tenant_id, role_key):
+        n += 1
+        role_key = f"{row.role_key[:120]}_{n}"
+        if n > 50:
+            raise HTTPException(status_code=409, detail="Could not allocate a unique role key; rename the employee and try again")
+    row.role_key = role_key
+
+    try:
+        snap, warnings = lifecycle.normalize_snapshot({
+            "name": row.name, "purpose": row.purpose,
+            "responsibilities": json.loads(row.responsibilities_json or "[]"),
+            "objectives": json.loads(row.objectives_json or "[]"),
+            "system_persona": row.system_persona, "communication_style": row.communication_style,
+            "llm_model": row.llm_model,
+            "allowed_tools": json.loads(row.allowed_tools_json or "[]"),
+            "guarded_tools": json.loads(row.guarded_tools_json or "[]"),
+        })
+    except lifecycle.ValidationProblem as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
     # Create AIEmployee
     employee_id = str(uuid.uuid4())
     employee = AIEmployee(
         id=employee_id,
         tenant_id=tenant_id,
-        role_key=row.role_key,
-        name=row.name,
+        role_key=role_key,
+        name=snap["name"],
         status="ACTIVE",
         is_active=True,
     )
     db.add(employee)
+    await db.flush()
 
     # Create AgentConfiguration
     config = AgentConfiguration(
         id=str(uuid.uuid4()),
         tenant_id=tenant_id,
         ai_employee_id=employee_id,
-        system_persona=row.system_persona,
-        tone=row.communication_style or "Concise",
+        system_persona=snap["system_persona"],
+        tone=snap["communication_style"],
         autonomy_level=3,
         capabilities_json="{}",
-        tools_json=row.allowed_tools_json,
+        tools_json=json.dumps(snap["allowed_tools"] + snap["guarded_tools"]),
         tool_scopes_json="[]",
         permissions_json="[]",
     )
     db.add(config)
+
+    # Version 1 + the role configuration the agent actually runs with
+    await lifecycle.create_first_version(db, tenant_id, employee, snap, reviewer, instruction=row.original_instruction or "")
+    lifecycle.audit(db, tenant_id, reviewer, f"activated AI employee '{employee.name}' ({role_key})", employee_id)
 
     # Mark proposal approved
     row.approval_status = "approved"

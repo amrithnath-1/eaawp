@@ -377,7 +377,7 @@ async def get_role_config(
     tenant_id: str = Depends(get_current_tenant_id),
     db: AsyncSession = Depends(get_db),
 ) -> RoleConfigOut:
-    if role_key not in IMPLEMENTED_ROLES:
+    if not await _role_available(role_key, tenant_id, db):
         raise HTTPException(
             status_code=404,
             detail={
@@ -487,7 +487,7 @@ async def get_active_blueprint(
     tenant_id: str = Depends(get_current_tenant_id),
     db: AsyncSession = Depends(get_db),
 ) -> ActiveBlueprintResponse:
-    if role_key not in IMPLEMENTED_ROLES:
+    if not await _role_available(role_key, tenant_id, db):
         raise HTTPException(
             status_code=404,
             detail={
@@ -512,6 +512,19 @@ async def get_active_blueprint(
 
 
 # ── Private helpers ───────────────────────────────────────────────────────────
+
+async def _role_available(role_key: str, tenant_id: str, db: AsyncSession) -> bool:
+    """Built-in implemented roles, or a role this company created with the AI Employee Builder.
+
+    Reads only: builder-created roles are changed through employee versions (approval + rollback),
+    never by writing the role configuration directly.
+    """
+    if role_key in IMPLEMENTED_ROLES:
+        return True
+    found = (await db.execute(select(RoleConfiguration.id).where(
+        RoleConfiguration.tenant_id == tenant_id, RoleConfiguration.role_key == role_key))).scalar_one_or_none()
+    return found is not None
+
 
 def _apply_update(row: RoleConfiguration, body: RoleConfigUpdate) -> None:
     """Apply non-None fields from body onto the ORM row."""

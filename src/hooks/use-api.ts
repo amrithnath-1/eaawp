@@ -3795,3 +3795,57 @@ export const useCancelMeeting = (id: string) =>
   useMeetingMutation<void>(() => `/api/v1/meetings/${id}/cancel`);
 export const useResumeMeeting = (id: string) =>
   useMeetingMutation<void>(() => `/api/v1/meetings/${id}/resume`);
+
+// ── AI employee lifecycle: detail, natural-language revisions, versions, rollback, pause ──
+export interface EmployeeSnapshotFE {
+  name: string; purpose: string; responsibilities: string[]; objectives: string[]; system_persona: string;
+  communication_style: string; llm_model: string; allowed_tools: string[]; guarded_tools: string[];
+}
+export interface EmployeeVersionFE {
+  id: string; version: number; status: "proposed" | "current" | "superseded" | "rejected";
+  change_summary: string; instruction: string; created_by: string; decided_by: string;
+  created_at: string; decided_at: string | null; snapshot: EmployeeSnapshotFE;
+  changes: Array<{ field: string; before: unknown; after: unknown }>; warnings: string[];
+}
+export interface EmployeeDetailFE {
+  id: string; name: string; role_key: string; status: string; is_active: boolean;
+  config: EmployeeSnapshotFE | null; current_version: number | null; versions: EmployeeVersionFE[];
+}
+
+export function useEmployeeDetail(id: string, enabled: boolean) {
+  return useQuery<EmployeeDetailFE>({
+    queryKey: ["employee-detail", id] as const,
+    queryFn: () => intMgrFetch<EmployeeDetailFE>("GET", `/api/v1/employees/${id}`),
+    enabled,
+  });
+}
+
+export function useReviseEmployee(id: string) {
+  const qc = useQueryClient();
+  return useMutation<EmployeeVersionFE, Error, string>({
+    mutationFn: (instruction) => intMgrFetch<EmployeeVersionFE>("POST", `/api/v1/employees/${id}/revise`, { instruction }),
+    onSuccess: () => { void qc.invalidateQueries({ queryKey: ["employee-detail", id] }); },
+  });
+}
+
+export function useEmployeeVersionAction(id: string) {
+  const qc = useQueryClient();
+  return useMutation<EmployeeDetailFE, Error, { number: number; verb: "approve" | "reject" | "rollback" }>({
+    mutationFn: ({ number, verb }) => intMgrFetch<EmployeeDetailFE>("POST", `/api/v1/employees/${id}/versions/${number}/${verb}`),
+    onSuccess: (d) => {
+      qc.setQueryData(["employee-detail", id], d);
+      void qc.invalidateQueries({ queryKey: ["employees"] });
+    },
+  });
+}
+
+export function usePauseEmployee(id: string) {
+  const qc = useQueryClient();
+  return useMutation<EmployeeDetailFE, Error, boolean>({
+    mutationFn: (paused) => intMgrFetch<EmployeeDetailFE>("POST", `/api/v1/employees/${id}/pause`, { paused }),
+    onSuccess: (d) => {
+      qc.setQueryData(["employee-detail", id], d);
+      void qc.invalidateQueries({ queryKey: ["employees"] });
+    },
+  });
+}

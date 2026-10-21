@@ -3,6 +3,9 @@
 Base branch: `master`. Never push/deploy without explicit approval. Nothing here claims live verification
 unless stated.
 
+## Phase F: AI Employee Builder (branch feat/phase-f-employee-builder)
+- Approved employees become real roles; versioned NL revisions with approval; rollback; pause. See `docs/employee_builder.md`. Migration `z3a7b82c4d20`. Status: IMPLEMENTED, MOCK-TESTED; browser-exercised with a scripted LLM.
+
 ## Phase E: Meeting Room (branch feat/phase-e-meeting-room)
 - Real multi-agent delegation + persistent Meeting Room: `docs/meeting_room.md`. Migration `y2z6a71b3c19` (3 new tables). Status: IMPLEMENTED, MOCK-TESTED; UI exercised in a real browser against a real server with a scripted LLM only.
 - `execute_agent` now honours `blueprint.role_key` (only for roles the company has) and plans when a role's only tools are granted integrations.
