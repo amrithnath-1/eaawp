@@ -77,23 +77,44 @@ _MEDIUM_RISK_PREFIXES = frozenset([
 ])
 
 
+def _tokens(tool_name: str) -> list[str]:
+    return [t for t in re.split(r"[^a-z0-9]+", re.sub(r"([a-z])([A-Z])", r"\1_\2", tool_name).lower()) if t]
+
+
 def _classify_risk(tool_name: str) -> RiskLevel:
-    name_lower = tool_name.lower()
-    prefix = name_lower.split("_")[0]
-    if prefix in _HIGH_RISK_PREFIXES:
+    """Conservative: ANY word of the name decides, not only the first (a server controls its own tool names,
+    so 'get_user_and_delete_account' must not pass as a read)."""
+    toks = _tokens(tool_name)
+    if any(t in _HIGH_RISK_PREFIXES for t in toks):
         return RiskLevel.HIGH
-    if prefix in _MEDIUM_RISK_PREFIXES:
+    if any(t in _MEDIUM_RISK_PREFIXES for t in toks):
         return RiskLevel.MEDIUM
     return RiskLevel.LOW
 
 
 def _classify_category(tool_name: str, description: str) -> CapabilityCategory:
-    name_lower = tool_name.lower()
-    if any(name_lower.startswith(p) for p in _MEDIUM_RISK_PREFIXES):
-        return CapabilityCategory.WRITE
-    if any(name_lower.startswith(p) for p in _HIGH_RISK_PREFIXES):
+    risk = _classify_risk(tool_name)
+    if risk == RiskLevel.HIGH:
         return CapabilityCategory.PUBLISH
+    if risk == RiskLevel.MEDIUM:
+        return CapabilityCategory.WRITE
     return CapabilityCategory.READ
+
+
+_FORBIDDEN_AUTH_HEADERS = frozenset({"host", "content-length", "content-type", "cookie", "transfer-encoding", "connection", "proxy-authorization"})
+_HEADER_NAME = re.compile(r"^[A-Za-z0-9-]{1,64}$")
+
+
+def validate_mcp_credentials(credentials: dict[str, Any]) -> None:
+    """Static checks run when an MCP connection is saved and again before every request."""
+    url = str(credentials.get("server_url", "") or "")
+    _validate_mcp_url(url)
+    api_key = credentials.get("api_key") or ""
+    if api_key and urlparse(url).scheme != "https":
+        raise MCPError("An API key can only be sent to an https:// MCP server.")
+    hdr = credentials.get("auth_header_name") or "Authorization"
+    if not _HEADER_NAME.match(str(hdr)) or str(hdr).lower() in _FORBIDDEN_AUTH_HEADERS:
+        raise MCPError("The authentication header name is not allowed.")
 
 
 def _validate_mcp_url(url: str) -> str:
@@ -116,6 +137,8 @@ def _validate_mcp_url(url: str) -> str:
     import ipaddress
     import socket
 
+    from app.config import settings as _settings
+    _allow_private = bool(getattr(_settings, "allow_private_mcp_hosts", False))
     parsed = urlparse(url)
 
     if parsed.scheme not in ("https", "http"):
@@ -137,13 +160,13 @@ def _validate_mcp_url(url: str) -> str:
     )
     hostname_lower = hostname.lower()
     for pattern in _BLOCKED_HOSTNAME_PATTERNS:
-        if hostname_lower == pattern:
+        if hostname_lower == pattern and not (_allow_private and pattern == "localhost"):
             raise MCPError(
                 f"MCP server URL '{hostname}' is not allowed: "
                 "internal/metadata hostnames are blocked."
             )
     # Block *.local and *.internal TLDs (mDNS / internal DNS zones)
-    if hostname_lower.endswith(".local") or hostname_lower.endswith(".internal"):
+    if hostname_lower.endswith(".internal") or (hostname_lower.endswith(".local") and not _allow_private):
         raise MCPError(
             f"MCP server URL '{hostname}' is not allowed: "
             ".local and .internal domains are blocked."
@@ -170,9 +193,8 @@ def _validate_mcp_url(url: str) -> str:
             continue  # malformed — skip; connection will fail naturally
 
         if (
-            ip.is_loopback
-            or ip.is_private
-            or ip.is_link_local
+            ((ip.is_loopback or ip.is_private) and not _allow_private)
+            or ip.is_link_local          # cloud metadata etc.: blocked even when private hosts are allowed
             or ip.is_multicast
             or ip.is_reserved
             or ip.is_unspecified
@@ -482,6 +504,7 @@ class MCPIntegrationProvider(IntegrationProvider):
         Uses HTTP POST per the MCP HTTP transport spec.
         Enforces timeout and response size limits.
         """
+        validate_mcp_credentials(credentials)        # re-check at every call, not only when saved
         server_url = credentials.get("server_url", "").rstrip("/")
         api_key = credentials.get("api_key", "")
         auth_header = credentials.get("auth_header_name", "Authorization")
@@ -507,7 +530,10 @@ class MCPIntegrationProvider(IntegrationProvider):
                     json=body,
                     timeout=MCP_CALL_TIMEOUT_SECONDS,
                     stream=True,
+                    allow_redirects=False,       # a redirect could bounce the request (and its API key) to an internal address
                 )
+                if 300 <= resp.status_code < 400:
+                    raise MCPError("The MCP server tried to redirect the request, which is not allowed.")
                 resp.raise_for_status()
                 # Enforce response size limit
                 raw = b""
@@ -538,6 +564,6 @@ class MCPIntegrationProvider(IntegrationProvider):
 
     @staticmethod
     def _safe_url(url: str) -> str:
-        """Return a URL with credentials stripped (for logging/display)."""
+        """Display form: scheme and host only. The path or query may carry a secret (e.g. /mcp/<token>)."""
         parsed = urlparse(url)
-        return f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
+        return f"{parsed.scheme}://{parsed.hostname or ''}" + (f":{parsed.port}" if parsed.port else "")

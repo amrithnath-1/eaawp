@@ -141,6 +141,8 @@ class DiscoveredEntityOut(BaseModel):
     column_count: int
     row_count_estimate: int | None
     columns: list[dict[str, Any]]  # [{name, data_type, is_nullable, is_primary_key}]
+    description: str = ""          # MCP tools: what the server says the tool does (untrusted text, shown as plain text)
+    risk_level: str | None = None  # MCP tools: low | medium | high, classified by EAAWP from the tool name
 
 
 class DiscoverEntitiesResponse(BaseModel):

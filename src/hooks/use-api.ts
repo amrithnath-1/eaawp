@@ -4172,3 +4172,15 @@ export function useSetModule() {
     onSuccess: () => { void qc.invalidateQueries({ queryKey: ["modules"] }); },
   });
 }
+
+
+// ── MCP tools: discovery and per-tool grants (Phase K) ────────────────────────────
+export interface McpToolFE { entity_name: string; description: string; risk_level: "low" | "medium" | "high" | null }
+export function useDiscoverMcpTools() {
+  return useMutation<McpToolFE[], Error, string>({
+    mutationFn: async (integrationId) => {
+      const r = await intMgrFetch<{ entities: McpToolFE[] }>("POST", `${INT_MGR_BASE}/integrations/${integrationId}/discover`);
+      return r.entities;
+    },
+  });
+}

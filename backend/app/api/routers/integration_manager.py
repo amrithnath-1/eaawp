@@ -170,6 +170,8 @@ async def update_integration(
         return await mgr.update_integration(integration_id, body, tenant_id, db)
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.delete(

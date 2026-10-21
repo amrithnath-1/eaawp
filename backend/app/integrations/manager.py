@@ -182,6 +182,13 @@ async def create_integration(
             f"Available: {available}"
         )
 
+    if body.provider_type == "mcp":
+        from app.integrations.providers.mcp_provider import MCPError, validate_mcp_credentials
+        try:
+            validate_mcp_credentials(body.credentials)
+        except MCPError as exc:
+            raise ValueError(str(exc)) from exc
+
     encrypted = _encrypt_credentials(body.credentials)
 
     row = Integration(
@@ -240,6 +247,21 @@ async def update_integration(
     if body.display_name is not None:
         row.display_name = body.display_name
     if body.credentials is not None:
+        if row.provider_type == "mcp":
+            from app.integrations.providers.mcp_provider import MCPError, validate_mcp_credentials
+            try:
+                validate_mcp_credentials(body.credentials)
+            except MCPError as exc:
+                raise ValueError(str(exc)) from exc
+            try:
+                _old_url = str(_decrypt_credentials(row.encrypted_credentials).get("server_url", "")).rstrip("/")
+            except Exception:  # noqa: BLE001
+                _old_url = ""
+            if _old_url != str(body.credentials.get("server_url", "")).rstrip("/"):
+                # A different server exposes different tools: per-tool grants made for the old one must be re-reviewed.
+                await db.execute(delete(CapabilityGrant).where(
+                    CapabilityGrant.integration_id == integration_id, CapabilityGrant.tenant_id == tenant_id,
+                    CapabilityGrant.capability_key.like(f"{MCP_TOOL_PREFIX}%")))
         row.encrypted_credentials = _encrypt_credentials(body.credentials)
         row.status = "not_tested"   # force re-test after credential rotation
         row.error_message = None
@@ -460,6 +482,8 @@ async def discover_integration_entities(
             column_count=e.get("column_count", len(e.get("columns", []))),
             row_count_estimate=e.get("row_count_estimate"),
             columns=e.get("columns", []),
+            description=str(e.get("description", "") or "")[:500],
+            risk_level=(str(e["risk_level"]) if e.get("risk_level") else None),
         )
         for e in entities
     ]
@@ -492,6 +516,9 @@ async def list_capability_grants(
     return list(result.scalars().all())
 
 
+MCP_TOOL_PREFIX = "mcp_tool:"
+
+
 async def create_capability_grant(
     integration_id: str,
     body: CapabilityGrantCreate,
@@ -511,7 +538,11 @@ async def create_capability_grant(
 
     # Validate capability_key exists in the provider
     provider = integration_registry.get_or_raise(row.provider_type)
-    if provider.get_capability(body.capability_key) is None:
+    if row.provider_type == "mcp" and body.capability_key.startswith(MCP_TOOL_PREFIX):
+        import re as _re
+        if not _re.match(r"^[A-Za-z0-9_.:-]{1,110}$", body.capability_key[len(MCP_TOOL_PREFIX):]):
+            raise ValueError("Invalid MCP tool name.")
+    elif provider.get_capability(body.capability_key) is None:
         valid_keys = [c.key for c in provider.get_capabilities()]
         raise ValueError(
             f"Capability '{body.capability_key}' does not exist for provider "
@@ -648,6 +679,19 @@ async def execute_capability(
             f"capability '{capability_key}' on integration '{row.display_name}'. "
             "An administrator must grant this capability first."
         )
+
+    # MCP: the generic call_tool grant is not enough. The specific tool must ALSO be granted to the role, so
+    # connecting a server (or granting call_tool) never exposes tools nobody reviewed.
+    if row.provider_type == "mcp" and capability_key == "call_tool":
+        _tool = str(parameters.get("tool_name", ""))
+        if not _tool or not await has_capability_grant(
+            integration_id=integration_id, role_key=role_key, capability_key=f"{MCP_TOOL_PREFIX}{_tool}",
+            tenant_id=tenant_id, db=db,
+        ):
+            raise PermissionError(
+                f"Role '{role_key}' has not been granted the tool '{_tool[:80]}' on '{row.display_name}'. "
+                "An administrator must grant each tool separately."
+            )
 
     provider = integration_registry.get_or_raise(row.provider_type)
 

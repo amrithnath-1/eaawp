@@ -100,3 +100,9 @@ Status: IMPLEMENTED, MOCK-TESTED ONLY (no browser run yet at time of writing; se
 - New: app/services/modules.py, app/api/routers/modules.py, app/db/module_models.py, migration a0b4c59d1e67 (head; pinned in tests/security/test_migrations.py), tests/test_marketplace.py (9); frontend MarketplacePanel + /marketplace route + nav entry.
 - Enforcement on clerk, clinic and agent execution. No row = default ON, so existing companies are unchanged.
 - Remaining for Phase L: billing/plan tiers, per-user entitlements, usage limits (not started).
+
+
+## Phase K (part 3): MCP connection flow (branch feat/phase-k-mcp)
+Status: IMPLEMENTED; VERIFIED against a real local MCP server (HTTP JSON-RPC) through the real API. NOT verified with third-party servers. See docs/mcp_connections.md.
+- Fixed: redirects were followed; address only checked at discovery; API keys allowed over http; risk judged by first word only; per-tool grants did not exist (call_tool exposed every tool); path secrets in displayed URL; discovery hid risk/description.
+- New: ALLOW_PRIVATE_MCP_HOSTS (dev/test), per-tool grants (capability_key `mcp_tool:<name>`), McpToolsPanel (Integrations > MCP tab), tests/test_mcp_connection.py (27).

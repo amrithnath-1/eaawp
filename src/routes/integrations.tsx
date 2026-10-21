@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import { Plug, Search, BarChart2, Github, Server, Loader2 } from "lucide-react";
 import { AppShell } from "@/components/eaawp/AppShell";
 import { PageHeader, Panel } from "@/components/eaawp/Panel";
+import { McpToolsPanel } from "@/components/eaawp/McpToolsPanel";
 import { NLIntegrationPanel } from "@/components/eaawp/NLIntegrationPanel";
 import { GoogleSearchConsolePanel } from "@/components/eaawp/GoogleSearchConsolePanel";
 import { cn } from "@/lib/utils";
@@ -133,9 +134,10 @@ function IntegrationsPage() {
               </p>
               <p className="text-[12px] text-muted-foreground">
                 All discovered tools require an explicit capability grant before any
-                AI employee can use them. Risk is auto-classified by tool name prefix.
+                AI employee can use them. Each tool is granted separately, per AI employee role. Risk is classified from every word of the tool name, and high-risk tools never run automatically.
               </p>
               <ProviderConnectionForm providerType="mcp" title="Connect MCP server" />
+              <McpToolsPanel />
               <p className="border border-border p-3 text-[11px] text-muted-foreground">
                 EAAWP must be able to reach the server URL. A private on-premises server needs a network route or a customer-side connector; entering its address alone cannot expose it to a cloud deployment.
               </p>
