@@ -476,6 +476,8 @@ class SchemaEntity(Base):
     # JSON array of {name, data_type, is_nullable, is_primary_key}
     columns_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
     row_count_estimate: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Column names the AI may never read, filter on or sort by (auto-suggested for sensitive-looking names; admin-editable)
+    blocked_columns_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]", server_default="[]")
     # Whether the AI employee is allowed to access this entity
     is_allowed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     discovered_at: Mapped[datetime] = mapped_column(

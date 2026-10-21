@@ -75,11 +75,17 @@ async def query_company_data(
             db=db,
         )
     except PermissionError as exc:
+        await db.commit()       # keep the failure audit row: the HTTPException below would otherwise roll it back
         raise HTTPException(status_code=403, detail=str(exc)) from exc
     except ValueError as exc:
+        await db.commit()
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except Exception as exc:
         logger.error("Data query failed: %s", exc)
+        try:
+            await db.commit()
+        except Exception:  # noqa: BLE001
+            await db.rollback()
         raise HTTPException(
             status_code=503,
             detail="Company data query failed. Check the connection and try again.",

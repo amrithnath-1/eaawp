@@ -11,7 +11,7 @@
  * - "Connected" is only shown when the backend test actually succeeded.
  * - Credentials are never displayed after creation.
  */
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import { toast } from "sonner";
 import {
   Plus,
@@ -36,6 +36,7 @@ import {
   useDiscoverSchema,
   useSchemaEntities,
   useSetEntityPermission,
+  useSetBlockedColumns,
   useBulkEntityPermission,
   type DataConnectionFE,
   type DataConnectionCreate,
@@ -183,7 +184,15 @@ function EntityRow({
   connId: string;
 }) {
   const setPermission = useSetEntityPermission();
+  const setBlocked = useSetBlockedColumns();
   const [open, setOpen] = useState(false);
+  const blocked = new Set(entity.blocked_columns ?? []);
+
+  function toggleColumn(name: string) {
+    const next = new Set(blocked);
+    if (next.has(name)) next.delete(name); else next.add(name);
+    setBlocked.mutate({ entityId: entity.id, connId, blocked_columns: [...next] }, { onError: (err) => toast.error(err.message) });
+  }
 
   function toggle() {
     setPermission.mutate(
@@ -227,22 +236,27 @@ function EntityRow({
       </div>
       {open && entity.columns.length > 0 && (
         <div className="border-t border-border bg-surface-2 px-8 py-2">
-          <div className="grid grid-cols-[2fr_1fr_auto_auto] gap-x-3 gap-y-0.5">
+          <p className="mb-1 text-[11px] text-muted-foreground">
+            Untick a column to hide it from the AI completely (it cannot be read, filtered or sorted on). Columns that look sensitive are hidden by default.
+          </p>
+          <div className="grid grid-cols-[auto_2fr_1fr_auto_auto] items-center gap-x-3 gap-y-0.5" data-testid="column-grid">
+            <span className="label-xs">AI</span>
             <span className="label-xs">Column</span>
             <span className="label-xs">Type</span>
             <span className="label-xs">Nullable</span>
             <span className="label-xs">PK</span>
             {entity.columns.map((c) => (
-              <>
-                <span key={`${c.name}-n`} className="truncate font-mono text-[11px]">{c.name}</span>
-                <span key={`${c.name}-t`} className="font-mono text-[11px] text-muted-foreground">{c.data_type}</span>
-                <span key={`${c.name}-nl`} className={cn("font-mono text-[10px]", c.is_nullable ? "text-muted-foreground" : "text-foreground")}>
+              <Fragment key={c.name}>
+                <input type="checkbox" aria-label={`AI may read ${c.name}`} checked={!blocked.has(c.name)} disabled={setBlocked.isPending} onChange={() => toggleColumn(c.name)} />
+                <span className={cn("truncate font-mono text-[11px]", blocked.has(c.name) && "text-muted-foreground line-through")}>{c.name}{blocked.has(c.name) && <span className="ml-1 no-underline text-[9px] text-warning">HIDDEN</span>}</span>
+                <span className="font-mono text-[11px] text-muted-foreground">{c.data_type}</span>
+                <span className={cn("font-mono text-[10px]", c.is_nullable ? "text-muted-foreground" : "text-foreground")}>
                   {c.is_nullable ? "yes" : "no"}
                 </span>
-                <span key={`${c.name}-pk`} className={cn("font-mono text-[10px]", c.is_primary_key ? "text-primary" : "text-muted-foreground")}>
+                <span className={cn("font-mono text-[10px]", c.is_primary_key ? "text-primary" : "text-muted-foreground")}>
                   {c.is_primary_key ? "PK" : "—"}
                 </span>
-              </>
+              </Fragment>
             ))}
           </div>
         </div>

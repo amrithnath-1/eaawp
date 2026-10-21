@@ -22,6 +22,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 import uuid
 from datetime import datetime, timezone
 
@@ -30,6 +31,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import DataAccessAudit, DataConnection, SchemaEntity, SemanticMapping
 from app.integrations.crypto import decrypt_password
+from app.services import column_policy as cp
 from app.schemas.data_access import (
     MAX_QUERY_LIMIT,
     CompanyDataQueryRequest,
@@ -90,9 +92,15 @@ async def execute_company_data_query(
             )
 
         # ── Step 3: Validate requested fields against schema ─────────────────
-        schema_cols = {
-            c["name"] for c in json.loads(entity_row.columns_json or "[]")
-        }
+        all_cols = {c["name"] for c in json.loads(entity_row.columns_json or "[]")}
+        blocked = set(cp.load_blocked(getattr(entity_row, "blocked_columns_json", "[]"))) & all_cols
+        schema_cols = all_cols - blocked          # the only columns the AI may read, filter on or sort by
+        touched = list(resolved_fields or []) + [f.field for f in request.filters] + [s_.field for s_ in request.sort]
+        hit = sorted({c for c in touched if c in blocked})
+        if hit:
+            raise PermissionError(
+                f"Column(s) {hit} of '{entity_name}' are blocked for AI access by an administrator."
+            )
         if not schema_cols:
             raise ValueError(
                 f"Entity '{entity_name}' has no discovered columns. Run schema discovery first."
@@ -249,6 +257,11 @@ async def _resolve_entity(
             f"Connection '{conn_id}' not found or does not belong to this tenant."
         )
 
+    if conn_row.status != "connected":
+        raise PermissionError(
+            f"Connection '{conn_row.display_name}' is not in a connected state. An administrator must test it first."
+        )
+
     # Load and verify entity (tenant isolation)
     entity_result = await db.execute(
         select(SchemaEntity).where(
@@ -268,6 +281,18 @@ async def _resolve_entity(
 
 # ── Execute query ─────────────────────────────────────────────────────────────
 
+def _q(identifier: str) -> str:
+    """Quote an identifier (embedded double quotes doubled). Identifiers are ALSO validated against the discovered schema."""
+    return '"' + str(identifier).replace('"', '""') + '"'
+
+
+def _bind(sql: str, params: dict) -> tuple[str, dict]:
+    """Turn :p0 / :p1 ... markers into driver placeholders. Whole-token match, so :p1 can never corrupt :p10."""
+    sql = sql.replace("%", "%%")          # a literal % in an identifier must not be read as a placeholder
+    out = re.sub(r":(p\d+)\b", lambda m: f"%({m.group(1)})s" if m.group(1) in params else m.group(0), sql)
+    return out, dict(params)
+
+
 async def _execute_query(
     conn_row: DataConnection,
     entity_row: SchemaEntity,
@@ -283,19 +308,19 @@ async def _execute_query(
     """
     # Build SQL using only validated identifiers — values are parameterized
     schema_prefix = (
-        f'"{entity_row.schema_name}".' if entity_row.schema_name not in ("", "public") else ""
+        f"{_q(entity_row.schema_name)}." if entity_row.schema_name not in ("", "public") else ""
     )
-    qualified_table = f'{schema_prefix}"{entity_row.entity_name}"'
+    qualified_table = f"{schema_prefix}{_q(entity_row.entity_name)}"
 
     # SELECT clause — identifiers are quoted, not interpolated as values
-    col_list = ", ".join(f'"{f}"' for f in select_fields)
+    col_list = ", ".join(_q(f) for f in select_fields)
     sql = f"SELECT {col_list} FROM {qualified_table}"
 
     # WHERE clause — values bound as parameters
     params: dict[str, object] = {}
     where_parts: list[str] = []
     for i, flt in enumerate(filters):
-        col = f'"{flt.field}"'
+        col = _q(flt.field)
         param_key = f"p{i}"
         op = flt.operator  # already validated to ALLOWED_OPERATORS
         if op in ("IS NULL", "IS NOT NULL"):
@@ -315,12 +340,18 @@ async def _execute_query(
 
     # ORDER BY
     if sort:
-        order_parts = [f'"{s.field}" {s.direction}' for s in sort]
+        order_parts = [f"{_q(s.field)} {s.direction}" for s in sort]
         sql += " ORDER BY " + ", ".join(order_parts)
 
     # LIMIT — fetch limit+1 to detect truncation
     fetch_limit = limit + 1
     sql += f" LIMIT {fetch_limit}"
+
+    from app.services.outbound_guard import HostNotAllowed, validate_db_host
+    try:
+        validate_db_host(conn_row.host)
+    except HostNotAllowed as exc:
+        raise PermissionError(str(exc)) from exc
 
     # Execute in a thread (sync DB drivers)
     password = decrypt_password(conn_row.encrypted_password)
@@ -374,11 +405,7 @@ def _run_query_sync_blocking(
             try:
                 cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
                 # Convert :name params to %(name)s for psycopg2
-                pg_sql = sql
-                pg_params: dict = {}
-                for k, v in params.items():
-                    pg_sql = pg_sql.replace(f":{k}", f"%({k})s")
-                    pg_params[k] = v
+                pg_sql, pg_params = _bind(sql, params)
                 cur.execute(pg_sql, pg_params)
                 return [dict(row) for row in cur.fetchall()]
             finally:
@@ -402,11 +429,7 @@ def _run_query_sync_blocking(
             cur.execute("SET SESSION TRANSACTION READ ONLY")
             try:
                 # Convert :name params to %(name)s for mysql.connector
-                my_sql = sql
-                my_params: dict = {}
-                for k, v in params.items():
-                    my_sql = my_sql.replace(f":{k}", f"%({k})s")
-                    my_params[k] = v
+                my_sql, my_params = _bind(sql, params)
                 cur.execute(my_sql, my_params)
                 return cur.fetchall()
             finally:

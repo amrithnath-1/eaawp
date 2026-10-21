@@ -58,6 +58,7 @@ class Settings(BaseSettings):
     # Optional dedicated key for encrypting stored integration credentials.
     # When empty the key is derived from SECRET_KEY (previous behaviour).
     encryption_key: str = ""
+    allow_private_db_hosts: bool = False   # production only: permit loopback/private database hosts (see services/outbound_guard.py)
 
     # ── LLM ───────────────────────────────────────────────────────────────────
     openai_api_key: str = ""

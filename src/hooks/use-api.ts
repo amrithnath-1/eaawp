@@ -904,6 +904,7 @@ export interface SchemaEntityFE {
   columns: ColumnMetaFE[];
   row_count_estimate: number | null;
   is_allowed: boolean;
+  blocked_columns: string[];
   discovered_at: string;
 }
 
@@ -1063,6 +1064,20 @@ export function useSetEntityPermission() {
     onSuccess: (_data, { connId }) => {
       void queryClient.invalidateQueries({ queryKey: ["schema-entities", connId] });
       void queryClient.invalidateQueries({ queryKey: ["data-connections"] });
+    },
+  });
+}
+
+/** Replace the list of columns the AI may never read (column-level protection). */
+export function useSetBlockedColumns() {
+  const queryClient = useQueryClient();
+  return useMutation<SchemaEntityFE, Error, { entityId: string; connId: string; blocked_columns: string[] }>({
+    mutationFn: ({ entityId, blocked_columns }) => {
+      if (!USE_REAL_API) return Promise.reject(new Error("Requires real API mode."));
+      return intFetch<SchemaEntityFE>("PATCH", `/api/v1/integrations/entities/${entityId}/columns`, { blocked_columns });
+    },
+    onSuccess: (_data, { connId }) => {
+      void queryClient.invalidateQueries({ queryKey: ["schema-entities", connId] });
     },
   });
 }

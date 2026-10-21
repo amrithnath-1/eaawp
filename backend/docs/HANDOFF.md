@@ -6,6 +6,9 @@ unless stated.
 ## Phase J (part 3): Authorized invitation email (branch feat/phase-j-invite-email)
 - Optional emailing of an invitation link on explicit admin action via the company's SMTP integration (invitee address only, fixed template, allowed-origin link, 20/hour cap, safe audit). Fixed pre-existing 500 when re-saving an SMTP config. See `docs/team_invitations.md`. No migration. Status: IMPLEMENTED, MOCK-TESTED + exercised against a local SMTP server; NOT verified with a real mail provider.
 
+## Phase K (part 1): Database connectivity hardening (branch feat/phase-k-connectivity)
+- Column-level blocking (sensitive names auto-blocked), outbound-host SSRF guard, connected-state check, failure-audit fix, connection-edit 500 fix, new `/connections` admin page (databases + SMTP; they were unreachable in real mode). Verified against a REAL PostgreSQL 16 (8 live tests, skipped without `EAAWP_TEST_PG_*`) and through the UI. See `docs/database_connectivity.md`. Migration `f9a3b48c0d56`. MySQL, MCP and knowledge-base NOT verified in this part.
+
 ## CURRENT STATE (updated after resuming; supersedes the earlier pause checkpoint)
 - **Branch:** `master` (local). **Last code commit:** `7382ea0` (Phase J part 3). Nothing pushed/deployed; 13 local commits ahead of origin/master by the hook's count (push needs the owner's explicit approval).
 - **Completed (MOCK-TESTED ONLY unless noted):** phases A-J3 (see sections below). J3 invitation email was also exercised against a real local SMTP server; no real mail provider yet.
@@ -63,7 +66,7 @@ IMPLEMENTED AND VERIFIED / IMPLEMENTED, MOCK-TESTED ONLY / IMPLEMENTED BUT NOT V
 ## Run / test
 * Backend tests: `cd backend; python -m pytest -q` (venv with `requirements`). Frontend: `npx tsc --noEmit`, `npm run build`.
 * Windows run + migration steps: `docs/local_windows_runtime.md`.
-* Migration head: `e8f2a37b9c45`. Rehearse any migration on a copy first.
+* Migration head: `f9a3b48c0d56`. Rehearse any migration on a copy first.
 
 ## Architecture pointers
 * Tool bridge: `app/tools/dynamic_tool.py` -> `app/integrations/manager.py` (`execute_capability`: tenant, status, role grant, decrypt in memory).

@@ -33,9 +33,15 @@ class SchemaEntityOut(BaseModel):
     columns: list[ColumnMetaOut]
     row_count_estimate: int | None
     is_allowed: bool
+    blocked_columns: list[str] = []
     discovered_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class EntityColumnsUpdate(BaseModel):
+    """Replace the entity's blocked-column list (must be a subset of its discovered columns)."""
+    blocked_columns: list[str] = Field(default_factory=list, max_length=500)
 
 
 # ── Data connection ───────────────────────────────────────────────────────────

@@ -25,6 +25,7 @@ import {
   Stethoscope,
   UserPlus,
   MessageSquare,
+  Cable,
   X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -46,6 +47,7 @@ const NAV = [
   { to: "/clinic",      label: "Clinic",      icon: Stethoscope },
   { to: "/messages",    label: "Messages",    icon: MessageSquare },
   { to: "/team",        label: "Team",        icon: UserPlus },
+  { to: "/connections", label: "Connections", icon: Cable },
   { to: "/activity",    label: "Activity",    icon: BotMessageSquare },
   { to: "/scheduled",   label: "Scheduled",   icon: CalendarClock },
   { to: "/library",     label: "Library",     icon: Library },
