@@ -138,6 +138,7 @@ export interface AuditEntry {
   actor: string;                 // mock: a role label; live API: the person's name/email, "AI" or "system"
   department?: DepartmentKey | string;
   status: "ok" | "pending" | "denied" | string;
+  actorKey?: string;             // live API: the raw stored actor (what the server-side actor filter matches)
   at?: string;                   // live API: full ISO timestamp (time is the short display form)
 }
 

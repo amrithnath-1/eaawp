@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from "react";
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
+import { NotificationBell } from "@/components/eaawp/NotificationBell";
 import { Store,
-  Bell,
   BotMessageSquare,
   CalendarClock,
   CheckSquare,
@@ -163,7 +163,7 @@ export function AppShell({ children, contentClassName }: { children: ReactNode; 
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="grid h-14 shrink-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 border-b border-border bg-surface px-3 md:px-4">
           <div className="flex items-center gap-2">
-            <button className="md:hidden" onClick={() => setDrawer(true)} aria-label="Open navigation">
+            <button className="-ml-1 grid size-10 place-items-center md:hidden" onClick={() => setDrawer(true)} aria-label="Open navigation">
               <Menu className="size-4" strokeWidth={1.5} />
             </button>
             <button
@@ -189,10 +189,7 @@ export function AppShell({ children, contentClassName }: { children: ReactNode; 
             <span className="hidden font-mono text-[10px] tracking-[0.14em] text-muted-foreground lg:inline">
               {label.toUpperCase()}
             </span>
-            <button className="relative hidden sm:block" aria-label="Notifications">
-              <Bell className="size-4 text-muted-foreground hover:text-foreground" strokeWidth={1.5} />
-              <span className="absolute -right-0.5 -top-0.5 size-1.5 rounded-full bg-foreground" />
-            </button>
+            <NotificationBell />
             <Link
               to="/settings"
               aria-label="Profile and settings"

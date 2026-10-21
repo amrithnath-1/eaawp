@@ -1,5 +1,7 @@
 # Running EAAWP locally on Windows (PowerShell)
 
+> **Superseded for setup and updates by [windows_setup.md](windows_setup.md).** This note is kept as the history of one CORS / out-of-date-database incident; the migration revision ids below are historical (run `alembic upgrade head` and expect `(head)`).
+
 Project folder: `C:\Users\mt602\OneDrive\Documents\Desktop\FINAL YEAR PROJECT\kinetic-office-main (1)\kinetic-office-main`
 
 ## If the app shows "CORS error", "Failed to fetch" or a 500 on `/api/v1/agent/pending-tasks`

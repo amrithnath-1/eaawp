@@ -291,6 +291,10 @@ async def _do_evaluate(
         plan_error,
     )
     await db.flush()
+    from app.services.notification_service import notify_admins
+    await notify_admins(db, tenant_id, "monitoring_alert", f"Monitoring rule triggered: {str(getattr(rule, 'name', 'rule'))[:80]}",
+                        "A monitoring condition was met." + (" The AI could not prepare a plan." if plan_error else ""),
+                        severity="critical" if plan_error else "warning", related_id=rule.id, related_type="monitoring_rule")
 
     logger.info(
         "Monitoring rule %s triggered for tenant %s — plan_id=%s",

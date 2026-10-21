@@ -170,6 +170,9 @@ async def accept(db: AsyncSession, token: str, name: str, password: str) -> User
     except IntegrityError:
         await db.rollback()
         raise TeamError(INVALID, 404)
+    from app.services.notification_service import notify_admins
+    await notify_admins(db, inv.tenant_id, "member_joined", f"{user.name} joined as {user.role}", "", related_id=user.id,
+                        related_type="user", exclude_user_id=user.id)
     return user
 
 

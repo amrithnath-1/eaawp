@@ -8,7 +8,7 @@
  * Components never check the flag themselves.
  */
 
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient, useInfiniteQuery } from "@tanstack/react-query";
 import { apiClient, USE_REAL_API, API_BASE_URL } from "@/lib/api-client";
 
 // ── Single shared API helper ───────────────────────────────────────────────────
@@ -140,7 +140,7 @@ const AUDIT_TIME = new Intl.DateTimeFormat(undefined, { month: "short", day: "nu
 function auditFromApi(r: AuditApiRow): AuditEntry {
   const iso = /[zZ]|[+-]\d\d:?\d\d$/.test(r.created_at) ? r.created_at : `${r.created_at}Z`;
   const d = new Date(iso);
-  const e: AuditEntry = { id: r.id, time: isNaN(d.getTime()) ? "" : AUDIT_TIME.format(d),
+  const e: AuditEntry = { id: r.id, actorKey: r.actor, time: isNaN(d.getTime()) ? "" : AUDIT_TIME.format(d),
     event: r.event, actor: r.actor_name || r.actor || "system", status: r.status };
   if (!isNaN(d.getTime())) e.at = d.toISOString();
   if (r.department) e.department = r.department;
@@ -158,6 +158,39 @@ export function useAuditLog(enabled = true) {
         : auditService.list(),
     staleTime: 15_000,
   });
+}
+
+
+export interface AuditFilters { q?: string; actor?: string; department?: string; status?: string; since?: string; until?: string }
+export const AUDIT_PAGE_SIZE = 50;
+function auditParams(f: AuditFilters, extra: Record<string, string | number> = {}): string {
+  const p = new URLSearchParams();
+  for (const [k, v] of Object.entries({ ...f, ...extra })) if (v !== undefined && v !== "" && v !== "All") p.set(k, String(v));
+  return p.toString();
+}
+
+/** Persistent, filterable audit history (administrators only on the live API); loads more pages on demand. */
+export function useAuditHistory(filters: AuditFilters, enabled = true) {
+  return useInfiniteQuery({
+    queryKey: ["audit", "history", filters] as const,
+    enabled: USE_REAL_API && enabled,
+    initialPageParam: 0,
+    queryFn: async ({ pageParam }) =>
+      (await apiClient.get<AuditApiRow[]>(`/api/v1/audit?${auditParams(filters, { limit: AUDIT_PAGE_SIZE, offset: pageParam })}`)).map(auditFromApi),
+    getNextPageParam: (last, all) => (last.length === AUDIT_PAGE_SIZE ? all.length * AUDIT_PAGE_SIZE : undefined),
+    staleTime: 15_000,
+  });
+}
+
+/** Downloads the filtered history as CSV (the token travels in a header, so this cannot be a plain link). */
+export async function downloadAuditCsv(filters: AuditFilters): Promise<void> {
+  const token = typeof window !== "undefined" ? window.localStorage.getItem("eaawp.access_token") : null;
+  const res = await fetch(`${API_BASE_URL}/api/v1/audit/export?${auditParams(filters)}`, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+  if (!res.ok) throw new Error(res.status === 403 ? "Only administrators can export the audit log." : "The export failed. Try again.");
+  const url = URL.createObjectURL(await res.blob());
+  const a = document.createElement("a");
+  a.href = url; a.download = `audit-log-${new Date().toISOString().slice(0, 10)}.csv`;
+  document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
 }
 
 export function useExecutionTraces(enabled = true) {
@@ -2797,6 +2830,64 @@ export function useMarkAllRead() {
     },
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["notifications"] });
+    },
+  });
+}
+
+export function useUnreadNotificationCount() {
+  return useQuery<{ unread: number }>({
+    queryKey: ["notifications", "unread-count"] as const,
+    queryFn: () => apiClient.get<{ unread: number }>("/api/v1/notifications/unread-count"),
+    enabled: USE_REAL_API,
+    staleTime: 10_000,
+    refetchInterval: USE_REAL_API ? 30_000 : false,
+  });
+}
+
+export function useMarkNotificationRead() {
+  const queryClient = useQueryClient();
+  return useMutation<{ marked_read: boolean }, Error, string>({
+    mutationFn: (id) => apiClient.post<{ marked_read: boolean }>(`/api/v1/notifications/${encodeURIComponent(id)}/read`, {}),
+    onSuccess: () => { void queryClient.invalidateQueries({ queryKey: ["notifications"] }); },
+  });
+}
+
+export interface NotificationPrefFE { category: string; label: string; in_app: boolean; email: boolean; email_available: boolean }
+export interface NotificationPrefsFE { categories: NotificationPrefFE[]; company_email_enabled: boolean; email_will_be_sent: boolean }
+export interface NotificationSettingsFE { email_enabled: boolean; email_provider_ready: boolean; hourly_cap: number }
+
+export function useNotificationPrefs() {
+  return useQuery<NotificationPrefsFE>({
+    queryKey: ["notification-prefs"] as const,
+    queryFn: () => apiClient.get<NotificationPrefsFE>("/api/v1/notifications/preferences"),
+    enabled: USE_REAL_API,
+  });
+}
+
+export function useSetNotificationPref() {
+  const queryClient = useQueryClient();
+  return useMutation<unknown, Error, { category: string; in_app: boolean; email: boolean }>({
+    mutationFn: (body) => apiClient.put("/api/v1/notifications/preferences", body),
+    onSuccess: () => { void queryClient.invalidateQueries({ queryKey: ["notification-prefs"] }); },
+  });
+}
+
+/** Administrators only. */
+export function useNotificationSettings(enabled: boolean) {
+  return useQuery<NotificationSettingsFE>({
+    queryKey: ["notification-settings"] as const,
+    queryFn: () => apiClient.get<NotificationSettingsFE>("/api/v1/notifications/settings"),
+    enabled: USE_REAL_API && enabled,
+  });
+}
+
+export function useSetNotificationSettings() {
+  const queryClient = useQueryClient();
+  return useMutation<NotificationSettingsFE, Error, boolean>({
+    mutationFn: (email_enabled) => apiClient.put<NotificationSettingsFE>("/api/v1/notifications/settings", { email_enabled }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["notification-settings"] });
+      void queryClient.invalidateQueries({ queryKey: ["notification-prefs"] });
     },
   });
 }

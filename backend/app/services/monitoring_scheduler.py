@@ -193,6 +193,17 @@ async def _tick() -> None:
     except Exception as exc:
         logger.error("Workflow scheduler tick error: %s", exc)
 
+    # ── Notification email outbox (consent re-checked per message) ────────────
+    try:
+        from app.services.notification_service import deliver_pending_emails
+        async with AsyncSessionLocal() as session:
+            counts = await deliver_pending_emails(session)
+            await session.commit()
+            if counts["sent"] or counts["failed"]:
+                logger.info("Notification emails: %s", counts)
+    except Exception as exc:
+        logger.error("Notification email delivery error: %s", exc)
+
 
 async def _evaluate_one(rule_id: str, tenant_id: str) -> None:
     """Evaluate a single rule in its own DB session."""

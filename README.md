@@ -25,6 +25,8 @@ Every action is logged in an audit trail. Every sensitive action goes through a 
 
 ## Quick start
 
+> On Windows, follow the step-by-step guide in [`backend/docs/windows_setup.md`](backend/docs/windows_setup.md) (install, update with backup, troubleshooting).
+
 ### 1. Configure and start the backend
 
 ```bash

@@ -253,7 +253,7 @@ class TestTenantIsolation:
         mock_result.scalar_one_or_none.return_value = None  # not found for this tenant
         mock_db.execute = AsyncMock(return_value=mock_result)
 
-        ok = await mark_read("notif-owned-by-B", "tenant-A", mock_db)
+        ok = await mark_read("notif-owned-by-B", "tenant-A", "user-of-A", True, mock_db)
         assert ok is False
 
     def test_all_routers_require_tenant_header(self):

@@ -139,6 +139,10 @@ async def process_action_request(
         db.add(audit)
         await db.flush()
 
+        from app.services.notification_service import notify_admins
+        await notify_admins(db, tenant_id, "approval_requested", f"Approval needed: {tool_name}",
+                            f"The AI proposed '{tool_name}' and is waiting for a human decision.", severity="warning",
+                            related_id=approval_id, related_type="approval")
         logger.info("Action '%s' proposed for tenant %s — awaiting approval %s",
                     tool_name, tenant_id, approval_id)
         return ActionResult(

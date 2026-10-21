@@ -1,10 +1,11 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { toast } from "sonner";
 import { ChevronDown, Zap, Wrench, Database, Clock, CheckCircle2, XCircle } from "lucide-react";
 import { AppShell } from "@/components/eaawp/AppShell";
 import { PageHeader } from "@/components/eaawp/Panel";
 import { auditService, departmentName } from "@/services";
-import { useAuditLog } from "@/hooks/use-api";
+import { downloadAuditCsv, useAuditHistory, useAuditLog, type AuditFilters } from "@/hooks/use-api";
 import { useSession } from "@/state/session";
 import { USE_REAL_API } from "@/lib/api-client";
 import type { ExecutionStepKind, ExecutionTraceStep } from "@/services/types";
@@ -91,23 +92,56 @@ function TraceStep({ step }: { step: ExecutionTraceStep }) {
 function AuditPage() {
   const { user } = useSession();
   const isAdmin = !USE_REAL_API || user?.role === "Company Admin" || user?.role === "AI Administrator";
-  const audit = useAuditLog(isAdmin);
-  const rows = audit.data ?? [];
-  // Live mode has no execution-trace feed yet: show an honest empty state, never sample traces.
-  const traces = USE_REAL_API ? [] : auditService.traces();
-  const ACTORS = useMemo(
-    () => (USE_REAL_API ? ["All", ...Array.from(new Set(rows.map((r) => r.actor))).sort()] : MOCK_ACTORS),
-    [rows],
-  );
+  // Mock mode keeps the old client-side behaviour; live mode uses the server: persistent history with filters, paging and export.
+  const mockAudit = useAuditLog(isAdmin && !USE_REAL_API);
   const [view, setView] = useState<(typeof VIEWS)[number]>("Log");
   const [actor, setActor] = useState<string>("All");
   const [q, setQ] = useState("");
+  const [qDebounced, setQDebounced] = useState("");
+  const [department, setDepartment] = useState("All");
+  const [status, setStatus] = useState("All");
+  const [since, setSince] = useState("");
+  const [until, setUntil] = useState("");
+  useEffect(() => { const t = setTimeout(() => setQDebounced(q.trim()), 300); return () => clearTimeout(t); }, [q]);
+  const filters: AuditFilters = useMemo(
+    () => ({ q: qDebounced, actor, department, status, since, until }),
+    [qDebounced, actor, department, status, since, until],
+  );
+  const history = useAuditHistory(filters, isAdmin);
+  const rows = USE_REAL_API ? (history.data?.pages.flat() ?? []) : (mockAudit.data ?? []);
+  // Live mode has no execution-trace feed yet: show an honest empty state, never sample traces.
+  const traces = USE_REAL_API ? [] : auditService.traces();
+  // Remember every actor / department / status seen so the filter options do not vanish once a filter is applied.
+  const [seen, setSeen] = useState<{ actors: Record<string, string>; departments: string[]; statuses: string[] }>({ actors: {}, departments: [], statuses: [] });
+  useEffect(() => {
+    if (!USE_REAL_API || rows.length === 0) return;
+    setSeen((prev) => {
+      const actors = { ...prev.actors }; const deps = new Set(prev.departments); const sts = new Set(prev.statuses);
+      for (const r of rows) { actors[r.actorKey ?? r.actor] = r.actor; if (r.department) deps.add(String(r.department)); if (r.status) sts.add(r.status); }
+      const same = Object.keys(actors).length === Object.keys(prev.actors).length && deps.size === prev.departments.length && sts.size === prev.statuses.length;
+      return same ? prev : { actors, departments: [...deps].sort(), statuses: [...sts].sort() };
+    });
+  }, [rows]);
+  const ACTORS: { key: string; label: string }[] = useMemo(
+    () => USE_REAL_API
+      ? [{ key: "All", label: "All" }, ...Object.entries(seen.actors).map(([key, label]) => ({ key, label })).sort((x, y) => x.label.localeCompare(y.label))]
+      : MOCK_ACTORS.map((a) => ({ key: a, label: a })),
+    [seen.actors],
+  );
   const [selectedTrace, setSelectedTrace] = useState(traces[0]?.id ?? "");
+  const [exporting, setExporting] = useState(false);
 
   const filtered = useMemo(
-    () => rows.filter((r) => (actor === "All" || r.actor === actor) && r.event.toLowerCase().includes(q.toLowerCase())),
+    () => USE_REAL_API ? rows : rows.filter((r) => (actor === "All" || r.actor === actor) && r.event.toLowerCase().includes(q.toLowerCase())),
     [rows, actor, q],
   );
+  const hasFilter = actor !== "All" || department !== "All" || status !== "All" || since !== "" || until !== "" || qDebounced !== "";
+  async function exportCsv() {
+    setExporting(true);
+    try { await downloadAuditCsv(filters); toast.success("Audit log exported."); }
+    catch (e) { toast.error(e instanceof Error ? e.message : "The export failed."); }
+    finally { setExporting(false); }
+  }
 
   const activeTrace = traces.find((t) => t.id === selectedTrace);
 
@@ -135,45 +169,86 @@ function AuditPage() {
         {/* ── Activity Log view ── */}
         {view === "Log" && (
           <>
-            <div className="mt-3 flex flex-wrap items-center gap-1.5">
+            {(!USE_REAL_API || isAdmin) && <div className="mt-3 flex flex-wrap items-center gap-1.5">
               <input
                 value={q}
                 onChange={(e) => setQ(e.target.value)}
-                placeholder="Filter events…"
+                placeholder="Search events…"
+                aria-label="Search events"
                 className="h-8 w-56 border border-input bg-surface px-2 text-xs outline-none focus:border-ring"
               />
               {ACTORS.map((a) => (
                 <button
-                  key={a}
-                  onClick={() => setActor(a)}
+                  key={a.key}
+                  onClick={() => setActor(a.key)}
                   className={cn(
                     "border px-2 py-1 font-mono text-[10px] tracking-[0.1em]",
-                    actor === a ? "border-primary text-primary" : "border-border text-muted-foreground hover:text-foreground",
+                    actor === a.key ? "border-primary text-primary" : "border-border text-muted-foreground hover:text-foreground",
                   )}
                 >
-                  {a.toUpperCase()}
+                  {a.label.toUpperCase()}
                 </button>
               ))}
-            </div>
-            <div className="mt-4 border border-border">
-              <div className="grid grid-cols-[70px_2fr_1fr_1fr_90px] gap-3 border-b border-border bg-surface-2 px-3 py-2">
+            </div>}
+            {USE_REAL_API && isAdmin && (
+              <div className="mt-2 flex flex-wrap items-center gap-2" data-testid="audit-filters">
+                <select aria-label="Department" value={department} onChange={(e) => setDepartment(e.target.value)} className="h-8 border border-input bg-surface px-2 text-xs">
+                  <option value="All">All departments</option>
+                  {seen.departments.map((d) => <option key={d} value={d}>{departmentName(d)}</option>)}
+                </select>
+                <select aria-label="Status" value={status} onChange={(e) => setStatus(e.target.value)} className="h-8 border border-input bg-surface px-2 text-xs">
+                  <option value="All">All statuses</option>
+                  {seen.statuses.map((x) => <option key={x} value={x}>{x}</option>)}
+                </select>
+                <label className="flex items-center gap-1 text-[11px] text-muted-foreground">From
+                  <input type="date" aria-label="From date" value={since} max={until || undefined} onChange={(e) => setSince(e.target.value)} className="h-8 border border-input bg-surface px-2 text-xs" /></label>
+                <label className="flex items-center gap-1 text-[11px] text-muted-foreground">To
+                  <input type="date" aria-label="To date" value={until} min={since || undefined} onChange={(e) => setUntil(e.target.value)} className="h-8 border border-input bg-surface px-2 text-xs" /></label>
+                {hasFilter && (
+                  <button onClick={() => { setQ(""); setActor("All"); setDepartment("All"); setStatus("All"); setSince(""); setUntil(""); }}
+                          className="font-mono text-[10px] tracking-[0.12em] text-muted-foreground hover:text-foreground">CLEAR FILTERS</button>
+                )}
+                <button onClick={() => void exportCsv()} disabled={exporting || rows.length === 0}
+                        className="ml-auto border border-border px-3 py-1.5 font-mono text-[10px] tracking-[0.12em] text-muted-foreground hover:text-foreground disabled:opacity-40">
+                  {exporting ? "EXPORTING…" : "EXPORT CSV"}
+                </button>
+              </div>
+            )}
+            <div className="mt-4 overflow-x-auto border border-border">
+              <div className="min-w-[640px]">
+              <div className={cn("grid gap-3 border-b border-border bg-surface-2 px-3 py-2", USE_REAL_API ? "grid-cols-[120px_2fr_1fr_1fr_90px]" : "grid-cols-[70px_2fr_1fr_1fr_90px]")}>
                 {["Time", "Event", "Actor", "Department", "Status"].map((h) => (
                   <span key={h} className="label-xs">{h}</span>
                 ))}
               </div>
               {filtered.map((r) => (
-                <div key={r.id} className="grid grid-cols-[70px_2fr_1fr_1fr_90px] gap-3 border-b border-border px-3 py-2 last:border-0 hover:bg-surface">
+                <div key={r.id} data-testid="audit-row" className={cn("grid gap-3 border-b border-border px-3 py-2 last:border-0 hover:bg-surface", USE_REAL_API ? "grid-cols-[120px_2fr_1fr_1fr_90px]" : "grid-cols-[70px_2fr_1fr_1fr_90px]")}>
                   <span className="font-mono text-[11px] text-muted-foreground">{r.time}</span>
-                  <span className="text-[13px]">{r.event}</span>
-                  <span className={cn("font-mono text-[11px]", r.actor === "AI" ? "text-primary" : "text-foreground")}>{r.actor}</span>
+                  <span className="break-words text-[13px]">{r.event}</span>
+                  <span className={cn("break-words font-mono text-[11px]", r.actor === "AI" ? "text-primary" : "text-foreground")}>{r.actor}</span>
                   <span className="font-mono text-[11px] text-muted-foreground">{r.department ? departmentName(r.department) : "—"}</span>
-                  <span className={cn("font-mono text-[10px] tracking-[0.12em]", r.status === "ok" ? "text-success" : r.status === "pending" ? "text-warning" : "text-destructive")}>
+                  <span className={cn("font-mono text-[10px] tracking-[0.12em]", r.status === "ok" ? "text-success" : r.status === "pending" || r.status === "warning" ? "text-warning" : "text-destructive")}>
                     {r.status.toUpperCase()}
                   </span>
                 </div>
               ))}
-              {filtered.length === 0 && <div className="px-3 py-6 text-center text-xs text-muted-foreground">No live audit records are available.</div>}
+              {USE_REAL_API && history.isLoading && <div className="px-3 py-6 text-center text-xs text-muted-foreground">Loading…</div>}
+              {USE_REAL_API && history.isError && <div role="alert" className="px-3 py-6 text-center text-xs text-destructive">The audit history could not be loaded.</div>}
+              {filtered.length === 0 && !(USE_REAL_API && (history.isLoading || history.isError)) && (
+                <div className="px-3 py-6 text-center text-xs text-muted-foreground">
+                  {USE_REAL_API && !isAdmin ? "Only administrators can view the audit log." : hasFilter ? "No events match these filters." : "No live audit records are available."}
+                </div>
+              )}
+              </div>
             </div>
+            {USE_REAL_API && history.hasNextPage && (
+              <div className="mt-3 text-center">
+                <button onClick={() => void history.fetchNextPage()} disabled={history.isFetchingNextPage}
+                        className="border border-border px-4 py-1.5 font-mono text-[10px] tracking-[0.12em] text-muted-foreground hover:text-foreground disabled:opacity-40">
+                  {history.isFetchingNextPage ? "LOADING…" : "LOAD MORE"}
+                </button>
+              </div>
+            )}
           </>
         )}
 

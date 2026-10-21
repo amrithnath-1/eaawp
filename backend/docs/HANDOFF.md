@@ -88,12 +88,17 @@ Status: IMPLEMENTED, MOCK-TESTED ONLY (embedder faked; no live Gemini). See docs
 - Tests: tests/test_knowledge_access.py (19), 7 mutations killed.
 - Still open: MCP user flow, MySQL, Phase L, Phase M.
 
-## CURRENT STATE (updated 2026-10-21 ~19:20 UTC)
-- Latest merged code commit: 1f8304d (MCP connection flow), on local master; 20 commits unpushed (nothing pushed/deployed without explicit approval). Phase M part 1 (audit visibility) is on branch feat/phase-m-audit, committed at the end of this step.
-- Full suite before Phase M: 2168 passed, 13 skipped (skips = real-PostgreSQL tests needing EAAWP_TEST_PG_* env).
-- Completed: A-L1, K2, MCP flow, M1 (audit). Current task: Phase M remaining (Roles page honesty, Settings tabs, notifications, activity history, Windows install docs).
-- Next action: audit the Roles page and Settings tabs for controls that do nothing; make real or label honestly.
-- Migration head: a0b4c59d1e67 (the owner's local DB is not migrated by me; back up first).
+## CURRENT STATE (updated 2026-10-21 ~20:35 UTC)
+- origin/master == aa36029 (Phase M part 1) after the owner-approved push. Branch feat/phase-m-notifications holds Phase M parts 2-4 (below), verified, being committed and merged to master next.
+- Migration head: b1c5d6e72f08 (owner's local DB NOT migrated by me; back up, then `alembic upgrade head`; see docs/windows_setup.md).
+- Remaining after this: broader production-readiness review (see "Known gaps"), billing/plans/per-user entitlements (not built), employee-facing notification types, live LLM / Google / real mail-provider verification (needs the owner's credentials).
+
+## Phase M (parts 2-4): notifications, activity history, Windows guide, responsive pass (branch feat/phase-m-notifications)
+Status: IMPLEMENTED, MOCK-TESTED + real local SMTP + real-browser checked on scratch DBs.
+- **Notifications** (docs/notifications.md): per-recipient, admin events only to admins, per-person read state, real producers (approval requested, workflow failed, monitoring alert, member joined), bell + Settings > Notifications. Email = company authorization (default off, needs a working email connection) AND personal opt-in, rechecked at send time; generic template; 50/hour cap; durable outbox in the 60 s scheduler tick; audited. Migration b1c5d6e72f08. `create_notification` kept as a legacy admin-only helper; mark_read/mark_all_read now take the caller (3 old mock tests updated to the new signatures).
+- **Activity history** (docs/activity_history.md): audit search/filters/date range/paging/CSV export (formula-injection safe, export audited), Audit page uses it.
+- **Windows** (docs/windows_setup.md): install, update-with-backup, troubleshooting; fresh DB path verified on Linux (unmigrated => out_of_date, `alembic upgrade head` => ok). NOT verified on a real Windows PC.
+- **Responsive**: crawl of 23 pages at 320/390/768 px found no horizontal overflow; mobile menu button enlarged from 16 px to 40 px; bell sized for touch. Dense admin screens (Customize) still have small controls.
 
 ## Phase M (part 1): audit log visibility (branch feat/phase-m-audit)
 Status: IMPLEMENTED, MOCK-TESTED + REAL-BROWSER CHECKED on a scratch DB.

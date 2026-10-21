@@ -153,6 +153,10 @@ async def _finish(
             event=f"workflow '{wf.name[:80]}' run {run.attempt} ({run.trigger}) {status}",
             department="workflows", status="ok" if status == "completed" else "warning",
         ))
+        if status == "failed":
+            from app.services.notification_service import notify_admins
+            await notify_admins(session, run.tenant_id, "workflow_failed", f"Workflow failed: {wf.name[:80]}",
+                                (detail or "")[:300], severity="warning", related_id=run.id, related_type="workflow_run")
 
 
 async def execute_run(run_id: str) -> str:

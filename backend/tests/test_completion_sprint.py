@@ -149,7 +149,7 @@ class TestNotifications:
         mock_result.scalar_one_or_none.return_value = None
         mock_db.execute = AsyncMock(return_value=mock_result)
 
-        result = await mark_read("notif-1", "wrong-tenant", mock_db)
+        result = await mark_read("notif-1", "wrong-tenant", "u1", True, mock_db)
         assert result is False
 
     @pytest.mark.asyncio
@@ -166,7 +166,7 @@ class TestNotifications:
         mock_db.execute = AsyncMock(return_value=mock_result)
         mock_db.flush = AsyncMock()
 
-        count = await mark_all_read("t1", mock_db)
+        count = await mark_all_read("t1", "u1", True, mock_db)
         assert count == 2
 
     def test_notification_router_registered(self):

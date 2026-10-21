@@ -6,6 +6,7 @@ import { useSession } from "@/state/session";
 import { useTheme } from "@/state/theme";
 import { cn } from "@/lib/utils";
 import { USE_REAL_API } from "@/lib/api-client";
+import { NotificationSettingsPanel } from "@/components/eaawp/NotificationSettingsPanel";
 
 export const Route = createFileRoute("/settings")({
   component: SettingsPage,
@@ -99,11 +100,11 @@ function SettingsPage() {
             </>
           )}
 
-          {tab === "Notifications" && (
+          {tab === "Notifications" && (USE_REAL_API ? <NotificationSettingsPanel /> : (
             <Panel title="Notification channels" className="lg:col-span-2">
-              <p className="text-xs text-muted-foreground">Notification delivery is not configured for this company.</p>
+              <p className="text-xs text-muted-foreground">Notifications need the live API.</p>
             </Panel>
-          )}
+          ))}
         </div>
       </div>
     </AppShell>
