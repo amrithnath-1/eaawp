@@ -13,15 +13,24 @@ from __future__ import annotations
 import base64
 import hashlib
 
-from cryptography.fernet import Fernet
+from cryptography.fernet import Fernet, MultiFernet
 
 
-def _get_fernet() -> Fernet:
+def _fernet_for(secret: str) -> Fernet:
+    # Derive a 32-byte key from the secret using SHA-256
+    raw = hashlib.sha256(secret.encode()).digest()
+    return Fernet(base64.urlsafe_b64encode(raw))
+
+
+def _get_fernet() -> MultiFernet:
+    """Encrypt with ENCRYPTION_KEY when set; always able to decrypt data written
+    under the SECRET_KEY-derived key (so enabling ENCRYPTION_KEY loses nothing)."""
     from app.config import settings
-    # Derive a 32-byte key from SECRET_KEY using SHA-256
-    raw = hashlib.sha256(settings.secret_key.encode()).digest()
-    key = base64.urlsafe_b64encode(raw)
-    return Fernet(key)
+    keys = []
+    if settings.encryption_key:
+        keys.append(_fernet_for(settings.encryption_key))
+    keys.append(_fernet_for(settings.secret_key))
+    return MultiFernet(keys)
 
 
 def encrypt_password(plain: str) -> str:

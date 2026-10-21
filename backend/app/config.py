@@ -34,6 +34,31 @@ class Settings(BaseSettings):
     access_token_expire_minutes: int = 480
     refresh_token_expire_days: int = 30
 
+    # Public-endpoint abuse protection (in-process, per API worker).
+    rate_limit_enabled: bool = True
+    # Number of reverse proxies in front of the API whose X-Forwarded-For entry
+    # may be trusted.  0 = ignore the header and use the socket peer address.
+    trusted_proxy_count: int = 0
+    registration_enabled: bool = True            # set false to close self-service sign-up
+    registration_rate_limit: int = 5             # new companies per IP ...
+    registration_rate_window_seconds: int = 3600  # ... per window
+    registration_daily_cap: int = 500            # new companies per process per 24h
+    login_rate_limit: int = 30                   # login attempts per IP ...
+    login_rate_window_seconds: int = 60          # ... per window
+    login_max_failures: int = 5                  # failed logins per (IP, company, email) ...
+    login_failure_window_seconds: int = 900      # ... before a 15 minute lockout
+    refresh_rate_limit: int = 60                 # refresh/logout calls per IP ...
+    refresh_rate_window_seconds: int = 60        # ... per window
+    oauth_callback_rate_limit: int = 30
+    oauth_callback_rate_window_seconds: int = 60
+    # Optional JWT audience / issuer.  When set they are written into new tokens
+    # and REQUIRED on every token presented.
+    jwt_issuer: str = ""
+    jwt_audience: str = ""
+    # Optional dedicated key for encrypting stored integration credentials.
+    # When empty the key is derived from SECRET_KEY (previous behaviour).
+    encryption_key: str = ""
+
     # ── LLM ───────────────────────────────────────────────────────────────────
     openai_api_key: str = ""
     # Default model used by the LLM Gateway when no role-specific model is set.

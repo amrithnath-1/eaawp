@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordRequestForm
 from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -35,6 +35,8 @@ from app.core.auth import (
     revoke_refresh_token,
     revoke_all_user_refresh_tokens,
 )
+from app.config import settings as _settings
+from app.core.rate_limit import client_ip, limiter, rate_limit, too_many
 from app.db.models import User
 from app.db.session import get_db
 
@@ -78,9 +80,19 @@ class UserProfile(BaseModel):
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────
 
-@router.post("/token", response_model=TokenResponse, summary="Login — obtain JWT tokens")
+_login_ip_limit = rate_limit("login", "login_rate_limit", "login_rate_window_seconds")
+_refresh_ip_limit = rate_limit("refresh", "refresh_rate_limit", "refresh_rate_window_seconds")
+
+
+@router.post(
+    "/token",
+    response_model=TokenResponse,
+    summary="Login — obtain JWT tokens",
+    dependencies=[Depends(_login_ip_limit)],
+)
 async def login(
     body: LoginRequest,
+    request: Request,
     db: AsyncSession = Depends(get_db),
 ) -> TokenResponse:
     """
@@ -90,6 +102,15 @@ async def login(
     Returns 401 for any authentication failure — does not distinguish between
     wrong email, wrong password, or inactive account.
     """
+    # Brute-force protection: after N failures for the same (client, company,
+    # email) further attempts are refused for the lockout window.  Keyed by
+    # client address too, so a stranger cannot lock the real user out.
+    fail_key = f"loginfail:{client_ip(request)}:{body.company_id}:{body.email.strip().lower()}"
+    if _settings.rate_limit_enabled and limiter.count(
+        fail_key, _settings.login_failure_window_seconds
+    ) >= _settings.login_max_failures:
+        raise too_many(_settings.login_failure_window_seconds, "failed login attempts")
+
     user = await authenticate_user(
         email=body.email,
         password=body.password,
@@ -97,6 +118,7 @@ async def login(
         db=db,
     )
     if user is None:
+        limiter.record(fail_key)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid credentials",
@@ -104,6 +126,7 @@ async def login(
         )
 
     from app.config import settings
+    limiter.clear_key(fail_key)
     access_token = create_access_token(
         user_id=user.id,
         email=user.email,
@@ -141,8 +164,14 @@ async def login(
     )
 
 
-@router.post("/token/form", response_model=TokenResponse, include_in_schema=False)
+@router.post(
+    "/token/form",
+    response_model=TokenResponse,
+    include_in_schema=False,
+    dependencies=[Depends(_login_ip_limit)],
+)
 async def login_form(
+    request: Request,
     form: OAuth2PasswordRequestForm = Depends(),
     db: AsyncSession = Depends(get_db),
 ) -> TokenResponse:
@@ -155,10 +184,15 @@ async def login_form(
     email = parts[0].strip()
     company_id = parts[1].strip() if len(parts) > 1 else "default-tenant"
     proxy = LoginRequest(email=email, password=form.password, company_id=company_id)
-    return await login(body=proxy, db=db)
+    return await login(body=proxy, request=request, db=db)
 
 
-@router.post("/refresh", response_model=TokenResponse, summary="Refresh access token")
+@router.post(
+    "/refresh",
+    response_model=TokenResponse,
+    summary="Refresh access token",
+    dependencies=[Depends(_refresh_ip_limit)],
+)
 async def refresh_token_endpoint(
     body: RefreshRequest,
     db: AsyncSession = Depends(get_db),
@@ -226,7 +260,13 @@ async def refresh_token_endpoint(
     )
 
 
-@router.post("/logout", status_code=204, response_model=None, summary="Logout — revoke refresh token")
+@router.post(
+    "/logout",
+    status_code=204,
+    response_model=None,
+    summary="Logout — revoke refresh token",
+    dependencies=[Depends(_refresh_ip_limit)],
+)
 async def logout(
     body: RefreshRequest,
     db: AsyncSession = Depends(get_db),

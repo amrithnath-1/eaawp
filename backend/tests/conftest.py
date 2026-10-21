@@ -180,3 +180,13 @@ def world(monkeypatch, tmp_path):
         _run(engine.dispose())
 
 
+
+
+@pytest.fixture(autouse=True)
+def _reset_rate_limiter():
+    """Rate-limit counters are process-global; start every test from zero."""
+    from app.core.rate_limit import limiter
+
+    limiter.reset()
+    yield
+    limiter.reset()

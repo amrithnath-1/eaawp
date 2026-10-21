@@ -76,6 +76,16 @@ _ACCESS_TYPE = "access"
 _REFRESH_TYPE = "refresh"
 
 
+def _registered_claims() -> dict[str, Any]:
+    """Issuer / audience claims, present only when configured."""
+    claims: dict[str, Any] = {}
+    if settings.jwt_issuer:
+        claims["iss"] = settings.jwt_issuer
+    if settings.jwt_audience:
+        claims["aud"] = settings.jwt_audience
+    return claims
+
+
 def create_access_token(
     user_id: str,
     email: str,
@@ -93,6 +103,7 @@ def create_access_token(
         "type": _ACCESS_TYPE,
         "iat": int(now.timestamp()),
         "exp": int(exp.timestamp()),
+        **_registered_claims(),
     }
     return jwt.encode(payload, settings.secret_key, algorithm=settings.algorithm)
 
@@ -111,6 +122,7 @@ def create_refresh_token(user_id: str, tenant_id: str) -> str:
         "type": _REFRESH_TYPE,
         "iat": int(now.timestamp()),
         "exp": int(exp.timestamp()),
+        **_registered_claims(),
     }
     return jwt.encode(payload, settings.secret_key, algorithm=settings.algorithm)
 
@@ -180,6 +192,9 @@ async def validate_refresh_token_db(
         raise HTTPException(status_code=401, detail="Refresh token not found")
     if record.revoked:
         raise HTTPException(status_code=401, detail="Refresh token has been revoked")
+    if record.user_id != payload.get("sub"):
+        # The signed subject must be the user the record was issued to.
+        raise HTTPException(status_code=401, detail="Refresh token not found")
     now = datetime.now(timezone.utc)
     if as_utc(record.expires_at) < now:
         raise HTTPException(status_code=401, detail="Refresh token expired")
@@ -238,13 +253,23 @@ def _decode_token(token: str, expected_type: str) -> dict[str, Any]:
         detail="Could not validate credentials",
         headers={"WWW-Authenticate": "Bearer"},
     )
+    # Tokens without an expiry or subject are never valid.  When an issuer or
+    # audience is configured it is REQUIRED and must match.
+    options: dict[str, Any] = {"require_exp": True, "require_sub": True}
+    decode_kwargs: dict[str, Any] = {}
+    if settings.jwt_issuer:
+        options["require_iss"] = True
+        decode_kwargs["issuer"] = settings.jwt_issuer
+    if settings.jwt_audience:
+        options["require_aud"] = True
+        decode_kwargs["audience"] = settings.jwt_audience
     try:
         payload = jwt.decode(
             token,
             settings.secret_key,
             algorithms=[settings.algorithm],
-            # Tokens without an expiry or subject are never valid.
-            options={"require_exp": True, "require_sub": True},
+            options=options,
+            **decode_kwargs,
         )
     except JWTError:
         raise credentials_exc

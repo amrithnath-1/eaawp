@@ -11,18 +11,40 @@ import uuid
 import logging
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import settings
 from app.core.auth import get_current_tenant_id, hash_password, require_admin
+from app.core.rate_limit import client_ip, limiter, too_many
 from app.db.models import Company, User, AIEmployee
 from app.db.session import get_db
 from app.schemas.api import CompanyOut
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/onboarding", tags=["onboarding"])
+
+
+# ── Abuse protection for public self-service registration ───────────────────
+
+async def registration_guard(request: Request) -> None:
+    """Close sign-up on demand, and cap sign-ups per client IP and per day."""
+    if not settings.registration_enabled:
+        raise HTTPException(status_code=403, detail="Self-service registration is disabled.")
+    if not settings.rate_limit_enabled:
+        return
+    retry = limiter.check(
+        f"register:{client_ip(request)}",
+        settings.registration_rate_limit,
+        settings.registration_rate_window_seconds,
+    )
+    if retry:
+        raise too_many(retry, "registration attempts")
+    retry = limiter.check("register:global", settings.registration_daily_cap, 86400)
+    if retry:
+        raise too_many(retry, "registrations today")
 
 
 # ── Request schemas ───────────────────────────────────────────────────────────
@@ -45,6 +67,14 @@ class OnboardCompanyRequest(BaseModel):
         if "@" not in v:
             raise ValueError("Invalid email address.")
         return v.strip().lower()
+
+    @field_validator("admin_password")
+    @classmethod
+    def password_fits_bcrypt(cls, v: str) -> str:
+        # bcrypt only uses the first 72 bytes and rejects longer input.
+        if len(v.encode("utf-8")) > 72:
+            raise ValueError("Password must be at most 72 bytes.")
+        return v
 
     @field_validator("company_name")
     @classmethod
@@ -78,7 +108,12 @@ class DMMStatusResponse(BaseModel):
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────
 
-@router.post("/company", response_model=OnboardCompanyResponse, status_code=201)
+@router.post(
+    "/company",
+    response_model=OnboardCompanyResponse,
+    status_code=201,
+    dependencies=[Depends(registration_guard)],
+)
 async def onboard_new_company(
     body: OnboardCompanyRequest,
     db: AsyncSession = Depends(get_db),

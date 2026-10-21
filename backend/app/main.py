@@ -63,6 +63,7 @@ from app.api.routers.workflow import router as workflow_router  # Phase I — wo
 from app.api.routers.admin_customization import router as admin_customization_router  # Admin AI Customize
 from app.api.routers.admin_config import router as admin_config_router  # Admin Config Engine
 from app.middleware.observability import ObservabilityMiddleware  # Phase N
+from app.middleware.docs_guard import ProductionDocsGuard, is_production
 
 logging.basicConfig(
     level=logging.INFO,
@@ -94,6 +95,15 @@ async def lifespan(app: FastAPI):  # type: ignore[type-arg]
             "(minimum 32 characters).  Set a strong, unique SECRET_KEY in backend/.env "
             "before starting the server.  All previously issued JWTs signed with a "
             "placeholder key are invalid and must be re-issued after rotation."
+        )
+
+    if settings.algorithm not in {"HS256", "HS384", "HS512"}:
+        raise RuntimeError("SERVER STARTUP REFUSED: ALGORITHM must be HS256, HS384 or HS512.")
+
+    if is_production() and any(o == "*" or o.endswith("://*") for o in settings.cors_origins_list):
+        raise RuntimeError(
+            "SERVER STARTUP REFUSED: CORS_ORIGINS must list explicit origins in production "
+            "(credentials are allowed, so a wildcard would let any site call the API as the user)."
         )
 
     logger.info("EAAWP backend starting — environment: %s", settings.environment)
@@ -132,9 +142,9 @@ app = FastAPI(
     description="Enterprise Agentic AI Workforce Platform — Backend API",
     version=settings.app_version,
     # Interactive API docs expose the full route map; keep them off in production.
-    docs_url=None if settings.environment == "production" else "/docs",
-    redoc_url=None if settings.environment == "production" else "/redoc",
-    openapi_url=None if settings.environment == "production" else "/openapi.json",
+    docs_url=None if is_production() else "/docs",
+    redoc_url=None if is_production() else "/redoc",
+    openapi_url=None if is_production() else "/openapi.json",
     lifespan=lifespan,
 )
 
@@ -146,6 +156,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 app.add_middleware(ObservabilityMiddleware)  # Phase N — structured access logging
+# Added last => outermost: blocks documentation in production however it is registered.
+app.add_middleware(ProductionDocsGuard)
 
 # ── Routers ───────────────────────────────────────────────────────────────────
 app.include_router(execution_router)
