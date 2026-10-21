@@ -33,6 +33,10 @@ class AgentBlueprint(BaseModel):
         description="Tool keys that require human approval before execution.",
     )
     tenant_id: str = Field(..., min_length=1, description="Tenant / organisation identifier")
+    # Optional explicit role key (used by the Meeting Room to address any of the company's
+    # roles). Only honoured if the company actually has that role configured; tools and
+    # permissions always come from the server-side role configuration, never from the client.
+    role_key: str | None = Field(default=None, max_length=64)
     # LLM model override for this blueprint.  Optional — falls back to the
     # application default (settings.llm_default_model) if not set.
     # Must be a value in app.llm.config.ALLOWED_MODELS when provided.

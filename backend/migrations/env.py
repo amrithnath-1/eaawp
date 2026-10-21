@@ -28,6 +28,7 @@ import app.db.oauth_models  # noqa: E402, F401  ← Phase 4 OAuth state manageme
 import app.db.provider_config_models  # noqa: E402, F401  ← Admin-Assisted Config Engine
 import app.db.pending_task_models  # noqa: E402, F401  ← requests waiting for integration setup
 import app.db.workflow_run_models  # noqa: E402, F401  ← workflow run history
+import app.db.meeting_models  # noqa: E402, F401  ← Meeting Room
 # Phase H/I — new tables for employee builder and workflow engine
 # (These are defined in models.py so Base already knows them — no extra import needed)
 config = context.config

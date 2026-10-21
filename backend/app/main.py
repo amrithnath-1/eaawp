@@ -61,6 +61,7 @@ from app.api.routers.auth import router as auth_router  # Phase A — JWT auth
 from app.api.routers.nl_integration import router as nl_integration_router  # Phase B — NL integration
 from app.api.routers.employee_builder import router as employee_builder_router  # Phase H — employee builder
 from app.api.routers.workflow import router as workflow_router  # Phase I — workflow engine
+from app.api.routers.meetings import router as meetings_router  # Meeting Room
 from app.api.routers.admin_customization import router as admin_customization_router  # Admin AI Customize
 from app.api.routers.admin_config import router as admin_config_router  # Admin Config Engine
 from app.middleware.observability import ObservabilityMiddleware  # Phase N
@@ -152,6 +153,12 @@ async def lifespan(app: FastAPI):  # type: ignore[type-arg]
     except Exception as _exc:  # recovery must never block startup
         logger.warning("Workflow recovery could not run: %s", type(_exc).__name__)
 
+    try:
+        from app.services.meeting_service import recover_interrupted as _recover_meetings
+        await _recover_meetings()
+    except Exception as _exc:  # recovery must never block startup
+        logger.warning("Meeting recovery could not run: %s", type(_exc).__name__)
+
     await start_scheduler()
     yield
     logger.info("EAAWP backend shutting down")
@@ -224,6 +231,7 @@ app.include_router(auth_router)  # Phase A — /api/v1/auth/*
 app.include_router(nl_integration_router)  # Phase B — /api/v1/nl-integration/*
 app.include_router(employee_builder_router)  # Phase H — /api/v1/employees/*
 app.include_router(workflow_router)  # Phase I — /api/v1/workflows/*
+app.include_router(meetings_router)  # Meeting Room — /api/v1/meetings/*
 app.include_router(admin_customization_router)  # Admin AI Customize — /api/v1/admin/customize/*
 app.include_router(admin_config_router)  # Admin Config Engine — /api/v1/admin/provider-config/*
 

@@ -26,6 +26,7 @@ REVIEWED: dict[tuple[str, str], str] = {
     ("services/monitoring_scheduler.py", "MonitoringRule"): "Cross-tenant by design: returns (rule_id, tenant_id) pairs and each rule is then run under ITS OWN tenant.",
     ("services/workflow_runner.py", "Workflow"): "Cross-tenant by design (system scheduler): lists scheduled workflows; every run is then executed under its OWN tenant, re-validated, with tenant-scoped lookups.",
     ("services/workflow_runner.py", "WorkflowRun"): "Cross-tenant by design (system scheduler): recovery/approval-reconcile/queued scans act on one run at a time and only touch that run's own workflow.",
+    ("services/meeting_service.py", "Meeting"): "System paths acting on ONE meeting id handed over by the API after its tenant/owner check (claim), and startup recovery of stale meetings; every child-row query then filters by that meeting's own tenant_id.",
     ("integrations/manager.py", "CapabilityGrant"): "Upsert after _get_integration_or_raise(integration_id, tenant_id).",
     ("db/seed.py", "AgentConfiguration"): "Seed script for the demo employee.",
     ("core/auth.py", "RefreshToken"): "Looked up by unguessable jti from a verified signed refresh JWT; user_id is cross-checked.",

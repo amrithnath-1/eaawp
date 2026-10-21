@@ -15,7 +15,7 @@ import pytest
 
 BACKEND = pathlib.Path(__file__).resolve().parents[2]
 PREVIOUS = "u8v2w37x9y15"
-HEAD = "x1y5z60a2b18"
+HEAD = "y2z6a71b3c19"
 
 
 def alembic(db: pathlib.Path, *args: str) -> str:
@@ -129,6 +129,33 @@ def test_workflow_runs_migration_is_additive_and_reversible(tmp_path):
     alembic(db, "downgrade", "w0x4y59z1a17")
     assert cols(db, "workflow_runs") == {}
     assert "role_name" not in cols(db, "workflows")
+    con = sqlite3.connect(db)
+    assert con.execute("SELECT name FROM workflows WHERE id='w1'").fetchone() == ("Weekly",)
+    con.close()
+
+
+def test_meeting_room_migration_is_additive_and_reversible(tmp_path):
+    """Three new tables; existing data (including workflows) survives up and down."""
+    import sqlite3
+    db = tmp_path / "meetings.db"
+    alembic(db, "upgrade", "x1y5z60a2b18")
+    con = sqlite3.connect(db)
+    con.execute("INSERT INTO companies (id, name, industry, region, employees, is_active) VALUES ('t','T','x','x',1,1)")
+    con.execute("INSERT INTO workflows (id, tenant_id, name, description, trigger, steps_json, is_enabled, status, created_by) "
+                "VALUES ('w1','t','Weekly','', 'manual','[]',1,'idle','admin')")
+    con.commit(); con.close()
+    alembic(db, "upgrade", "head")
+    assert {"tenant_id", "objective", "status", "created_by"} <= set(cols(db, "meetings"))
+    assert {"meeting_id", "role_key", "depends_on_json", "status", "result"} <= set(cols(db, "meeting_tasks"))
+    assert {"meeting_id", "seq", "sender_kind", "content"} <= set(cols(db, "meeting_messages"))
+    con = sqlite3.connect(db)
+    con.execute("INSERT INTO meetings (id, tenant_id, objective, created_by) VALUES ('m1','t','o','u')")
+    con.execute("INSERT INTO meeting_tasks (id, meeting_id, tenant_id, role_key, role_name) VALUES ('k1','m1','t','R','R')")
+    con.commit()
+    assert con.execute("SELECT status FROM meetings WHERE id='m1'").fetchone() == ("planning",)
+    con.close()
+    alembic(db, "downgrade", "x1y5z60a2b18")
+    assert cols(db, "meetings") == {} and cols(db, "meeting_tasks") == {} and cols(db, "meeting_messages") == {}
     con = sqlite3.connect(db)
     assert con.execute("SELECT name FROM workflows WHERE id='w1'").fetchone() == ("Weekly",)
     con.close()

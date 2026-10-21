@@ -202,7 +202,7 @@ async def create_and_execute_plan(
     partial message explaining the pending approval.
     """
     tenant_id = blueprint.tenant_id
-    role_key = _role_key(blueprint.role_name)
+    role_key = blueprint.role_key or _role_key(blueprint.role_name)
 
     # ── 1. Generate plan via LLM ──────────────────────────────────────────────
     plan = await _generate_plan(

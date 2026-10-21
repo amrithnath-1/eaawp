@@ -3,6 +3,10 @@
 Base branch: `master`. Never push/deploy without explicit approval. Nothing here claims live verification
 unless stated.
 
+## Phase E: Meeting Room (branch feat/phase-e-meeting-room)
+- Real multi-agent delegation + persistent Meeting Room: `docs/meeting_room.md`. Migration `y2z6a71b3c19` (3 new tables). Status: IMPLEMENTED, MOCK-TESTED; UI exercised in a real browser against a real server with a scripted LLM only.
+- `execute_agent` now honours `blueprint.role_key` (only for roles the company has) and plans when a role's only tools are granted integrations.
+
 ## Phase D hardening (branch fix/phase-d-hardening)
 - Retry guard (`side_effects_may_have_happened`), real cancellation (plan rejected / pending task cancelled), admin-only run history. Tests: `TestHardeningRetriesCancellationAndHistory`.
 - Migration chain rehearsed from `u8v2w37x9y15` with data to `x1y5z60a2b18` and back one step.

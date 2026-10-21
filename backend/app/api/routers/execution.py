@@ -87,6 +87,14 @@ async def execute_agent(
 
     resolved_session_id = request.session_id or str(uuid.uuid4())
     role_key = _blueprint_role_key(request.blueprint.role_name)
+    if request.blueprint.role_key and request.blueprint.role_key != role_key:
+        from sqlalchemy import select
+        from app.db.models import RoleConfiguration as _RC
+        _known = (await db.execute(
+            select(_RC.role_key).where(_RC.tenant_id == tenant_id, _RC.role_key == request.blueprint.role_key)
+        )).scalar_one_or_none()
+        if _known:
+            role_key = _known
 
     # ── Server-side blueprint override ────────────────────────────────────────
     # The client supplies the role_name and user_prompt but MUST NOT be trusted
@@ -115,6 +123,7 @@ async def execute_agent(
     # Replace the client-supplied blueprint fields with verified server values.
     authoritative_blueprint = request.blueprint.model_copy(update={
         "tenant_id": tenant_id,          # always from JWT, never from request body
+        "role_key": role_key,
         "allowed_tools": server_allowed,
         "guarded_tools": server_guarded,
         "system_persona": server_persona,
@@ -364,6 +373,10 @@ async def execute_agent(
     augmented_blueprint = authoritative_blueprint.model_copy(
         update={"allowed_tools": augmented_allowed}
     )
+
+    # A role whose only tools are granted integrations (e.g. a finance role allowed to read
+    # Search Console) must still go through the planner, otherwise those tools are never used.
+    has_action_tools = has_action_tools or bool(dynamic_tool_keys)
 
     set_tool_context(
         db_session=db,

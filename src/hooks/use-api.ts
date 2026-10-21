@@ -3737,3 +3737,61 @@ export function useExecuteCustomizationPlan() {
     },
   });
 }
+
+// ── Meeting Room (real multi-agent sessions) ─────────────────────────────────
+export interface MeetingTaskFE {
+  id: string; key: string; role_key: string; role_name: string; title: string; instruction: string;
+  depends_on: string[]; status: string; result: string; plan_id: string | null;
+  pending_task_id: string | null; started_at: string | null; finished_at: string | null;
+}
+export interface MeetingMessageFE {
+  id: string; seq: number; sender_kind: "user" | "coordinator" | "agent" | "system";
+  sender_name: string; recipient_name: string; kind: string; task_id: string | null;
+  content: string; created_at: string;
+}
+export interface MeetingSummaryFE {
+  id: string; title: string; objective: string; status: string; summary: string; created_by: string;
+  created_at: string; finished_at: string | null; task_count: number; completed_count: number;
+}
+export interface MeetingDetailFE extends MeetingSummaryFE {
+  tasks: MeetingTaskFE[]; messages: MeetingMessageFE[];
+}
+const MEETING_ACTIVE = ["planning", "queued", "running"];
+
+export function useMeetings() {
+  return useQuery<MeetingSummaryFE[]>({
+    queryKey: ["meetings"] as const,
+    queryFn: () => intMgrFetch<MeetingSummaryFE[]>("GET", "/api/v1/meetings"),
+    refetchInterval: 8_000,
+  });
+}
+
+export function useMeeting(id: string | null) {
+  return useQuery<MeetingDetailFE>({
+    queryKey: ["meeting", id] as const,
+    queryFn: () => intMgrFetch<MeetingDetailFE>("GET", `/api/v1/meetings/${id}`),
+    enabled: !!id,
+    // poll while agents are working so messages and task states appear as they happen
+    refetchInterval: (q) => (q.state.data && MEETING_ACTIVE.includes(q.state.data.status) ? 2_000 : 10_000),
+  });
+}
+
+function useMeetingMutation<V>(path: (v: V) => string, bodyOf?: (v: V) => unknown) {
+  const qc = useQueryClient();
+  return useMutation<MeetingDetailFE, Error, V>({
+    mutationFn: (v) => intMgrFetch<MeetingDetailFE>("POST", path(v), bodyOf ? bodyOf(v) : undefined),
+    onSuccess: (d) => {
+      qc.setQueryData(["meeting", d.id], d);
+      void qc.invalidateQueries({ queryKey: ["meetings"] });
+    },
+  });
+}
+
+export const useCreateMeeting = () =>
+  useMeetingMutation<{ objective: string; title?: string }>(() => "/api/v1/meetings", (v) => v);
+export const usePostMeetingMessage = (id: string) =>
+  useMeetingMutation<string>(() => `/api/v1/meetings/${id}/messages`, (content) => ({ content }));
+export const useCancelMeeting = (id: string) =>
+  useMeetingMutation<void>(() => `/api/v1/meetings/${id}/cancel`);
+export const useResumeMeeting = (id: string) =>
+  useMeetingMutation<void>(() => `/api/v1/meetings/${id}/resume`);
