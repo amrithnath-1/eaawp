@@ -422,25 +422,18 @@ async def execute_agent(
     try:
         if role_key in PERSONAL_DATA_ROLES:
             raise LookupError("shared memory is disabled for roles that handle personal records")
-        from app.services.memory_service import search_memory
+        from app.services.memory_service import format_memory_block, search_memory
         memories = await search_memory(
             tenant_id=authoritative_blueprint.tenant_id,
             role_key=role_key,
             query=request.user_prompt,
             db=db,
             limit=5,
+            user_id=user.id,           # company-wide notes + THIS user's own history, never anyone else's
         )
-        if memories:
-            mem_lines = []
-            for m in memories:
-                mem_lines.append(f"• [{m.category}] {m.title}: {m.content[:200]}")
-            memory_context_block = (
-                "\n\n## Relevant Memory\n"
-                "These are relevant past decisions and learnings:\n"
-                + "\n".join(mem_lines)
-            )
+        memory_context_block = format_memory_block(memories)
     except Exception as exc:
-        logger.debug("Memory retrieval failed (non-fatal): %s", exc)
+        logger.warning("Memory retrieval failed (non-fatal): %s", exc)
 
     try:
         if has_action_tools:
@@ -459,9 +452,10 @@ async def execute_agent(
                     session_id=resolved_session_id,
                     db=db,
                     system_persona=augmented_blueprint.system_persona,
-                    data_context_block=data_context_block,
+                    data_context_block=data_context_block + memory_context_block,
                     rag_context=rag_text,
                 )
+                await _remember(db, authoritative_blueprint.tenant_id, role_key, user.id, request.user_prompt, final_message)
 
                 # Fetch plan status for response
                 plan_status = None
@@ -537,22 +531,7 @@ async def execute_agent(
                     data_context_block=data_context_block + memory_context_block,
                 )
                 # Carry plan fields as None for simple mode
-                # ── Phase J: Store execution in memory ─────────────────────────
-                try:
-                    if role_key in PERSONAL_DATA_ROLES:
-                        raise LookupError("shared memory is disabled for roles that handle personal records")
-                    from app.services.memory_service import store_memory
-                    await store_memory(
-                        tenant_id=authoritative_blueprint.tenant_id,
-                        role_key=role_key,
-                        category="execution_history",
-                        title=request.user_prompt[:100],
-                        content=resp.message[:500],
-                        db=db,
-                        confidence=0.8,
-                    )
-                except Exception as mem_exc:
-                    logger.debug("Memory storage failed (non-fatal): %s", mem_exc)
+                await _remember(db, authoritative_blueprint.tenant_id, role_key, user.id, request.user_prompt, resp.message)
 
                 return AgentExecutionResponse(
                     message=resp.message,
@@ -578,6 +557,20 @@ async def execute_agent(
 # Roles that work with individual people's records. Their conversations must never be written to, or read from, the
 # company-wide agent memory (it is shared by every user of the company), or one person's data could surface for another.
 PERSONAL_DATA_ROLES = frozenset({"INSTITUTIONAL_CLERK", "MEDICAL_ASSISTANT"})
+
+
+async def _remember(db, tenant_id: str, role_key: str, user_id: str, prompt: str, answer: str) -> None:
+    """Save this exchange as the CALLING USER's own history (never shared). Skipped for roles that handle personal records.
+    Runs in its own savepoint so a memory problem can never break or roll back the user's request."""
+    if role_key in PERSONAL_DATA_ROLES:
+        return
+    try:
+        from app.services.memory_service import store_memory
+        async with db.begin_nested():
+            await store_memory(tenant_id=tenant_id, role_key=role_key, category="execution_history", title=prompt[:100],
+                               content=answer[:500], db=db, confidence=0.8, user_id=user_id)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Memory storage failed (non-fatal): %s", exc)
 
 
 def _blueprint_role_key(role_name: str) -> str:

@@ -84,7 +84,6 @@ MEMBER_MUTATIONS: dict[tuple[str, str], str] = {
     ("POST", "/api/v1/content/generate/draft"): _DAILY,
     ("POST", "/api/v1/content/generate/variants"): _DAILY,
     ("POST", "/api/v1/content/analyze"): "Read-only analysis.",
-    ("POST", "/api/v1/memory"): _DAILY,
     ("POST", "/api/v1/notifications/{notification_id}/read"): "Marks the caller's OWN notification read (other people's rows are 404).",
     ("POST", "/api/v1/notifications/read-all"): "Marks only the caller's own notifications read.",
     ("PUT", "/api/v1/notifications/preferences"): "A person's own notification choices (admin-only categories are refused for employees).",

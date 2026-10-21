@@ -36,6 +36,11 @@ class AgentMemory(Base):
     )
     role_key: Mapped[str] = mapped_column(String(128), nullable=False, default="DIGITAL_MARKETING_MANAGER")
 
+    # Whose memory this is. NULL = company-wide note curated by an administrator (visible to every user of the role).
+    # Automatic conversation history ("execution_history") is ALWAYS tied to the user who produced it and is only ever
+    # retrieved for that user; legacy history rows with no user are never retrieved.
+    user_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
+
     category: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
     title: Mapped[str] = mapped_column(String(255), nullable=False, default="")
     content: Mapped[str] = mapped_column(Text, nullable=False, default="")

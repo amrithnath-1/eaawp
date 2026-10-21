@@ -3,6 +3,12 @@
 Base branch: `master`. Never push/deploy without explicit approval. Nothing here claims live verification
 unless stated.
 
+## Phase M (part 3): Agent memory fix (branch feat/agent-memory)
+- Root cause: `search_memory` returned dicts but `execution.py` read them as objects; the error was swallowed at debug level, so memory never reached any prompt (and planning mode never used it). Fixed and wired into both execution modes.
+- Privacy model: company-wide notes (admin-curated, `user_id` NULL) reach every user of the role; automatic conversation history is stored per user and only ever retrieved for that user; legacy ownerless history is never retrieved; `INSTITUTIONAL_CLERK`/`MEDICAL_ASSISTANT` neither store nor read memory. Retrieved text is sanitized and framed as information only.
+- API: POST/GET/DELETE `/api/v1/memory` are admin-only and audited (previously any employee could write company-wide memory); `GET /memory/search` returns only what the caller may see.
+- Migration `c2d6e7f83a19` (`agent_memories.user_id`, new head). Tests: `tests/test_agent_memory.py` (28), mutation-checked (user filter, history filter, admin gate). See `docs/agent_memory.md`. Status: IMPLEMENTED, MOCK-TESTED ONLY (fake model; no live LLM).
+
 ## Phase J (part 3): Authorized invitation email (branch feat/phase-j-invite-email)
 - Optional emailing of an invitation link on explicit admin action via the company's SMTP integration (invitee address only, fixed template, allowed-origin link, 20/hour cap, safe audit). Fixed pre-existing 500 when re-saving an SMTP config. See `docs/team_invitations.md`. No migration. Status: IMPLEMENTED, MOCK-TESTED + exercised against a local SMTP server; NOT verified with a real mail provider.
 
@@ -14,7 +20,7 @@ unless stated.
 - **Completed (MOCK-TESTED ONLY unless noted):** phases A-J3 (see sections below). J3 invitation email was also exercised against a real local SMTP server; no real mail provider yet.
 - **Test results at `7382ea0`:** full backend suite `2119 passed, 5 skipped, 0 failed` (incl. 8 live-PostgreSQL tests); frontend build + tsc clean; real-browser runs for G-J3 with a scripted LLM.
 - **Migration head:** `e8f2a37b9c45` (J3 added no migration). Owner's local DB not migrated by me; back up and rehearse on a copy first.
-- **Known gaps:** no live LLM / Google call; agent memory retrieval broken for all roles (pre-existing); medical/message data unencrypted at rest; messaging is polling; no automatic notification emails.
+- **Known gaps:** no live LLM / Google call; medical/message data unencrypted at rest; messaging is polling; no automatic notification emails.
 - **Next:** Phase K part 2 (MySQL verification if a server is available; MCP user flow; knowledge-base verification), L (marketplace/entitlements/module activation), M (responsive UI, notifications, activity history, production readiness, Windows install docs). Per phase: branch -> backend+frontend+migration+tests -> mutation checks -> browser run -> full suite -> commit with trailers -> `git merge --ff-only` into master -> HANDOFF + report.
 
 ## Phase J (part 2): Internal messaging (branch feat/phase-j-messaging)
