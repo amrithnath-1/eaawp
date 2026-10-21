@@ -10,12 +10,12 @@ unless stated.
 - Column-level blocking (sensitive names auto-blocked), outbound-host SSRF guard, connected-state check, failure-audit fix, connection-edit 500 fix, new `/connections` admin page (databases + SMTP; they were unreachable in real mode). Verified against a REAL PostgreSQL 16 (8 live tests, skipped without `EAAWP_TEST_PG_*`) and through the UI. See `docs/database_connectivity.md`. Migration `f9a3b48c0d56`. MySQL, MCP and knowledge-base NOT verified in this part.
 
 ## CURRENT STATE (updated after resuming; supersedes the earlier pause checkpoint)
-- **Branch:** `master` (local). **Last code commit:** `7382ea0` (Phase J part 3). Nothing pushed/deployed; 13 local commits ahead of origin/master by the hook's count (push needs the owner's explicit approval).
+- **Branch:** `master` (local). **Last code commit:** `cd3bfcb` (Phase K part 1). Nothing pushed/deployed; 13 local commits ahead of origin/master by the hook's count (push needs the owner's explicit approval).
 - **Completed (MOCK-TESTED ONLY unless noted):** phases A-J3 (see sections below). J3 invitation email was also exercised against a real local SMTP server; no real mail provider yet.
-- **Test results at `7382ea0`:** full backend suite `2088 passed, 5 skipped, 0 failed`; frontend build + tsc clean; real-browser runs for G-J3 with a scripted LLM.
+- **Test results at `7382ea0`:** full backend suite `2119 passed, 5 skipped, 0 failed` (incl. 8 live-PostgreSQL tests); frontend build + tsc clean; real-browser runs for G-J3 with a scripted LLM.
 - **Migration head:** `e8f2a37b9c45` (J3 added no migration). Owner's local DB not migrated by me; back up and rehearse on a copy first.
 - **Known gaps:** no live LLM / Google call; agent memory retrieval broken for all roles (pre-existing); medical/message data unencrypted at rest; messaging is polling; no automatic notification emails.
-- **Next:** Phase K (knowledge + database connectivity, MCP, read-only SQL, secrets via secure admin form only), L (marketplace/entitlements/module activation), M (responsive UI, notifications, activity history, production readiness, Windows install docs). Per phase: branch -> backend+frontend+migration+tests -> mutation checks -> browser run -> full suite -> commit with trailers -> `git merge --ff-only` into master -> HANDOFF + report.
+- **Next:** Phase K part 2 (MySQL verification if a server is available; MCP user flow; knowledge-base verification), L (marketplace/entitlements/module activation), M (responsive UI, notifications, activity history, production readiness, Windows install docs). Per phase: branch -> backend+frontend+migration+tests -> mutation checks -> browser run -> full suite -> commit with trailers -> `git merge --ff-only` into master -> HANDOFF + report.
 
 ## Phase J (part 2): Internal messaging (branch feat/phase-j-messaging)
 - 1:1 messages between active members of a company, private to the two participants (admins cannot read them), unread badge, `/messages` page. See `docs/internal_messaging.md`. Migration `e8f2a37b9c45`. Status: IMPLEMENTED, MOCK-TESTED ONLY. Polling, no push/email notification, no groups/attachments.
