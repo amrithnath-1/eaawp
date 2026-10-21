@@ -20,6 +20,7 @@ import {
   SlidersHorizontal,
   Users,
   Workflow,
+  Database,
   X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -35,6 +36,7 @@ const NAV = [
   { to: "/employees",   label: "Employees",   icon: Users },
   { to: "/approvals",   label: "Approvals",   icon: CheckSquare },
   { to: "/workflows",   label: "Workflows",   icon: Workflow },
+  { to: "/data",        label: "Data",        icon: Database },
   { to: "/activity",    label: "Activity",    icon: BotMessageSquare },
   { to: "/scheduled",   label: "Scheduled",   icon: CalendarClock },
   { to: "/library",     label: "Library",     icon: Library },

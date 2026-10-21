@@ -3,6 +3,9 @@
 Base branch: `master`. Never push/deploy without explicit approval. Nothing here claims live verification
 unless stated.
 
+## Phase G: Data Analyst (branch feat/phase-g-data-analyst)
+- Dataset upload, deterministic analysis engine, NL questions (LLM plans, engine computes), saved reports + CSV export, `/data` page, agent tools `list_datasets`/`analyze_dataset`, `DATA_INTELLIGENCE_ANALYST` role now implemented. See `docs/data_analyst.md`. Migration `a4b8c93d5e21`. Status: IMPLEMENTED, MOCK-TESTED; browser-exercised on a real server with a scripted LLM.
+
 ## Phase F: AI Employee Builder (branch feat/phase-f-employee-builder)
 - Approved employees become real roles; versioned NL revisions with approval; rollback; pause. See `docs/employee_builder.md`. Migration `z3a7b82c4d20`. Status: IMPLEMENTED, MOCK-TESTED; browser-exercised with a scripted LLM.
 
@@ -27,12 +30,13 @@ IMPLEMENTED AND VERIFIED / IMPLEMENTED, MOCK-TESTED ONLY / IMPLEMENTED BUT NOT V
 | Search Console workflow incl. property selection | IMPLEMENTED, MOCK-TESTED ONLY - live Google test pending the owner |
 | Local runtime errors (CORS/500 on old DB) | IMPLEMENTED AND VERIFIED against the real server on an old-schema DB |
 | Phase D: persistent workflow runs, schedules, retries, recovery (`docs/workflows_scheduling.md`) | IMPLEMENTED, MOCK-TESTED ONLY (fake LLM/Google); scheduler loop + crash recovery also exercised on a real uvicorn process (no live Google) |
-| Multi-agent/Meeting Room, builder, other roles, knowledge, marketplace | PLANNED (see roadmap) |
+| Meeting Room (E), AI Employee Builder lifecycle (F), Data Analyst (G) | IMPLEMENTED, MOCK-TESTED ONLY (scripted LLM; real server + browser exercised) |
+| Institutional Clerk, Medical Assistant, invitations/messaging, knowledge/DB connectivity, marketplace | PLANNED (see roadmap) |
 
 ## Run / test
 * Backend tests: `cd backend; python -m pytest -q` (venv with `requirements`). Frontend: `npx tsc --noEmit`, `npm run build`.
 * Windows run + migration steps: `docs/local_windows_runtime.md`.
-* Migration head: `x1y5z60a2b18`. Rehearse any migration on a copy first.
+* Migration head: `a4b8c93d5e21`. Rehearse any migration on a copy first.
 
 ## Architecture pointers
 * Tool bridge: `app/tools/dynamic_tool.py` -> `app/integrations/manager.py` (`execute_capability`: tenant, status, role grant, decrypt in memory).

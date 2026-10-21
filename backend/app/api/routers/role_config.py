@@ -303,10 +303,60 @@ async def _get_or_seed(
     return row
 
 
+_DATA_ANALYST_DEFAULTS: dict = {
+    "role_name": "Data Intelligence Analyst",
+    "agent_name": "Data Analyst Agent",
+    "description": "Answers questions about the company's uploaded datasets with deterministic, verifiable calculations.",
+    "responsibilities_json": json.dumps([
+        "Answer business questions from uploaded datasets",
+        "Summarise, group, trend and compare data",
+        "Explain every figure with its source dataset and filters",
+        "Flag data quality problems and limits of the data",
+    ]),
+    "objectives_json": json.dumps([
+        "Give accurate, reproducible numbers",
+        "Make data easy to explore without writing queries",
+    ]),
+    "instructions": (
+        "Use list_datasets before analysing. Report only numbers returned by analyze_dataset and always name the "
+        "dataset. Do not speculate about causes; say when the data cannot answer the question."
+    ),
+    "system_persona": (
+        "You are the Data Analyst Agent for this company. You answer questions using only the company's uploaded "
+        "datasets through the analysis tools. You never invent figures, always cite the dataset, and state the "
+        "limits of the data. Be concise and data-first."
+    ),
+    "tool_scopes_json": json.dumps([
+        {"name": "List Datasets", "tool_key": "list_datasets", "governance": "enabled",
+         "description": "List uploaded datasets and their columns - read only"},
+        {"name": "Analyse Dataset", "tool_key": "analyze_dataset", "governance": "enabled",
+         "description": "Answer a question about a dataset with computed figures - read only"},
+        {"name": "Fetch Knowledge Base", "tool_key": "fetch_knowledge_base", "governance": "enabled",
+         "description": "Search indexed company documents - read only"},
+        {"name": "Create Internal Task", "tool_key": "create_internal_task", "governance": "enabled",
+         "description": "Create an internal EAAWP task record - low risk"},
+        {"name": "Draft Email", "tool_key": "draft_email", "governance": "enabled",
+         "description": "Prepare an email draft for review - does not send"},
+    ]),
+    "capabilities_json": "{}",
+    "permissions_json": "[]",
+    "workflows_json": "[]",
+    "monitoring_rules_json": "[]",
+    "communication_style": "Concise",
+    "schedule_preferences_json": "[]",
+    "memory_settings_json": "{}",
+    "llm_model": "gpt-4o-mini",
+    "autonomy_level": 3,
+    "quick_prompts_json": json.dumps(["What datasets do we have?", "Summarise the main trends in our latest dataset"]),
+}
+
+
 def _get_defaults(role_key: str) -> dict:
     """Return seed defaults for the given role key."""
     if role_key == "DIGITAL_MARKETING_MANAGER":
         return _DMM_DEFAULTS
+    if role_key == "DATA_INTELLIGENCE_ANALYST":
+        return _DATA_ANALYST_DEFAULTS
     # Fallback minimal defaults for any future role
     return {
         "role_name": role_key.replace("_", " ").title(),

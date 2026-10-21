@@ -16,6 +16,7 @@ import { Route as AuditRouteImport } from './routes/audit'
 import { Route as CabinRouteImport } from './routes/cabin'
 import { Route as CompanyRouteImport } from './routes/company'
 import { Route as CustomizeRouteImport } from './routes/customize'
+import { Route as DataRouteImport } from './routes/data'
 import { Route as EmployeesRouteImport } from './routes/employees'
 import { Route as IntegrationsRouteImport } from './routes/integrations'
 import { Route as LibraryRouteImport } from './routes/library'
@@ -60,6 +61,11 @@ const CompanyRoute = CompanyRouteImport.update({
 const CustomizeRoute = CustomizeRouteImport.update({
   id: '/customize',
   path: '/customize',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DataRoute = DataRouteImport.update({
+  id: '/data',
+  path: '/data',
   getParentRoute: () => rootRouteImport,
 } as any)
 const EmployeesRoute = EmployeesRouteImport.update({
@@ -121,6 +127,7 @@ export interface FileRoutesByFullPath {
   '/cabin': typeof CabinRoute
   '/company': typeof CompanyRoute
   '/customize': typeof CustomizeRoute
+  '/data': typeof DataRoute
   '/employees': typeof EmployeesRoute
   '/integrations': typeof IntegrationsRoute
   '/library': typeof LibraryRoute
@@ -140,6 +147,7 @@ export interface FileRoutesByTo {
   '/cabin': typeof CabinRoute
   '/company': typeof CompanyRoute
   '/customize': typeof CustomizeRoute
+  '/data': typeof DataRoute
   '/employees': typeof EmployeesRoute
   '/integrations': typeof IntegrationsRoute
   '/library': typeof LibraryRoute
@@ -160,6 +168,7 @@ export interface FileRoutesById {
   '/cabin': typeof CabinRoute
   '/company': typeof CompanyRoute
   '/customize': typeof CustomizeRoute
+  '/data': typeof DataRoute
   '/employees': typeof EmployeesRoute
   '/integrations': typeof IntegrationsRoute
   '/library': typeof LibraryRoute
@@ -181,6 +190,7 @@ export interface FileRouteTypes {
     | '/cabin'
     | '/company'
     | '/customize'
+    | '/data'
     | '/employees'
     | '/integrations'
     | '/library'
@@ -200,6 +210,7 @@ export interface FileRouteTypes {
     | '/cabin'
     | '/company'
     | '/customize'
+    | '/data'
     | '/employees'
     | '/integrations'
     | '/library'
@@ -219,6 +230,7 @@ export interface FileRouteTypes {
     | '/cabin'
     | '/company'
     | '/customize'
+    | '/data'
     | '/employees'
     | '/integrations'
     | '/library'
@@ -239,6 +251,7 @@ export interface RootRouteChildren {
   CabinRoute: typeof CabinRoute
   CompanyRoute: typeof CompanyRoute
   CustomizeRoute: typeof CustomizeRoute
+  DataRoute: typeof DataRoute
   EmployeesRoute: typeof EmployeesRoute
   IntegrationsRoute: typeof IntegrationsRoute
   LibraryRoute: typeof LibraryRoute
@@ -300,6 +313,13 @@ declare module '@tanstack/react-router' {
       path: '/customize'
       fullPath: '/customize'
       preLoaderRoute: typeof CustomizeRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/data': {
+      id: '/data'
+      path: '/data'
+      fullPath: '/data'
+      preLoaderRoute: typeof DataRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/employees': {
@@ -383,6 +403,7 @@ const rootRouteChildren: RootRouteChildren = {
   CabinRoute: CabinRoute,
   CompanyRoute: CompanyRoute,
   CustomizeRoute: CustomizeRoute,
+  DataRoute: DataRoute,
   EmployeesRoute: EmployeesRoute,
   IntegrationsRoute: IntegrationsRoute,
   LibraryRoute: LibraryRoute,

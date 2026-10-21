@@ -15,7 +15,7 @@ import pytest
 
 BACKEND = pathlib.Path(__file__).resolve().parents[2]
 PREVIOUS = "u8v2w37x9y15"
-HEAD = "z3a7b82c4d20"
+HEAD = "a4b8c93d5e21"
 
 
 def alembic(db: pathlib.Path, *args: str) -> str:
@@ -180,4 +180,24 @@ def test_employee_versions_migration_is_additive_and_reversible(tmp_path):
     assert cols(db, "employee_versions") == {}
     con = sqlite3.connect(db)
     assert con.execute("SELECT name FROM ai_employees WHERE id='e1'").fetchone() == ("Emp",)
+    con.close()
+
+
+def test_datasets_migration_is_additive_and_reversible(tmp_path):
+    import sqlite3
+    db = tmp_path / "datasets.db"
+    alembic(db, "upgrade", "z3a7b82c4d20")
+    con = sqlite3.connect(db)
+    con.execute("INSERT INTO companies (id, name, industry, region, employees, is_active) VALUES ('t','T','x','x',1,1)")
+    con.commit(); con.close()
+    alembic(db, "upgrade", "head")
+    assert {"tenant_id", "name", "content_csv", "columns_json", "row_count", "is_restricted"} <= set(cols(db, "datasets"))
+    assert {"dataset_id", "spec_json", "result_json", "narrative", "narrative_source", "is_restricted"} <= set(cols(db, "analysis_reports"))
+    con = sqlite3.connect(db)
+    con.execute("INSERT INTO datasets (id, tenant_id, name) VALUES ('d1','t','Sales')")
+    con.commit(); con.close()
+    alembic(db, "downgrade", "z3a7b82c4d20")
+    assert cols(db, "datasets") == {} and cols(db, "analysis_reports") == {}
+    con = sqlite3.connect(db)
+    assert con.execute("SELECT name FROM companies WHERE id='t'").fetchone() == ("T",)
     con.close()

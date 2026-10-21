@@ -30,6 +30,7 @@ import app.db.pending_task_models  # noqa: E402, F401  ← requests waiting for 
 import app.db.workflow_run_models  # noqa: E402, F401  ← workflow run history
 import app.db.meeting_models  # noqa: E402, F401  ← Meeting Room
 import app.db.employee_version_models  # noqa: E402, F401  ← AI employee versions
+import app.db.dataset_models  # noqa: E402, F401  ← datasets and analysis reports
 # Phase H/I — new tables for employee builder and workflow engine
 # (These are defined in models.py so Base already knows them — no extra import needed)
 config = context.config

@@ -1616,6 +1616,81 @@ async def analyze_content_tool(params: str) -> str:
         return f"[ERROR] analyze_content: {str(exc)[:200]}"
 
 
+# -- Data Analyst tools (read-only; restricted datasets are never visible to agents) ---------------
+
+@tool
+async def list_datasets(params: str = "{}") -> str:
+    """
+    List the company's uploaded datasets (name, rows, columns). Read only.
+    Restricted datasets are not listed.
+
+    Args:
+        params: unused; pass "{}".
+    """
+    import json as _json
+    from sqlalchemy import select
+    from app.db.dataset_models import Dataset
+    db = _db_session_ctx.get()
+    tenant_id = _tenant_id_ctx.get()
+    if db is None or not tenant_id:
+        return "[ERROR] list_datasets: no database session."
+    try:
+        q = select(Dataset).where(Dataset.tenant_id == tenant_id, Dataset.is_restricted.is_(False)).order_by(Dataset.name)
+        items = (await db.execute(q)).scalars().all()
+        if not items:
+            return "No datasets have been uploaded yet. An administrator can upload a CSV or Excel file on the Data page."
+        lines = [f"Datasets ({len(items)}):"]
+        for d in items:
+            cols = ", ".join(f"{c['name']} ({c['type']})" for c in _json.loads(d.columns_json or "[]")[:25])
+            lines.append(f"- {d.name}: {d.row_count:,} rows; columns: {cols}")
+        return "\n".join(lines)
+    except Exception as exc:
+        logger.error("list_datasets error: %s", exc)
+        return f"[ERROR] list_datasets: {str(exc)[:200]}"
+
+
+@tool
+async def analyze_dataset(params: str) -> str:
+    """
+    Answer a question about an uploaded dataset. All numbers are computed by a deterministic engine,
+    never estimated. Read only; restricted datasets are not available.
+
+    Args:
+        params: JSON string with keys: dataset (name or id) and question (plain language).
+    """
+    import json as _json
+    from sqlalchemy import select
+    from app.db.dataset_models import Dataset
+    from app.services import analysis_engine as eng
+    from app.services import analysis_service as asvc
+    db = _db_session_ctx.get()
+    tenant_id = _tenant_id_ctx.get()
+    if db is None or not tenant_id:
+        return "[ERROR] analyze_dataset: no database session."
+    try:
+        p = _json.loads(params) if isinstance(params, str) and params.strip() else {}
+    except _json.JSONDecodeError:
+        p = {}
+    ref, question = str(p.get("dataset", "")).strip(), str(p.get("question", "")).strip()
+    if not ref or not question:
+        return "[ERROR] analyze_dataset: provide both 'dataset' and 'question'. Use list_datasets to see what exists."
+    try:
+        q = select(Dataset).where(Dataset.tenant_id == tenant_id, Dataset.is_restricted.is_(False))
+        items = (await db.execute(q)).scalars().all()
+        ds = next((d for d in items if d.id == ref), None) or next((d for d in items if d.name.lower() == ref.lower()), None)
+        if ds is None:
+            return f"[ERROR] analyze_dataset: no dataset named '{ref[:60]}'. Use list_datasets."
+        spec = await asvc.plan_spec(question, _json.loads(ds.columns_json or "[]"))
+        result = asvc.run_on_dataset(spec, ds)
+        return asvc.template_narrative(result, question) + "\nTable: " + _json.dumps(
+            {"columns": result["columns"], "rows": result["rows"][:20]}, default=str)
+    except eng.SpecError as exc:
+        return f"[ERROR] analyze_dataset: {exc}"
+    except Exception as exc:
+        logger.error("analyze_dataset error: %s", exc)
+        return f"[ERROR] analyze_dataset: {str(exc)[:200]}"
+
+
 MASTER_TOOL_REGISTRY: dict[str, object] = {
     "fetch_knowledge_base": fetch_knowledge_base,
     "draft_email": draft_email,
@@ -1645,6 +1720,8 @@ MASTER_TOOL_REGISTRY: dict[str, object] = {
     "generate_content_draft": generate_content_draft_tool,
     "generate_content_variants": generate_content_variants_tool,
     "analyze_content": analyze_content_tool,
+    "list_datasets": list_datasets,
+    "analyze_dataset": analyze_dataset,
 }
 
 

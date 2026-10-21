@@ -3849,3 +3849,97 @@ export function usePauseEmployee(id: string) {
     },
   });
 }
+
+// ── Data Analyst: datasets, analysis, saved reports ──────────────────────────────
+export interface DatasetColumnFE { name: string; type: "number" | "date" | "text"; non_null: number; distinct: number; sample: string[] }
+export interface DatasetFE {
+  id: string; name: string; filename: string; row_count: number; size_bytes: number;
+  is_restricted: boolean; columns: DatasetColumnFE[]; created_at: string;
+}
+export interface DatasetDetailFE extends DatasetFE { preview: Array<Array<string | number | null>> }
+export interface AnalysisResultFE {
+  columns: string[]; rows: Array<Array<string | number | null>>; row_count: number;
+  chart: { type: "bar" | "line" | "pie" | "scatter" | "none"; x?: string; y?: string };
+  source: string; notes: string[]; spec: Record<string, unknown>;
+}
+export interface AnalysisFE extends AnalysisResultFE { narrative: string; narrative_source: "llm" | "template" }
+export interface AnalysisReportFE {
+  id: string; dataset_id: string | null; dataset_name: string; title: string; question: string;
+  result: AnalysisResultFE; narrative: string; narrative_source: string; is_restricted: boolean;
+  created_by: string; created_at: string;
+}
+
+export function useDatasets() {
+  return useQuery<DatasetFE[]>({ queryKey: ["datasets"] as const, queryFn: () => intMgrFetch<DatasetFE[]>("GET", "/api/v1/datasets") });
+}
+export function useDataset(id: string | null) {
+  return useQuery<DatasetDetailFE>({
+    queryKey: ["dataset", id] as const, enabled: !!id,
+    queryFn: () => intMgrFetch<DatasetDetailFE>("GET", `/api/v1/datasets/${id}`),
+  });
+}
+export function useUploadDataset() {
+  const qc = useQueryClient();
+  return useMutation<DatasetFE, Error, FormData>({
+    mutationFn: (formData) => {
+      // Multipart: do not set Content-Type (the browser adds the boundary).
+      const token = typeof window !== "undefined" ? window.localStorage.getItem("eaawp.access_token") : null;
+      return fetch(`${API_BASE_URL}/api/v1/datasets`, {
+        method: "POST", headers: token ? { Authorization: `Bearer ${token}` } : {}, body: formData,
+      }).then(async (res) => {
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({ detail: res.statusText }));
+          throw new Error(typeof body === "object" && body !== null && "detail" in body ? String((body as Record<string, unknown>)["detail"]) : res.statusText);
+        }
+        return res.json() as Promise<DatasetFE>;
+      });
+    },
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ["datasets"] }),
+  });
+}
+export function useDeleteDataset() {
+  const qc = useQueryClient();
+  return useMutation<void, Error, string>({
+    mutationFn: (id) => intMgrFetch<void>("DELETE", `/api/v1/datasets/${id}`),
+    onSuccess: () => { void qc.invalidateQueries({ queryKey: ["datasets"] }); void qc.invalidateQueries({ queryKey: ["analysis-reports"] }); },
+  });
+}
+export function useRestrictDataset() {
+  const qc = useQueryClient();
+  return useMutation<DatasetFE, Error, { id: string; is_restricted: boolean }>({
+    mutationFn: ({ id, is_restricted }) => intMgrFetch<DatasetFE>("PATCH", `/api/v1/datasets/${id}`, { is_restricted }),
+    onSuccess: () => { void qc.invalidateQueries({ queryKey: ["datasets"] }); void qc.invalidateQueries({ queryKey: ["analysis-reports"] }); },
+  });
+}
+export function useAnalyzeDataset(id: string) {
+  return useMutation<AnalysisFE, Error, { question?: string; spec?: Record<string, unknown> }>({
+    mutationFn: (body) => intMgrFetch<AnalysisFE>("POST", `/api/v1/datasets/${id}/analyze`, body),
+  });
+}
+export function useAnalysisReports() {
+  return useQuery<AnalysisReportFE[]>({ queryKey: ["analysis-reports"] as const, queryFn: () => intMgrFetch<AnalysisReportFE[]>("GET", "/api/v1/analysis-reports") });
+}
+export function useSaveAnalysisReport() {
+  const qc = useQueryClient();
+  return useMutation<AnalysisReportFE, Error, { dataset_id: string; title: string; question: string; spec: Record<string, unknown> }>({
+    mutationFn: (body) => intMgrFetch<AnalysisReportFE>("POST", "/api/v1/analysis-reports", body),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ["analysis-reports"] }),
+  });
+}
+export function useDeleteAnalysisReport() {
+  const qc = useQueryClient();
+  return useMutation<void, Error, string>({
+    mutationFn: (id) => intMgrFetch<void>("DELETE", `/api/v1/analysis-reports/${id}`),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ["analysis-reports"] }),
+  });
+}
+/** Download a saved report as CSV (authenticated fetch -> blob). */
+export async function downloadReportCsv(id: string): Promise<void> {
+  const token = window.localStorage.getItem("eaawp.access_token");
+  const res = await fetch(`${API_BASE_URL}/api/v1/analysis-reports/${id}/export.csv`, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+  if (!res.ok) throw new Error("Export failed");
+  const url = URL.createObjectURL(await res.blob());
+  const a = document.createElement("a");
+  a.href = url; a.download = "analysis-report.csv"; document.body.appendChild(a); a.click(); a.remove();
+  URL.revokeObjectURL(url);
+}
