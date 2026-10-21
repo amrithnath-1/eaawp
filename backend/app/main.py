@@ -66,6 +66,8 @@ from app.api.routers.admin_config import router as admin_config_router  # Admin 
 from app.middleware.observability import ObservabilityMiddleware  # Phase N
 from app.middleware.docs_guard import ProductionDocsGuard, is_production
 from app.core.startup_checks import secret_key_problem
+from app.core.error_handlers import install_error_handlers
+from app.core.schema_check import MIGRATE_HINT, schema_status
 
 logging.basicConfig(
     level=logging.INFO,
@@ -105,6 +107,24 @@ async def lifespan(app: FastAPI):  # type: ignore[type-arg]
     logger.info("EAAWP backend starting — environment: %s", settings.environment)
     logger.info("Database: %s", settings.database_url.split("@")[-1])  # hide credentials
 
+    # ── Database schema check ─────────────────────────────────────────────────
+    # Never migrates automatically; only says clearly when the database is behind.
+    try:
+        from app.db.session import engine as _engine
+        _schema = await schema_status(_engine)
+        app.state.schema_up_to_date = bool(_schema["up_to_date"])
+        if _schema["up_to_date"]:
+            logger.info("Database schema: up to date (%s)", _schema["current"])
+        else:
+            logger.error(
+                "Database schema is BEHIND this code (database=%s, code expects=%s). "
+                "Features that use newer tables will fail until you migrate. %s",
+                _schema["current"], _schema["expected"], MIGRATE_HINT,
+            )
+    except Exception as _exc:  # a failed check must not stop the server
+        app.state.schema_up_to_date = None
+        logger.warning("Database schema check could not run: %s", type(_exc).__name__)
+
     # ── LLM configuration check ───────────────────────────────────────────────
     # Reports whether the API key is present without revealing it.
     # Does NOT make a live API call — safe to run at every startup.
@@ -143,6 +163,8 @@ app = FastAPI(
     openapi_url=None if is_production() else "/openapi.json",
     lifespan=lifespan,
 )
+
+install_error_handlers(app)
 
 app.add_middleware(
     CORSMiddleware,
@@ -203,4 +225,9 @@ app.include_router(admin_config_router)  # Admin Config Engine — /api/v1/admin
 # ── Health check ──────────────────────────────────────────────────────────────
 @app.get("/health", tags=["health"])
 async def health() -> dict[str, str]:
-    return {"status": "ok", "version": settings.app_version}
+    schema = getattr(app.state, "schema_up_to_date", None)
+    return {
+        "status": "ok",
+        "version": settings.app_version,
+        "database_schema": "unknown" if schema is None else ("ok" if schema else "out_of_date"),
+    }
