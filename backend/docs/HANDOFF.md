@@ -3,6 +3,9 @@
 Base branch: `master`. Never push/deploy without explicit approval. Nothing here claims live verification
 unless stated.
 
+## Phase J (part 2): Internal messaging (branch feat/phase-j-messaging)
+- 1:1 messages between active members of a company, private to the two participants (admins cannot read them), unread badge, `/messages` page. See `docs/internal_messaging.md`. Migration `e8f2a37b9c45`. Status: IMPLEMENTED, MOCK-TESTED ONLY. Polling, no push/email notification, no groups/attachments.
+
 ## Phase J (part 1): Team invitations + members (branch feat/phase-j-invitations)
 - Single-use expiring hashed invitation links, accept page (`/accept-invite`), `/team` admin page (invite, resend, revoke, change role, deactivate/reactivate with token revocation). See `docs/team_invitations.md`. Migration `d7e1f26a8b34`. Status: IMPLEMENTED, MOCK-TESTED ONLY. No email delivery yet (part 3); internal messaging is part 2.
 
@@ -43,12 +46,13 @@ IMPLEMENTED AND VERIFIED / IMPLEMENTED, MOCK-TESTED ONLY / IMPLEMENTED BUT NOT V
 | Institutional Clerk (H) | IMPLEMENTED, MOCK-TESTED ONLY (scripted LLM; real server + browser exercised) |
 | Medical Assistant (I) | IMPLEMENTED, MOCK-TESTED ONLY (scripted LLM; unencrypted at rest) |
 | Team invitations + member admin (J1) | IMPLEMENTED, MOCK-TESTED ONLY (no email delivery) |
-| Messaging, authorized email, knowledge/DB connectivity, marketplace | PLANNED (see roadmap) |
+| Internal messaging (J2) | IMPLEMENTED, MOCK-TESTED ONLY (polling; no notifications) |
+| Authorized email, knowledge/DB connectivity, marketplace | PLANNED (see roadmap) |
 
 ## Run / test
 * Backend tests: `cd backend; python -m pytest -q` (venv with `requirements`). Frontend: `npx tsc --noEmit`, `npm run build`.
 * Windows run + migration steps: `docs/local_windows_runtime.md`.
-* Migration head: `d7e1f26a8b34`. Rehearse any migration on a copy first.
+* Migration head: `e8f2a37b9c45`. Rehearse any migration on a copy first.
 
 ## Architecture pointers
 * Tool bridge: `app/tools/dynamic_tool.py` -> `app/integrations/manager.py` (`execute_capability`: tenant, status, role grant, decrypt in memory).

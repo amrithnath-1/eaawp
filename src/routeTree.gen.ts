@@ -24,6 +24,7 @@ import { Route as EmployeesRouteImport } from './routes/employees'
 import { Route as IntegrationsRouteImport } from './routes/integrations'
 import { Route as LibraryRouteImport } from './routes/library'
 import { Route as MeetingRouteImport } from './routes/meeting'
+import { Route as MessagesRouteImport } from './routes/messages'
 import { Route as RecentsRouteImport } from './routes/recents'
 import { Route as RolesRouteImport } from './routes/roles'
 import { Route as ScheduledRouteImport } from './routes/scheduled'
@@ -107,6 +108,11 @@ const MeetingRoute = MeetingRouteImport.update({
   path: '/meeting',
   getParentRoute: () => rootRouteImport,
 } as any)
+const MessagesRoute = MessagesRouteImport.update({
+  id: '/messages',
+  path: '/messages',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const RecentsRoute = RecentsRouteImport.update({
   id: '/recents',
   path: '/recents',
@@ -159,6 +165,7 @@ export interface FileRoutesByFullPath {
   '/integrations': typeof IntegrationsRoute
   '/library': typeof LibraryRoute
   '/meeting': typeof MeetingRoute
+  '/messages': typeof MessagesRoute
   '/recents': typeof RecentsRoute
   '/roles': typeof RolesRoute
   '/scheduled': typeof ScheduledRoute
@@ -183,6 +190,7 @@ export interface FileRoutesByTo {
   '/integrations': typeof IntegrationsRoute
   '/library': typeof LibraryRoute
   '/meeting': typeof MeetingRoute
+  '/messages': typeof MessagesRoute
   '/recents': typeof RecentsRoute
   '/roles': typeof RolesRoute
   '/scheduled': typeof ScheduledRoute
@@ -208,6 +216,7 @@ export interface FileRoutesById {
   '/integrations': typeof IntegrationsRoute
   '/library': typeof LibraryRoute
   '/meeting': typeof MeetingRoute
+  '/messages': typeof MessagesRoute
   '/recents': typeof RecentsRoute
   '/roles': typeof RolesRoute
   '/scheduled': typeof ScheduledRoute
@@ -234,6 +243,7 @@ export interface FileRouteTypes {
     | '/integrations'
     | '/library'
     | '/meeting'
+    | '/messages'
     | '/recents'
     | '/roles'
     | '/scheduled'
@@ -258,6 +268,7 @@ export interface FileRouteTypes {
     | '/integrations'
     | '/library'
     | '/meeting'
+    | '/messages'
     | '/recents'
     | '/roles'
     | '/scheduled'
@@ -282,6 +293,7 @@ export interface FileRouteTypes {
     | '/integrations'
     | '/library'
     | '/meeting'
+    | '/messages'
     | '/recents'
     | '/roles'
     | '/scheduled'
@@ -307,6 +319,7 @@ export interface RootRouteChildren {
   IntegrationsRoute: typeof IntegrationsRoute
   LibraryRoute: typeof LibraryRoute
   MeetingRoute: typeof MeetingRoute
+  MessagesRoute: typeof MessagesRoute
   RecentsRoute: typeof RecentsRoute
   RolesRoute: typeof RolesRoute
   ScheduledRoute: typeof ScheduledRoute
@@ -423,6 +436,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof MeetingRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/messages': {
+      id: '/messages'
+      path: '/messages'
+      fullPath: '/messages'
+      preLoaderRoute: typeof MessagesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/recents': {
       id: '/recents'
       path: '/recents'
@@ -491,6 +511,7 @@ const rootRouteChildren: RootRouteChildren = {
   IntegrationsRoute: IntegrationsRoute,
   LibraryRoute: LibraryRoute,
   MeetingRoute: MeetingRoute,
+  MessagesRoute: MessagesRoute,
   RecentsRoute: RecentsRoute,
   RolesRoute: RolesRoute,
   ScheduledRoute: ScheduledRoute,

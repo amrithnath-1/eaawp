@@ -24,11 +24,13 @@ import {
   ClipboardList,
   Stethoscope,
   UserPlus,
+  MessageSquare,
   X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useSession, useWorkspaceGuard } from "@/state/session";
 import { useAgentStatus } from "@/state/useAgentStatus";
+import { useUnreadMessages } from "@/hooks/use-api";
 import { AmoebaButton } from "./AmoebaButton";
 import { LetterBoxDrawer } from "./LetterBoxDrawer";
 
@@ -42,6 +44,7 @@ const NAV = [
   { to: "/data",        label: "Data",        icon: Database },
   { to: "/clerk",       label: "Clerk",       icon: ClipboardList },
   { to: "/clinic",      label: "Clinic",      icon: Stethoscope },
+  { to: "/messages",    label: "Messages",    icon: MessageSquare },
   { to: "/team",        label: "Team",        icon: UserPlus },
   { to: "/activity",    label: "Activity",    icon: BotMessageSquare },
   { to: "/scheduled",   label: "Scheduled",   icon: CalendarClock },
@@ -61,6 +64,7 @@ export function AppShell({ children, contentClassName }: { children: ReactNode; 
   const { ready, user, company } = useWorkspaceGuard();
   const { signOut } = useSession();
   const { status, label } = useAgentStatus();
+  const unread = useUnreadMessages().data?.unread ?? 0;
   const navigate = useNavigate();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const [drawer, setDrawer] = useState(false);
@@ -106,6 +110,7 @@ export function AppShell({ children, contentClassName }: { children: ReactNode; 
               >
                 <item.icon className="size-3.5 shrink-0" strokeWidth={1.5} />
                 {item.label}
+                {item.to === "/messages" && unread > 0 && <span data-testid="nav-unread" className="ml-auto bg-primary px-1.5 font-mono text-[10px] text-primary-foreground">{unread}</span>}
               </Link>
             </li>
           );

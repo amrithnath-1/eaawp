@@ -53,6 +53,7 @@ MEMBER_MUTATIONS: dict[tuple[str, str], str] = {
     ("POST", "/api/v1/clinic/appointments"): "A member requests an appointment AS THEMSELVES (patient forced from the JWT); the safety screen runs on the reason; capped at 10 open requests per person.",
     ("POST", "/api/v1/clinic/appointments/{appointment_id}/notes"): "Patient messages on their OWN appointment (staff: any in their company); internal notes refused for non-staff; closed appointments refused.",
     ("POST", "/api/v1/clinic/appointments/{appointment_id}/cancel"): "Patient cancels their OWN still-open request; reduces what is scheduled and cannot confirm anything.",
+    ("POST", "/api/v1/messages/with/{user_id}"): "Any member messages another ACTIVE member of their own company; the sender is forced from the JWT; 2000-char cap; no admin visibility into conversations.",
     ("POST", "/api/v1/clinic/screen"): "Pure function on the submitted text (deterministic safety screen); reads and writes nothing.",
     ("DELETE", "/api/v1/analysis-reports/{report_id}"): "Author deletes their OWN report (admins: any in their company); others get 403/404.",
     ("POST", "/api/v1/clerk/requests"): "Any member files a request AS THEMSELVES (requester forced from the JWT); inputs validated and capped at 25 open requests per person.",

@@ -4110,3 +4110,36 @@ export async function publicInviteCall<T>(path: "lookup" | "accept", body: Recor
   if (!res.ok) throw new Error(typeof data?.detail === "string" ? data.detail : "Something went wrong. Please try again.");
   return data as T;
 }
+
+// ── Internal messaging (Phase J, part 2) ──────────────────────────────────────────
+export interface MsgPersonFE { id: string; name: string; role: string }
+export interface MsgConversationFE { user_id: string; name: string; active: boolean; last_body: string; last_at: string; last_from_me: boolean; unread: number }
+export interface MsgFE { id: string; from_me: boolean; body: string; created_at: string; read: boolean }
+export interface MsgThreadFE { peer: { id: string; name: string; active: boolean }; messages: MsgFE[] }
+export function useUnreadMessages() {
+  return useQuery<{ unread: number }>({ queryKey: ["msg-unread"] as const, refetchInterval: 20_000, queryFn: () => intMgrFetch("GET", "/api/v1/messages/unread-count") });
+}
+export function useMessagePeople() {
+  return useQuery<MsgPersonFE[]>({ queryKey: ["msg-people"] as const, staleTime: 60_000, queryFn: () => intMgrFetch("GET", "/api/v1/messages/people") });
+}
+export function useConversations() {
+  return useQuery<MsgConversationFE[]>({ queryKey: ["msg-conversations"] as const, refetchInterval: 15_000, queryFn: () => intMgrFetch("GET", "/api/v1/messages/conversations") });
+}
+export function useMessageThread(userId: string | null) {
+  const qc = useQueryClient();
+  return useQuery<MsgThreadFE>({
+    queryKey: ["msg-thread", userId] as const, enabled: !!userId, refetchInterval: 8_000,
+    queryFn: async () => {
+      const t = await intMgrFetch<MsgThreadFE>("GET", `/api/v1/messages/with/${userId}`);
+      void qc.invalidateQueries({ queryKey: ["msg-unread"] }); void qc.invalidateQueries({ queryKey: ["msg-conversations"] });
+      return t;
+    },
+  });
+}
+export function useSendMessage(userId: string | null) {
+  const qc = useQueryClient();
+  return useMutation<MsgFE, Error, string>({
+    mutationFn: (body) => intMgrFetch<MsgFE>("POST", `/api/v1/messages/with/${userId}`, { body }),
+    onSuccess: () => { void qc.invalidateQueries({ queryKey: ["msg-thread", userId] }); void qc.invalidateQueries({ queryKey: ["msg-conversations"] }); },
+  });
+}
