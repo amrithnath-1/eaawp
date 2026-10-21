@@ -28,6 +28,13 @@ _pub_limit = rate_limit("invite", "login_rate_limit", "login_rate_window_seconds
 class InviteCreate(BaseModel):
     email: str = Field(..., min_length=3, max_length=255)
     role: str = "Employee"
+    send_email: bool = False
+    app_url: str = Field(default="", max_length=200)
+
+
+class ResendBody(BaseModel):
+    send_email: bool = False
+    app_url: str = Field(default="", max_length=200)
 
 
 class RoleBody(BaseModel):
@@ -105,18 +112,21 @@ async def invite(body: InviteCreate, admin: User = Depends(require_admin), db: A
         inv, token = await ts.create_invitation(db, admin, body.email, body.role)
     except ts.TeamError as e:
         raise _err(e)
+    mail = await ts.email_invitation(db, admin, inv, token, body.app_url) if body.send_email else None
     await db.commit()
-    return {**ts.out(inv), "token": token, "accept_path": f"/accept-invite?token={token}"}
+    return {**ts.out(inv), "token": token, "accept_path": f"/accept-invite?token={token}", "email_delivery": mail}
 
 
 @router.post("/invitations/{inv_id}/resend")
-async def resend(inv_id: str, admin: User = Depends(require_admin), db: AsyncSession = Depends(get_db)):
+async def resend(inv_id: str, body: ResendBody | None = None, admin: User = Depends(require_admin), db: AsyncSession = Depends(get_db)):
+    body = body or ResendBody()
     try:
         inv, token = await ts.resend(db, admin, inv_id)
     except ts.TeamError as e:
         raise _err(e)
+    mail = await ts.email_invitation(db, admin, inv, token, body.app_url) if body.send_email else None
     await db.commit()
-    return {**ts.out(inv), "token": token, "accept_path": f"/accept-invite?token={token}"}
+    return {**ts.out(inv), "token": token, "accept_path": f"/accept-invite?token={token}", "email_delivery": mail}
 
 
 @router.post("/invitations/{inv_id}/revoke")

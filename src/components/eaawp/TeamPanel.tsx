@@ -25,7 +25,11 @@ function IssuedLink({ issued, onDone }: { issued: InvitationIssuedFE; onDone: ()
         <button type="button" className="inline-flex items-center gap-1 border border-border px-2 py-1 hover:bg-accent" onClick={() => { void navigator.clipboard?.writeText(url).then(() => toast.success("Link copied"), () => toast.error("Select the link and copy it manually")); }}><Copy className="h-3 w-3" /> Copy</button>
         <button type="button" className="border border-border px-2 py-1 hover:bg-accent" onClick={onDone}>Done</button>
       </div>
-      <p className="text-muted-foreground">Email delivery is not connected yet, so the link has to be passed on by you.</p>
+      {issued.email_delivery?.sent
+        ? <p className="text-success" data-testid="email-result">An email with this link was sent to {issued.email}.</p>
+        : issued.email_delivery
+          ? <p className="text-destructive" role="alert" data-testid="email-result">Email not sent: {issued.email_delivery.error} Share the link yourself.</p>
+          : <p className="text-muted-foreground">No email was sent. Share the link yourself, or tick "Email it to them" next time (needs email set up for the company).</p>}
     </div>
   );
 }
@@ -33,17 +37,19 @@ function IssuedLink({ issued, onDone }: { issued: InvitationIssuedFE; onDone: ()
 function InviteForm({ roles }: { roles: string[] }) {
   const [email, setEmail] = useState("");
   const [role, setRole] = useState("Employee");
+  const [mail, setMail] = useState(false);
   const [issued, setIssued] = useState<InvitationIssuedFE | null>(null);
   const invite = useInvite();
   if (issued) return <IssuedLink issued={issued} onDone={() => setIssued(null)} />;
   return (
-    <form className="flex flex-wrap items-end gap-2 border border-border bg-surface p-3" onSubmit={(e) => { e.preventDefault(); invite.mutate({ email, role }, { onSuccess: (d) => { setIssued(d); setEmail(""); }, onError: (er) => toast.error(er.message) }); }}>
+    <form className="flex flex-wrap items-end gap-2 border border-border bg-surface p-3" onSubmit={(e) => { e.preventDefault(); invite.mutate({ email, role, send_email: mail }, { onSuccess: (d) => { setIssued(d); setEmail(""); }, onError: (er) => toast.error(er.message) }); }}>
       <label className="flex min-w-[220px] flex-1 flex-col gap-1 text-[11px]">Email
         <input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} maxLength={255} aria-label="Invitee email" placeholder="name@company.com" className="border border-border bg-background px-2 py-1.5 text-[13px]" />
       </label>
       <label className="flex flex-col gap-1 text-[11px]">Role
         <select value={role} onChange={(e) => setRole(e.target.value)} aria-label="Invitee role" className="border border-border bg-background px-2 py-1.5 text-[13px]">{roles.map((r) => <option key={r}>{r}</option>)}</select>
       </label>
+      <label className="flex items-center gap-1.5 pb-2 text-[12px]"><input type="checkbox" checked={mail} onChange={(e) => setMail(e.target.checked)} aria-label="Email it to them" /> Email it to them</label>
       <button type="submit" disabled={invite.isPending || !email} className="inline-flex items-center gap-2 border border-border bg-primary px-3 py-1.5 text-[12px] text-primary-foreground disabled:opacity-50">{invite.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <UserPlus className="h-4 w-4" />} Create invitation</button>
     </form>
   );
@@ -89,6 +95,7 @@ export function TeamPanel() {
             <li key={i.id} className="flex flex-wrap items-center gap-2 border border-border px-3 py-2 text-[12px]" data-testid="invitation-row">
               <div className="min-w-0 flex-1"><div className="truncate">{i.email} <span className="text-muted-foreground">as {i.role}</span></div><div className="text-muted-foreground">{i.status === "expired" ? "Expired" : "Expires"} {fmt(i.expires_at)} · invited by {i.invited_by_name}</div></div>
               <button type="button" disabled={invAct.isPending} className="inline-flex items-center gap-1 border border-border px-2 py-1 text-[11px] hover:bg-accent" onClick={() => invAct.mutate({ id: i.id, action: "resend" }, { onSuccess: (d) => setReissued(d as InvitationIssuedFE), onError: (e) => toast.error(e.message) })}><RefreshCw className="h-3 w-3" /> New link</button>
+              <button type="button" disabled={invAct.isPending} className="inline-flex items-center gap-1 border border-border px-2 py-1 text-[11px] hover:bg-accent" onClick={() => invAct.mutate({ id: i.id, action: "resend", send_email: true }, { onSuccess: (d) => setReissued(d as InvitationIssuedFE), onError: (e) => toast.error(e.message) })}>Email new link</button>
               <button type="button" disabled={invAct.isPending} className="inline-flex items-center gap-1 border border-border px-2 py-1 text-[11px] text-destructive hover:bg-accent" onClick={() => invAct.mutate({ id: i.id, action: "revoke" }, { onSuccess: () => toast.success("Invitation revoked"), onError: (e) => toast.error(e.message) })}><Ban className="h-3 w-3" /> Revoke</button>
             </li>))}</ul>)}
       </section>

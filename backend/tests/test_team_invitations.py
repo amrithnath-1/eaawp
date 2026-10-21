@@ -209,3 +209,120 @@ def test_invitations_migration_is_additive_and_reversible():
     import pathlib, re
     src = pathlib.Path(__file__).resolve().parents[1].joinpath("migrations/versions/d7e1f26a8b34_add_invitations.py").read_text()
     assert 'down_revision: Union[str, None] = "c6d0e15f7a23"' in src and "drop_table" in src and not re.search(r"drop_column|alter_column", src)
+
+
+# ── Phase J part 3: authorized email delivery of an invitation ────────────────────────
+
+APP = "http://localhost:5173"
+
+
+class FakeProvider:
+    def __init__(self, ok=True, boom=False):
+        self.sent, self.ok, self.boom = [], ok, boom
+
+    async def send(self, recipients, subject, body, reply_to=None):
+        from app.integrations.email_provider import SendResult
+        if self.boom:
+            raise RuntimeError("smtp password=hunter2 exploded")
+        self.sent.append((list(recipients), subject, body))
+        return SendResult(success=self.ok, message_id="<m1>", error_message=None if self.ok else "Sender address was refused by the SMTP server.")
+
+
+def with_provider(monkeypatch, prov):
+    async def fake(tenant_id, db):
+        return prov
+    monkeypatch.setattr("app.integrations.email_provider.get_email_provider", fake)
+
+
+def mail_invite(world, email="new@a.test", app_url=APP, **extra):
+    return world.client.post(f"{API}/invitations", json={"email": email, "role": "Employee", "send_email": True, "app_url": app_url, **extra},
+                             headers=world.auth("a_admin"))
+
+
+class TestInvitationEmail:
+    def test_email_goes_only_to_the_invitee_with_a_working_link(self, world, monkeypatch):
+        prov = FakeProvider(); with_provider(monkeypatch, prov)
+        r = mail_invite(world)
+        assert r.status_code == 201 and r.json()["email_delivery"] == {"sent": True, "error": None}
+        assert r.json()["email"] == "new@a.test"          # the invitee's address is still reported
+        (to, subject, body), = prov.sent
+        assert to == ["new@a.test"] and "Company A" in subject
+        tok = r.json()["token"]
+        assert f"{APP}/accept-invite?token={tok}" in body
+        assert accept(world, tok).status_code == 201          # the emailed link really works
+
+    def test_no_email_unless_asked(self, world, monkeypatch):
+        prov = FakeProvider(); with_provider(monkeypatch, prov)
+        r = invite(world)
+        assert r.json()["email_delivery"] is None and prov.sent == []
+
+    def test_link_host_must_be_an_allowed_app_origin(self, world, monkeypatch):
+        prov = FakeProvider(); with_provider(monkeypatch, prov)
+        r = mail_invite(world, app_url="https://evil.example")
+        assert r.status_code == 201 and r.json()["email_delivery"]["sent"] is False and prov.sent == []
+        r2 = mail_invite(world, email="two@a.test", app_url="")
+        assert r2.json()["email_delivery"]["sent"] is False and prov.sent == []
+
+    def test_no_smtp_configured_still_creates_the_invitation(self, world, monkeypatch):
+        with_provider(monkeypatch, None)
+        r = mail_invite(world)
+        assert r.status_code == 201 and r.json()["email_delivery"]["sent"] is False and "not set up" in r.json()["email_delivery"]["error"] and r.json()["token"]
+
+    def test_failures_are_reported_and_never_leak_internal_text(self, world, monkeypatch):
+        with_provider(monkeypatch, FakeProvider(ok=False))
+        assert "refused" in mail_invite(world).json()["email_delivery"]["error"]
+        with_provider(monkeypatch, FakeProvider(boom=True))
+        r = mail_invite(world, email="b@a.test")
+        assert r.status_code == 201 and r.json()["email_delivery"]["sent"] is False and "hunter2" not in r.text
+
+    def test_resend_can_email_the_new_link_and_old_link_dies(self, world, monkeypatch):
+        prov = FakeProvider(); with_provider(monkeypatch, prov)
+        first = invite(world).json()
+        r = world.client.post(f"{API}/invitations/{first['id']}/resend", json={"send_email": True, "app_url": APP}, headers=world.auth("a_admin"))
+        assert r.json()["email_delivery"]["sent"] is True and r.json()["token"] in prov.sent[0][2]
+        assert accept(world, first["token"]).status_code == 404
+
+    def test_hourly_cap(self, world, monkeypatch):
+        from app.services import team_service as ts
+        with_provider(monkeypatch, FakeProvider())
+        for n in range(ts.EMAIL_HOURLY_CAP):
+            assert mail_invite(world, email=f"c{n}@a.test").json()["email_delivery"]["sent"] is True
+        capped = mail_invite(world, email="over@a.test")
+        assert capped.status_code == 201 and capped.json()["email_delivery"]["sent"] is False and "limit" in capped.json()["email_delivery"]["error"]
+
+    def test_audit_has_safe_metadata_only(self, world, monkeypatch):
+        from app.db.email_models import EmailAuditLog
+        with_provider(monkeypatch, FakeProvider())
+        r = mail_invite(world)
+        (row,) = fetch(world, EmailAuditLog)
+        assert row.tenant_id == world.tenant_a and row.recipient_domains == "a.test" and row.success is True
+        assert "new@a.test" not in (row.recipient_domains + (row.error_message or ""))
+        assert r.json()["token"] not in audit_text(world)
+
+    def test_member_cannot_send_invitation_email(self, world, monkeypatch):
+        prov = FakeProvider(); with_provider(monkeypatch, prov)
+        r = world.client.post(f"{API}/invitations", json={"email": "x@a.test", "send_email": True, "app_url": APP}, headers=world.auth("a_employee"))
+        assert r.status_code == 403 and prov.sent == []
+
+    def test_names_cannot_inject_headers_or_lines_into_the_email(self, world, monkeypatch):
+        prov = FakeProvider(); with_provider(monkeypatch, prov)
+        async def rename():
+            async with world.maker() as s:
+                u = (await s.execute(select(User).where(User.id == world.users["a_admin"]["id"]))).scalar_one()
+                u.name = "Eve\r\nBcc: victim@x.test"
+                await s.commit()
+        run(rename())
+        mail_invite(world)
+        assert "\r" not in prov.sent[0][1] and "Eve Bcc: victim@x.test" in prov.sent[0][2]
+
+
+def test_replacing_an_existing_smtp_configuration_works(world):
+    """Regression: the replace path used to 500 (MissingGreenlet on the server-generated updated_at) and lose the change."""
+    cfg = {"display_name": "Mail", "smtp_host": "smtp.a.test", "smtp_port": 587, "username": "u", "password": "p-one", "tls_mode": "starttls",
+           "sender_email": "hr@a.test", "sender_display_name": "HR"}
+    h = world.auth("a_admin")
+    assert world.client.post("/api/v1/email/integration", json=cfg, headers=h).status_code == 201
+    r = world.client.post("/api/v1/email/integration", json={**cfg, "smtp_host": "smtp2.a.test", "password": "p-two"}, headers=h)
+    assert r.status_code == 201, r.text
+    assert world.client.get("/api/v1/email/integration", headers=h).json()["smtp_host"] == "smtp2.a.test"
+    assert "p-two" not in r.text

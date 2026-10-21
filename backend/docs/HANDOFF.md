@@ -3,6 +3,9 @@
 Base branch: `master`. Never push/deploy without explicit approval. Nothing here claims live verification
 unless stated.
 
+## Phase J (part 3): Authorized invitation email (branch feat/phase-j-invite-email)
+- Optional emailing of an invitation link on explicit admin action via the company's SMTP integration (invitee address only, fixed template, allowed-origin link, 20/hour cap, safe audit). Fixed pre-existing 500 when re-saving an SMTP config. See `docs/team_invitations.md`. No migration. Status: IMPLEMENTED, MOCK-TESTED + exercised against a local SMTP server; NOT verified with a real mail provider.
+
 ## CHECKPOINT (paused at the owner's request, 2026-10-21 ~19:05 IST)
 - **Branch:** `master` (local). **Last code commit:** `fa30e09` (Phase J part 2). Working tree clean at that point; this file is the only change after it.
 - **Unpushed:** 11 local commits ahead of origin/master (including the HANDOFF commit). NOTHING has been pushed, deployed, reset or discarded. Push needs the owner's explicit approval.

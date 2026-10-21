@@ -1,4 +1,4 @@
-# Team invitations and member management (Phase J, part 1)
+# Team invitations and member management (Phase J, parts 1 and 3)
 
 Admins invite colleagues by email address, the invitee sets their own name and password through a one-time link, and admins
 manage roles and access. Part 2 (internal messaging) and part 3 (authorized email sending) follow.
@@ -19,8 +19,22 @@ manage roles and access. Part 2 (internal messaging) and part 3 (authorized emai
 * Deactivating revokes all of the person's refresh tokens and blocks login and existing access tokens immediately.
 * All of this is in the audit log (department `team`); tokens are never logged.
 
+## Emailing an invitation (part 3)
+* Optional per invitation ("Email it to them" / "Email new link"): the **administrator's explicit action is the authorization**.
+  Without it nothing is sent.
+* Sent through the company's OWN SMTP integration (`/api/v1/email/integration`), to the invitation's own address only, with a
+  fixed template (no free text). Names are stripped of line breaks (no header/line injection).
+* The link host must be one of the app's configured origins (`CORS_ORIGINS`); anything else is refused (no phishing links).
+* Max 20 invitation emails per company per hour. Failures (no SMTP, refused, transport error) never lose the invitation; the admin is
+  told plainly and can copy the link. Raw error text is never echoed.
+* Each attempt writes a safe row to `email_audit_logs` (domain only, lengths, outcome; no address, body, token or credentials).
+* Also fixed: re-saving an existing SMTP configuration used to 500 (MissingGreenlet) and lose the change.
+* Verified with a fake provider in tests AND against a real local SMTP server (real `SMTPEmailProvider` path) in a browser run.
+  **NOT verified against a real mail provider** (Gmail/SES/etc.) - needs the owner's SMTP details via the secure admin form.
+* Not done: automatic "you have a new message" emails (deliberately skipped - unsolicited sends need their own consent controls, Phase M).
+
 ## Honest status / limits
 * IMPLEMENTED, MOCK-TESTED ONLY: real API + real browser run, no external services involved.
-* **No email is sent.** The admin copies the link and passes it on. Authorized email delivery is part 3 (needs a configured provider).
+* Email is optional and only on explicit admin action (above); otherwise the admin copies the link.
 * No self-service password reset yet, no per-feature permissions beyond the four roles (finer permissions can build on this).
 * Migration `d7e1f26a8b34` (additive; one table).

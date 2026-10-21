@@ -208,3 +208,62 @@ async def set_active(db: AsyncSession, admin: User, user_id: str, active: bool) 
     audit(db, admin.tenant_id, admin.id, f"{'reactivated' if active else 'deactivated'} {u.email}")
     await db.flush()
     return u
+
+
+# ── Authorized email delivery of an invitation (Phase J, part 3) ─────────────────
+
+EMAIL_ROLE_KEY = "team_invitation"
+EMAIL_HOURLY_CAP = 20
+
+
+def _one_line(s: str, n: int = 80) -> str:
+    return re.sub(r"[\x00-\x1f\x7f]+", " ", s or "").strip()[:n]
+
+
+def allowed_app_url(app_url: str) -> str | None:
+    """The link in the email must point at one of the app's own configured origins (never an arbitrary caller-supplied host)."""
+    from app.config import settings
+    u = (app_url or "").strip().rstrip("/")
+    return u if u and u in settings.cors_origins_list else None
+
+
+async def email_invitation(db: AsyncSession, admin: User, inv: Invitation, token: str, app_url: str) -> dict:
+    """
+    Sends the invitation link to the invitation's OWN address only, with a fixed template, through the company's own configured
+    SMTP integration. The administrator asking for it IS the authorization. Never raises: the invitation exists either way and the
+    admin can still copy the link. Returns {"sent": bool, "error": str|None}.
+    """
+    from datetime import timedelta as _td
+    from app.db.email_models import EmailAuditLog
+    from app.integrations.email_provider import get_email_provider
+
+    base = allowed_app_url(app_url)
+    if base is None:
+        return {"sent": False, "error": "This site address is not an allowed app address, so no email was sent. Copy the link instead."}
+    recent = (await db.execute(select(func.count()).select_from(EmailAuditLog).where(
+        EmailAuditLog.tenant_id == admin.tenant_id, EmailAuditLog.role_key == EMAIL_ROLE_KEY,
+        EmailAuditLog.attempted_at >= _now() - _td(hours=1)))).scalar_one()
+    if int(recent) >= EMAIL_HOURLY_CAP:
+        return {"sent": False, "error": f"Invitation email limit reached ({EMAIL_HOURLY_CAP} per hour). Copy the link instead."}
+    provider = await get_email_provider(admin.tenant_id, db)
+    if provider is None:
+        return {"sent": False, "error": "Email is not set up for this company. Copy the link instead."}
+    company = (await db.execute(select(Company).where(Company.id == admin.tenant_id))).scalar_one_or_none()
+    cname = _one_line(company.name if company else "your company")
+    link = f"{base}/accept-invite?token={token}"
+    subject = f"You have been invited to join {cname}"
+    body = (f"Hello,\n\n{_one_line(admin.name or admin.email)} has invited you to join {cname} as {inv.role}.\n\n"
+            f"Create your account here (the link works once and expires on {_aware(inv.expires_at).strftime('%Y-%m-%d')}):\n{link}\n\n"
+            f"Your company ID is {inv.tenant_id}.\n\nIf you were not expecting this, you can ignore this email.")
+    try:
+        result = await provider.send([inv.email], subject, body)
+    except Exception:  # noqa: BLE001 - a transport bug must not lose the invitation; never echo exception text
+        from app.integrations.email_provider import SendResult
+        result = SendResult(success=False, error_message="The email service failed unexpectedly.")
+    db.add(EmailAuditLog(id=str(uuid.uuid4()), tenant_id=admin.tenant_id, role_key=EMAIL_ROLE_KEY, recipient_count=1,
+                         recipient_domains=inv.email.split("@")[-1][:200], subject_length=len(subject), body_length=len(body),
+                         success=bool(result.success), provider_message_id=(result.message_id or None),
+                         error_message=(None if result.success else (result.error_message or "send failed")[:500])))
+    audit(db, admin.tenant_id, admin.id, f"invitation email to {inv.email}: {'sent' if result.success else 'failed'}")
+    await db.flush()
+    return {"sent": bool(result.success), "error": None if result.success else (result.error_message or "The email could not be sent.")}

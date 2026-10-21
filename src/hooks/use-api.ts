@@ -4072,7 +4072,7 @@ export function useScreenText() {
 // ── Team: invitations + members (Phase J) ─────────────────────────────────────────
 export interface TeamMemberFE { id: string; email: string; name: string; role: string; status: string; is_active: boolean; created_at: string }
 export interface InvitationFE { id: string; email: string; role: string; status: "pending" | "accepted" | "revoked" | "expired"; invited_by_name: string; expires_at: string; created_at: string; accepted_at: string | null }
-export interface InvitationIssuedFE extends InvitationFE { token: string; accept_path: string }
+export interface InvitationIssuedFE extends InvitationFE { token: string; accept_path: string; email_delivery: { sent: boolean; error: string | null } | null }
 export function useTeamMeta(enabled = true) {
   return useQuery<{ roles: string[]; invite_ttl_days: number }>({ queryKey: ["team-meta"] as const, enabled, staleTime: 300_000, queryFn: () => intMgrFetch("GET", "/api/v1/team/meta") });
 }
@@ -4084,15 +4084,15 @@ export function useInvitations(enabled = true) {
 }
 export function useInvite() {
   const qc = useQueryClient();
-  return useMutation<InvitationIssuedFE, Error, { email: string; role: string }>({
-    mutationFn: (v) => intMgrFetch<InvitationIssuedFE>("POST", "/api/v1/team/invitations", v),
+  return useMutation<InvitationIssuedFE, Error, { email: string; role: string; send_email?: boolean }>({
+    mutationFn: (v) => intMgrFetch<InvitationIssuedFE>("POST", "/api/v1/team/invitations", { ...v, app_url: window.location.origin }),
     onSuccess: () => { void qc.invalidateQueries({ queryKey: ["team-invitations"] }); },
   });
 }
 export function useInvitationAction() {
   const qc = useQueryClient();
-  return useMutation<InvitationIssuedFE | InvitationFE, Error, { id: string; action: "resend" | "revoke" }>({
-    mutationFn: (v) => intMgrFetch("POST", `/api/v1/team/invitations/${v.id}/${v.action}`),
+  return useMutation<InvitationIssuedFE | InvitationFE, Error, { id: string; action: "resend" | "revoke"; send_email?: boolean }>({
+    mutationFn: (v) => intMgrFetch("POST", `/api/v1/team/invitations/${v.id}/${v.action}`, v.action === "resend" ? { send_email: !!v.send_email, app_url: window.location.origin } : undefined),
     onSuccess: () => { void qc.invalidateQueries({ queryKey: ["team-invitations"] }); },
   });
 }

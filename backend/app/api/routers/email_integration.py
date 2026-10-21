@@ -132,6 +132,7 @@ async def create_email_integration(
         existing.error_message = None
         existing.last_tested_at = None
         await db.flush()
+        await db.refresh(existing)   # updated_at is server-generated; reading it lazily in async raises MissingGreenlet
         return _integration_to_out(existing)
 
     integration = ExternalIntegration(
@@ -152,6 +153,7 @@ async def create_email_integration(
     )
     db.add(integration)
     await db.flush()
+    await db.refresh(integration)
     logger.info("SMTP integration created for tenant %s", tenant_id)
     return _integration_to_out(integration)
 
