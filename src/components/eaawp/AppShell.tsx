@@ -21,6 +21,7 @@ import {
   Users,
   Workflow,
   Database,
+  ClipboardList,
   X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -37,6 +38,7 @@ const NAV = [
   { to: "/approvals",   label: "Approvals",   icon: CheckSquare },
   { to: "/workflows",   label: "Workflows",   icon: Workflow },
   { to: "/data",        label: "Data",        icon: Database },
+  { to: "/clerk",       label: "Clerk",       icon: ClipboardList },
   { to: "/activity",    label: "Activity",    icon: BotMessageSquare },
   { to: "/scheduled",   label: "Scheduled",   icon: CalendarClock },
   { to: "/library",     label: "Library",     icon: Library },

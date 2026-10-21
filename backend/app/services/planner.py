@@ -1084,6 +1084,7 @@ def _role_key(role_name: str) -> str:
         "Customer Success Manager": "CUSTOMER_SUCCESS_MANAGER",
         "Operations Analyst": "OPERATIONS_ANALYST",
         "Data Intelligence Analyst": "DATA_INTELLIGENCE_ANALYST",
+        "Institutional Clerk": "INSTITUTIONAL_CLERK",
     }
     return mapping.get(role_name, "DIGITAL_MARKETING_MANAGER")
 

@@ -3943,3 +3943,88 @@ export async function downloadReportCsv(id: string): Promise<void> {
   a.href = url; a.download = "analysis-report.csv"; document.body.appendChild(a); a.click(); a.remove();
   URL.revokeObjectURL(url);
 }
+
+// ── Institutional Clerk: service requests, documents ────────────────────────────
+export interface ClerkEventFE { id: string; kind: string; actor_name: string; body: string; internal: boolean; created_at: string }
+export interface ClerkDocumentFE {
+  id: string; request_id: string | null; template_key: string; title: string; status: "draft" | "issued" | "void";
+  serial: string | null; body: string; fields: Record<string, string>; created_at: string; issued_at: string | null;
+}
+export interface ClerkRequestFE {
+  id: string; request_type: string; title: string; details: string; fields: Record<string, string>;
+  status: "submitted" | "in_review" | "needs_info" | "approved" | "rejected" | "fulfilled" | "cancelled";
+  priority: string; requester_id: string; requester_name: string; assignee_id: string | null; assignee_name: string;
+  due_date: string | null; decision_note: string; decided_at: string | null; created_at: string; updated_at: string;
+}
+export interface ClerkRequestDetailFE extends ClerkRequestFE { events: ClerkEventFE[]; documents: ClerkDocumentFE[] }
+export interface ClerkMetaFE {
+  request_types: Record<string, string>; statuses: string[];
+  templates: Array<{ key: string; title: string; fields: Array<{ name: string; label: string; required: boolean }> }>;
+}
+
+export function useClerkMeta() {
+  return useQuery<ClerkMetaFE>({ queryKey: ["clerk-meta"] as const, queryFn: () => intMgrFetch<ClerkMetaFE>("GET", "/api/v1/clerk/meta"), staleTime: 60_000 });
+}
+export function useClerkRequests(status?: string) {
+  return useQuery<ClerkRequestFE[]>({
+    queryKey: ["clerk-requests", status ?? "all"] as const, refetchInterval: 15_000,
+    queryFn: () => intMgrFetch<ClerkRequestFE[]>("GET", `/api/v1/clerk/requests${status ? `?status=${encodeURIComponent(status)}` : ""}`),
+  });
+}
+export function useClerkRequest(id: string | null) {
+  return useQuery<ClerkRequestDetailFE>({
+    queryKey: ["clerk-request", id] as const, enabled: !!id,
+    queryFn: () => intMgrFetch<ClerkRequestDetailFE>("GET", `/api/v1/clerk/requests/${id}`),
+  });
+}
+function useClerkMutation<V>(path: (v: V) => string, body?: (v: V) => unknown) {
+  const qc = useQueryClient();
+  return useMutation<ClerkRequestDetailFE, Error, V>({
+    mutationFn: (v) => intMgrFetch<ClerkRequestDetailFE>("POST", path(v), body ? body(v) : undefined),
+    onSuccess: (d) => { qc.setQueryData(["clerk-request", d.id], d); void qc.invalidateQueries({ queryKey: ["clerk-requests"] }); void qc.invalidateQueries({ queryKey: ["clerk-documents"] }); },
+  });
+}
+export const useCreateClerkRequest = () =>
+  useClerkMutation<{ request_type: string; title: string; details: string; fields?: Record<string, string>; priority?: string; due_date?: string | null }>(() => "/api/v1/clerk/requests", (v) => v);
+export const useClerkComment = (id: string) => useClerkMutation<{ body: string; internal?: boolean }>(() => `/api/v1/clerk/requests/${id}/comments`, (v) => v);
+export const useClerkCancel = (id: string) => useClerkMutation<void>(() => `/api/v1/clerk/requests/${id}/cancel`);
+export const useClerkStatus = (id: string) => useClerkMutation<{ status: string; note?: string }>(() => `/api/v1/clerk/requests/${id}/status`, (v) => v);
+export const useClerkAssign = (id: string) => useClerkMutation<{ assignee_id: string | null }>(() => `/api/v1/clerk/requests/${id}/assign`, (v) => v);
+
+export function useClerkDocuments(enabled: boolean) {
+  return useQuery<ClerkDocumentFE[]>({ queryKey: ["clerk-documents"] as const, enabled, queryFn: () => intMgrFetch<ClerkDocumentFE[]>("GET", "/api/v1/clerk/documents") });
+}
+export function useDraftClerkDocument() {
+  const qc = useQueryClient();
+  return useMutation<ClerkDocumentFE, Error, { template_key: string; fields: Record<string, string>; request_id?: string | null }>({
+    mutationFn: (b) => intMgrFetch<ClerkDocumentFE>("POST", "/api/v1/clerk/documents", b),
+    onSuccess: () => { void qc.invalidateQueries({ queryKey: ["clerk-documents"] }); void qc.invalidateQueries({ queryKey: ["clerk-request"] }); },
+  });
+}
+export function useClerkDocumentAction() {
+  const qc = useQueryClient();
+  return useMutation<ClerkDocumentFE, Error, { id: string; action: "issue" | "void"; reason?: string }>({
+    mutationFn: ({ id, action, reason }) => intMgrFetch<ClerkDocumentFE>("POST", `/api/v1/clerk/documents/${id}/${action}`, action === "void" ? { reason } : undefined),
+    onSuccess: () => { void qc.invalidateQueries({ queryKey: ["clerk-documents"] }); void qc.invalidateQueries({ queryKey: ["clerk-request"] }); },
+  });
+}
+export async function downloadClerkDocument(id: string): Promise<void> {
+  const token = window.localStorage.getItem("eaawp.access_token");
+  const res = await fetch(`${API_BASE_URL}/api/v1/clerk/documents/${id}/download`, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+  if (!res.ok) throw new Error("Download failed");
+  const url = URL.createObjectURL(await res.blob());
+  const a = document.createElement("a"); a.href = url; a.download = "document.txt"; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+}
+export function useExtractClerkFields() {
+  return useMutation<{ fields: Record<string, string>; dropped: string[] }, Error, File>({
+    mutationFn: (file) => {
+      const fd = new FormData(); fd.append("file", file);
+      const token = window.localStorage.getItem("eaawp.access_token");
+      return fetch(`${API_BASE_URL}/api/v1/clerk/extract`, { method: "POST", headers: token ? { Authorization: `Bearer ${token}` } : {}, body: fd })
+        .then(async (res) => {
+          if (!res.ok) { const b = await res.json().catch(() => ({ detail: res.statusText })); throw new Error(String((b as Record<string, unknown>)["detail"] ?? res.statusText)); }
+          return res.json();
+        });
+    },
+  });
+}

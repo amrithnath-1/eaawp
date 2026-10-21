@@ -468,5 +468,5 @@ class TestRoster:
                 return r
         roles = run(get())
         keys = [r["role_key"] for r in roles]
-        assert keys[0] == DMM and FIN in keys and len(keys) == 7
+        assert keys[0] == DMM and FIN in keys and "INSTITUTIONAL_CLERK" in keys and len(keys) == 8
         assert all(r["role_name"] for r in roles)

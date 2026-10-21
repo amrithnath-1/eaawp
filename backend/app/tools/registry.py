@@ -62,6 +62,8 @@ _guarded_tools_ctx: contextvars.ContextVar = contextvars.ContextVar(
 _dynamic_tools_ctx: contextvars.ContextVar = contextvars.ContextVar(
     "eaawp_dynamic_tools", default=None
 )
+# Who is asking (user id + admin flag), so read tools over personal records can enforce visibility.
+_user_ctx: contextvars.ContextVar = contextvars.ContextVar("eaawp_tool_user", default=(None, False))
 
 
 def set_tool_context(
@@ -71,6 +73,8 @@ def set_tool_context(
     allowed_tools: list[str] | None = None,
     guarded_tools: list[str] | None = None,
     dynamic_tools: "dict[str, Any] | None" = None,
+    user_id: str | None = None,
+    is_admin: bool = False,
 ) -> None:
     """Called by the execution router before engine.execute() to inject context.
 
@@ -85,6 +89,7 @@ def set_tool_context(
     _allowed_tools_ctx.set(allowed_tools or [])
     _guarded_tools_ctx.set(guarded_tools or [])
     _dynamic_tools_ctx.set(dynamic_tools or {})
+    _user_ctx.set((user_id, bool(is_admin)))
 
 
 def clear_tool_context() -> None:
@@ -95,6 +100,7 @@ def clear_tool_context() -> None:
     _allowed_tools_ctx.set(None)
     _guarded_tools_ctx.set(None)
     _dynamic_tools_ctx.set(None)
+    _user_ctx.set((None, False))
 
 
 # -- Starter tools -------------------------------------------------------------
@@ -1691,6 +1697,89 @@ async def analyze_dataset(params: str) -> str:
         return f"[ERROR] analyze_dataset: {str(exc)[:200]}"
 
 
+# -- Institutional Clerk read tools (visibility depends on WHO is asking) ----------------------
+
+def _request_visible(req, user_id, is_admin) -> bool:
+    return bool(is_admin or (user_id and req.requester_id == user_id))
+
+
+@tool
+async def list_service_requests(params: str = "{}") -> str:
+    """
+    List service requests. Administrators see the company queue; everyone else sees only their own.
+    Read only.
+
+    Args:
+        params: JSON string. Optional keys: status (str), limit (int, default 20, max 50).
+    """
+    import json as _json
+    from sqlalchemy import select
+    from app.db.clerk_models import ServiceRequest
+    db = _db_session_ctx.get()
+    tenant_id = _tenant_id_ctx.get()
+    user_id, is_admin = _user_ctx.get()
+    if db is None or not tenant_id:
+        return "[ERROR] list_service_requests: no database session."
+    try:
+        p = _json.loads(params) if isinstance(params, str) and params.strip() else {}
+    except _json.JSONDecodeError:
+        p = {}
+    try:
+        q = select(ServiceRequest).where(ServiceRequest.tenant_id == tenant_id)
+        if not is_admin:
+            if not user_id:
+                return "No requests visible."
+            q = q.where(ServiceRequest.requester_id == user_id)
+        if p.get("status"):
+            q = q.where(ServiceRequest.status == str(p["status"])[:24])
+        limit = max(1, min(int(p.get("limit", 20)), 50))
+        items = (await db.execute(q.order_by(ServiceRequest.created_at.desc()).limit(limit))).scalars().all()
+        if not items:
+            return "No requests found."
+        lines = [f"Service requests ({len(items)}):"]
+        for r in items:
+            who = f" | by {r.requester_name}" if is_admin else ""
+            lines.append(f"- [{r.status}] {r.title} (ID:{r.id}) | {r.request_type}{who}")
+        return "\n".join(lines)
+    except Exception as exc:
+        logger.error("list_service_requests error: %s", exc)
+        return f"[ERROR] list_service_requests: {str(exc)[:200]}"
+
+
+@tool
+async def get_service_request(params: str) -> str:
+    """
+    Read one service request and its public timeline. Read only; you only see requests you are allowed to see.
+
+    Args:
+        params: JSON string with key request_id.
+    """
+    import json as _json
+    from app.services import clerk_service as cs
+    db = _db_session_ctx.get()
+    tenant_id = _tenant_id_ctx.get()
+    user_id, is_admin = _user_ctx.get()
+    if db is None or not tenant_id:
+        return "[ERROR] get_service_request: no database session."
+    try:
+        p = _json.loads(params) if isinstance(params, str) and params.strip() else {}
+    except _json.JSONDecodeError:
+        p = {}
+    try:
+        req = await cs.get_request(db, tenant_id, str(p.get("request_id", ""))[:36])
+        if req is None or not _request_visible(req, user_id, is_admin):
+            return "Request not found."
+        events = await cs.events_of(db, tenant_id, req.id, include_internal=bool(is_admin))
+        lines = [f"[{req.status}] {req.title} ({req.request_type}) by {req.requester_name}", req.details[:800]]
+        if req.decision_note:
+            lines.append(f"Decision note: {req.decision_note}")
+        lines += [f"  - {e.created_at:%Y-%m-%d} {e.actor_name or 'system'}: {e.body[:200]}" for e in events[-10:]]
+        return "\n".join(lines)
+    except Exception as exc:
+        logger.error("get_service_request error: %s", exc)
+        return f"[ERROR] get_service_request: {str(exc)[:200]}"
+
+
 MASTER_TOOL_REGISTRY: dict[str, object] = {
     "fetch_knowledge_base": fetch_knowledge_base,
     "draft_email": draft_email,
@@ -1722,6 +1811,8 @@ MASTER_TOOL_REGISTRY: dict[str, object] = {
     "analyze_content": analyze_content_tool,
     "list_datasets": list_datasets,
     "analyze_dataset": analyze_dataset,
+    "list_service_requests": list_service_requests,
+    "get_service_request": get_service_request,
 }
 
 

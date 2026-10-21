@@ -389,11 +389,15 @@ async def execute_agent(
         allowed_tools=augmented_allowed,
         guarded_tools=authoritative_blueprint.guarded_tools,
         dynamic_tools=dynamic_tool_map,
+        user_id=user.id,
+        is_admin=is_admin_user(user),
     )
 
     # ── Phase J: Retrieve relevant memories for context ───────────────────────
     memory_context_block = ""
     try:
+        if role_key in PERSONAL_DATA_ROLES:
+            raise LookupError("shared memory is disabled for roles that handle personal records")
         from app.services.memory_service import search_memory
         memories = await search_memory(
             tenant_id=authoritative_blueprint.tenant_id,
@@ -511,6 +515,8 @@ async def execute_agent(
                 # Carry plan fields as None for simple mode
                 # ── Phase J: Store execution in memory ─────────────────────────
                 try:
+                    if role_key in PERSONAL_DATA_ROLES:
+                        raise LookupError("shared memory is disabled for roles that handle personal records")
                     from app.services.memory_service import store_memory
                     await store_memory(
                         tenant_id=authoritative_blueprint.tenant_id,
@@ -545,6 +551,11 @@ async def execute_agent(
         clear_tool_context()
 
 
+# Roles that work with individual people's records. Their conversations must never be written to, or read from, the
+# company-wide agent memory (it is shared by every user of the company), or one person's data could surface for another.
+PERSONAL_DATA_ROLES = frozenset({"INSTITUTIONAL_CLERK", "MEDICAL_ASSISTANT"})
+
+
 def _blueprint_role_key(role_name: str) -> str:
     mapping = {
         "Digital Marketing Manager": "DIGITAL_MARKETING_MANAGER",
@@ -554,5 +565,6 @@ def _blueprint_role_key(role_name: str) -> str:
         "Customer Success Manager": "CUSTOMER_SUCCESS_MANAGER",
         "Operations Analyst": "OPERATIONS_ANALYST",
         "Data Intelligence Analyst": "DATA_INTELLIGENCE_ANALYST",
+        "Institutional Clerk": "INSTITUTIONAL_CLERK",
     }
     return mapping.get(role_name, "DIGITAL_MARKETING_MANAGER")

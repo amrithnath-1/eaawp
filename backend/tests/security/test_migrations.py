@@ -15,7 +15,7 @@ import pytest
 
 BACKEND = pathlib.Path(__file__).resolve().parents[2]
 PREVIOUS = "u8v2w37x9y15"
-HEAD = "a4b8c93d5e21"
+HEAD = "b5c9d04e6f22"
 
 
 def alembic(db: pathlib.Path, *args: str) -> str:
@@ -198,6 +198,31 @@ def test_datasets_migration_is_additive_and_reversible(tmp_path):
     con.commit(); con.close()
     alembic(db, "downgrade", "z3a7b82c4d20")
     assert cols(db, "datasets") == {} and cols(db, "analysis_reports") == {}
+    con = sqlite3.connect(db)
+    assert con.execute("SELECT name FROM companies WHERE id='t'").fetchone() == ("T",)
+    con.close()
+
+
+def test_clerk_migration_is_additive_and_reversible(tmp_path):
+    import sqlite3
+    db = tmp_path / "clerk.db"
+    alembic(db, "upgrade", "a4b8c93d5e21")
+    con = sqlite3.connect(db)
+    con.execute("INSERT INTO companies (id, name, industry, region, employees, is_active) VALUES ('t','T','x','x',1,1)")
+    con.commit(); con.close()
+    alembic(db, "upgrade", "head")
+    assert {"request_type", "status", "requester_id", "assignee_id", "decision_note"} <= set(cols(db, "service_requests"))
+    assert {"request_id", "kind", "internal"} <= set(cols(db, "service_request_events"))
+    assert {"serial", "status", "template_key", "fields_json"} <= set(cols(db, "issued_documents"))
+    con = sqlite3.connect(db)
+    con.execute("INSERT INTO issued_documents (id, tenant_id, serial) VALUES ('d1','t','ACME-2026-00001')")
+    with pytest.raises(sqlite3.IntegrityError):                      # serials are unique per company
+        con.execute("INSERT INTO issued_documents (id, tenant_id, serial) VALUES ('d2','t','ACME-2026-00001')")
+    con.execute("INSERT INTO issued_documents (id, tenant_id) VALUES ('d3','t')")       # drafts: no serial, many allowed
+    con.execute("INSERT INTO issued_documents (id, tenant_id) VALUES ('d4','t')")
+    con.commit(); con.close()
+    alembic(db, "downgrade", "a4b8c93d5e21")
+    assert cols(db, "service_requests") == {} and cols(db, "issued_documents") == {} and cols(db, "service_request_events") == {}
     con = sqlite3.connect(db)
     assert con.execute("SELECT name FROM companies WHERE id='t'").fetchone() == ("T",)
     con.close()

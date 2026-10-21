@@ -351,12 +351,65 @@ _DATA_ANALYST_DEFAULTS: dict = {
 }
 
 
+_CLERK_DEFAULTS: dict = {
+    "role_name": "Institutional Clerk",
+    "agent_name": "Clerk Agent",
+    "description": "Handles service requests (certificates, leave, fee queries), prepares draft documents and keeps requesters informed.",
+    "responsibilities_json": json.dumps([
+        "Triage incoming service requests",
+        "Prepare draft certificates, letters and notices from approved templates",
+        "Track request status and flag requests that need information",
+        "Answer procedural questions from the knowledge base",
+    ]),
+    "objectives_json": json.dumps([
+        "Reduce the time to handle routine requests",
+        "Keep every decision traceable and approved by a human",
+    ]),
+    "instructions": (
+        "Use list_service_requests / get_service_request to see requests; you only see what the person asking is allowed to see. "
+        "Never issue documents yourself: prepare drafts only. Status changes require human approval. Never invent policy; "
+        "search the knowledge base and say when you do not know."
+    ),
+    "system_persona": (
+        "You are the Clerk Agent for this institution. You help with service requests and routine administrative paperwork. "
+        "You are precise, courteous and conservative: you draft, a human decides. You never guess personal details and never "
+        "disclose another person's request."
+    ),
+    "tool_scopes_json": json.dumps([
+        {"name": "List Service Requests", "tool_key": "list_service_requests", "governance": "enabled",
+         "description": "List service requests the asker may see - read only"},
+        {"name": "Get Service Request", "tool_key": "get_service_request", "governance": "enabled",
+         "description": "Read one service request with its timeline - read only"},
+        {"name": "Draft Service Document", "tool_key": "draft_service_document", "governance": "enabled",
+         "description": "Prepare a DRAFT document from a template (never issued by the agent)"},
+        {"name": "Update Service Request", "tool_key": "update_service_request", "governance": "requires_approval",
+         "description": "Change a request's status - always requires human approval"},
+        {"name": "Fetch Knowledge Base", "tool_key": "fetch_knowledge_base", "governance": "enabled",
+         "description": "Search indexed policies and documents - read only"},
+        {"name": "Create Internal Task", "tool_key": "create_internal_task", "governance": "enabled",
+         "description": "Create an internal EAAWP task record - low risk"},
+    ]),
+    "capabilities_json": "{}",
+    "permissions_json": "[]",
+    "workflows_json": "[]",
+    "monitoring_rules_json": "[]",
+    "communication_style": "Formal",
+    "schedule_preferences_json": "[]",
+    "memory_settings_json": "{}",
+    "llm_model": "gpt-4o-mini",
+    "autonomy_level": 2,
+    "quick_prompts_json": json.dumps(["What requests are waiting?", "Draft a bonafide certificate for an approved request"]),
+}
+
+
 def _get_defaults(role_key: str) -> dict:
     """Return seed defaults for the given role key."""
     if role_key == "DIGITAL_MARKETING_MANAGER":
         return _DMM_DEFAULTS
     if role_key == "DATA_INTELLIGENCE_ANALYST":
         return _DATA_ANALYST_DEFAULTS
+    if role_key == "INSTITUTIONAL_CLERK":
+        return _CLERK_DEFAULTS
     # Fallback minimal defaults for any future role
     return {
         "role_name": role_key.replace("_", " ").title(),
