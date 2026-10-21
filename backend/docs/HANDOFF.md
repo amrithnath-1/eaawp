@@ -3,6 +3,11 @@
 Base branch: `master`. Never push/deploy without explicit approval. Nothing here claims live verification
 unless stated.
 
+## Phase D hardening (branch fix/phase-d-hardening)
+- Retry guard (`side_effects_may_have_happened`), real cancellation (plan rejected / pending task cancelled), admin-only run history. Tests: `TestHardeningRetriesCancellationAndHistory`.
+- Migration chain rehearsed from `u8v2w37x9y15` with data to `x1y5z60a2b18` and back one step.
+- NOT proven: real Search Console reports on a production schedule need an authorized integration and an end-to-end test.
+
 ## Status labels
 IMPLEMENTED AND VERIFIED / IMPLEMENTED, MOCK-TESTED ONLY / IMPLEMENTED BUT NOT VERIFIED END TO END / PARTIAL / PLANNED / BLOCKED.
 

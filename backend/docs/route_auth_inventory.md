@@ -6,7 +6,7 @@ is neither JWT-protected nor on the documented public allowlist.
 
 - JWT-protected endpoints: **171**
 - Intentionally public endpoints: **7**
-- Admin-only (JWT-protected) endpoints: **70**
+- Admin-only (JWT-protected) endpoints: **71**
 
 ## Intentionally public
 
@@ -192,6 +192,6 @@ is neither JWT-protected nor on the documented public allowlist.
 | DELETE | `/api/v1/workflows/{workflow_id}` | workflow | Admin |
 | GET | `/api/v1/workflows/{workflow_id}` | workflow | Any signed-in user |
 | PATCH | `/api/v1/workflows/{workflow_id}` | workflow | Admin |
-| GET | `/api/v1/workflows/{workflow_id}/runs` | workflow | Any signed-in user |
+| GET | `/api/v1/workflows/{workflow_id}/runs` | workflow | Admin |
 | POST | `/api/v1/workflows/{workflow_id}/runs/{run_id}/cancel` | workflow | Admin |
 | POST | `/api/v1/workflows/{workflow_id}/trigger` | workflow | Admin |

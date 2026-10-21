@@ -24,7 +24,9 @@ names (which meant integration tools such as Search Console could not run on a s
 | Explicit retries | per-workflow limit and linear backoff; only `failed` is retried (not setup/approval/skip) |
 | Crash/restart recovery | runs `running` > 20 min -> `failed (Interrupted)`, workflow released, retry queued if allowed; also runs at startup |
 | Approval pauses | when the plan's approval is decided, the run and workflow get the real outcome |
-| Tenant isolation | history/cancel are tenant-scoped; admin-only mutations |
+| Tenant isolation / permissions | history and cancel are tenant-scoped and **administrator-only** (run summaries can contain report figures) |
+| Retry safety | a failed run is **not** retried if its plan already completed/started any non-read step (action, write, send...); the run detail says so. Only runs that failed before causing an external effect are retried |
+| Cancellation | queued: the atomic queued->running claim never matches a cancelled row (never starts). awaiting_approval: the paused plan is rejected through the planner, so a later approval cannot execute it. waiting_setup: the saved pending task is cancelled so it cannot resume into a run. Running runs cannot be cancelled (409) |
 | Time zones | cron evaluated in the workflow's zone |
 
 ## Behaviour to know

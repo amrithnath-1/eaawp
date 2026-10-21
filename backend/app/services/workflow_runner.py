@@ -229,9 +229,46 @@ async def _call_agent(session: AsyncSession, wf: Workflow, user: User):
     return "failed", ((resp.message or "")[:300] or f"The run ended with status '{plan_status}'."), resp.plan_id, None
 
 
+# Step types that only read or reason. A run that got past any OTHER kind of step
+# (an action: send, publish, create, change) may already have had an external effect,
+# and re-running the whole request would repeat it.
+SAFE_TO_REPEAT_STEP_TYPES = frozenset({"read", "analysis", "verify", "response", "tool"})
+
+
+async def side_effects_may_have_happened(session: AsyncSession, wf: Workflow, run: WorkflowRun) -> bool:
+    """True if this run's plan(s) executed - or began executing - any non-read step."""
+    from app.db.models import ExecutionPlan, PlanStep
+
+    started = _aware(run.started_at) or _aware(run.created_at)
+    plans = (await session.execute(
+        select(ExecutionPlan).where(
+            ExecutionPlan.tenant_id == wf.tenant_id,
+            ExecutionPlan.session_id == f"workflow:{wf.id}",
+        )
+    )).scalars().all()
+    for plan in plans:
+        created = _aware(plan.created_at)
+        if run.plan_id and plan.id != run.plan_id and (started and created and created < started):
+            continue
+        if not run.plan_id and started and created and created < started - timedelta(seconds=5):
+            continue
+        steps = (await session.execute(
+            select(PlanStep).where(PlanStep.plan_id == plan.id, PlanStep.tenant_id == wf.tenant_id)
+        )).scalars().all()
+        for st in steps:
+            if st.status in ("completed", "running", "awaiting_approval") and (st.step_type or "read") not in SAFE_TO_REPEAT_STEP_TYPES:
+                return True
+    return False
+
+
 async def _maybe_retry(session: AsyncSession, wf: Workflow, run: WorkflowRun) -> None:
     allowed = max(0, min(int(wf.max_retries or 0), MAX_RETRY_LIMIT))
     if run.attempt > allowed:
+        return
+    if await side_effects_may_have_happened(session, wf, run):
+        # Never repeat a run that may already have sent/created/changed something.
+        run.detail = (run.detail + " Not retried automatically: an action step had already run, "
+                      "and repeating it could duplicate an external effect.")[:500]
         return
     delay = min(max(1, int(wf.retry_delay_minutes or 15)) * run.attempt, FAILURE_DELAY_CAP_MINUTES)
     base = run.slot.split("#r")[0]

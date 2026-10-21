@@ -62,7 +62,7 @@ function RunHistory({ workflowId }: { workflowId: string }) {
   const { data, isLoading, error } = useWorkflowRuns(workflowId, true);
   const cancel = useCancelWorkflowRun(workflowId);
   if (isLoading) return <p className="text-[10px] text-muted-foreground">Loading history…</p>;
-  if (error) return <p className="text-[10px] text-destructive">Could not load run history.</p>;
+  if (error) return <p className="text-[10px] text-destructive">Could not load run history (it is visible to company administrators only).</p>;
   if (!data || data.length === 0) {
     return <p className="text-[10px] text-muted-foreground">No runs yet.</p>;
   }

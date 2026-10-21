@@ -398,11 +398,12 @@ async def trigger_workflow(
 @router.get("/{workflow_id}/runs", response_model=list[WorkflowRunOut])
 async def list_workflow_runs(
     workflow_id: str,
-    tenant_id: str = Depends(get_current_tenant_id),
+    admin_user: User = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ) -> list[WorkflowRunOut]:
-    """Execution history (newest first). Tenant-scoped."""
+    """Execution history (newest first). Administrators only: the summaries can contain report figures."""
     from app.db.workflow_run_models import WorkflowRun
+    tenant_id = admin_user.tenant_id
 
     wf = (await db.execute(
         select(Workflow.id).where(Workflow.id == workflow_id, Workflow.tenant_id == tenant_id)
@@ -437,6 +438,24 @@ async def cancel_workflow_run(
         raise HTTPException(status_code=404, detail="Run not found")
     if run.status not in ("queued", "waiting_setup", "awaiting_approval"):
         raise HTTPException(status_code=409, detail=f"A run that is {run.status} cannot be cancelled")
+
+    # Cancelling must really stop the work, not only relabel it:
+    #  * awaiting_approval: reject the paused plan (and its pending action) so a later
+    #    approval click cannot execute it;
+    #  * waiting_setup: cancel the saved pending task so it cannot be resumed into a run;
+    #  * queued: the atomic queued->running claim never matches a cancelled row.
+    reviewer = admin_user.email or admin_user.id
+    if run.status == "awaiting_approval" and run.plan_id:
+        from app.services.planner import reject_plan
+        await reject_plan(plan_id=run.plan_id, tenant_id=admin_user.tenant_id, reviewed_by=reviewer, db=db)
+        plan = await db.get(ExecutionPlan, run.plan_id)
+        if plan is not None and plan.tenant_id == admin_user.tenant_id and plan.status == "awaiting_approval":
+            raise HTTPException(status_code=409, detail="The pending action could not be stopped; try rejecting it in Approvals.")
+    if run.status == "waiting_setup" and run.pending_task_id:
+        from app.db.pending_task_models import PendingTask
+        task = await db.get(PendingTask, run.pending_task_id)
+        if task is not None and task.tenant_id == admin_user.tenant_id and task.status == "waiting_setup":
+            task.status = "cancelled"
     run.status = "cancelled"
     run.detail = f"Cancelled by {admin_user.email or admin_user.id}"[:500]
     run.finished_at = datetime.now(timezone.utc)

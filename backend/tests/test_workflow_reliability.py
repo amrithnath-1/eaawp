@@ -245,22 +245,22 @@ class TestSetupAndPermissionsAreRevalidatedEveryRun:
         wf = create_wf(world)
         mutate(world, User, user_id(world, "a_admin"), is_active=False)
         tick(MON_9)
-        h = runs(world, wf, "a_employee")
-        assert h[0]["status"] == "skipped" and "deactivated" in h[0]["detail"] and not gsc_api.queries
+        h = db_runs(world, wf)
+        assert h[0].status == "skipped" and "deactivated" in h[0].detail and not gsc_api.queries
 
     def test_owner_demoted_from_admin_skips(self, world, llm, gsc_api):
         connect_gsc(world)
         wf = create_wf(world)
         mutate(world, User, user_id(world, "a_admin"), role="Employee")
         tick(MON_9)
-        assert runs(world, wf)[0]["status"] == "skipped" and not gsc_api.queries
+        assert db_runs(world, wf)[0].status == "skipped" and not gsc_api.queries
 
     def test_owner_moved_to_another_company_skips(self, world, llm, gsc_api):
         connect_gsc(world)
         wf = create_wf(world)
         mutate(world, User, user_id(world, "a_admin"), tenant_id=world.tenant_b)
         tick(MON_9)
-        assert runs(world, wf, "a_employee")[0]["status"] == "skipped" and not gsc_api.queries
+        assert db_runs(world, wf)[0].status == "skipped" and not gsc_api.queries
 
     def test_inactive_company_skips(self, world, llm, gsc_api):
         connect_gsc(world)
@@ -453,7 +453,8 @@ class TestApiPermissionsTenancyAndManualRuns:
         tick(MON_9)
         assert world.client.get(f"/api/v1/workflows/{wf}/runs", headers=world.auth("b_admin")).status_code == 404
         assert world.client.get(f"/api/v1/workflows/{wf}/runs").status_code == 401
-        assert len(runs(world, wf, "a_employee")) == 1                 # members may read their company's history
+        assert world.client.get(f"/api/v1/workflows/{wf}/runs", headers=world.auth("a_employee")).status_code == 403
+        assert len(runs(world, wf, "a_admin")) == 1                    # run summaries can hold report figures: admins only
 
     def test_cancel_a_queued_retry(self, world, llm, gsc_api):
         connect_gsc(world)
@@ -489,3 +490,99 @@ class TestApiPermissionsTenancyAndManualRuns:
         for secret in (ACCESS, REFRESH, CLIENT_SECRET):
             assert secret not in blob
         assert any("workflow 'Weekly SEO report'" in e and "completed" in e for e in run(audits()))
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+class TestHardeningRetriesCancellationAndHistory:
+    """Acceptance: no duplicate external actions on retry, cancellation really stops work."""
+
+    def _seed_plan(self, world, wf, step_type, step_status, created=MON_9, plan_status="failed"):
+        from app.db.models import PlanStep
+
+        async def go():
+            async with world.maker() as s:
+                w = await s.get(Workflow, wf)
+                pid = str(uuid.uuid4())
+                s.add(ExecutionPlan(id=pid, tenant_id=w.tenant_id, role_key="X", objective="o",
+                                    session_id=f"workflow:{wf}", status=plan_status, created_at=created))
+                s.add(PlanStep(plan_id=pid, tenant_id=w.tenant_id, step_index=0, step_type=step_type,
+                               status=step_status))
+                await s.commit()
+                return pid
+        return run(go())
+
+    def test_failed_run_that_already_ran_an_action_is_not_retried(self, world, llm, gsc_api):
+        connect_gsc(world)
+        wf = create_wf(world, max_retries=3)
+        self._seed_plan(world, wf, "action", "completed")        # e.g. an email was already sent
+        gsc_api.rows = http_error(403, "denied")
+        tick(MON_9)
+        h = db_runs(world, wf)
+        assert [r.status for r in h] == ["failed"]                # no queued retry
+        assert "Not retried" in h[0].detail
+
+    def test_failed_read_only_run_is_still_retried(self, world, llm, gsc_api):
+        connect_gsc(world)
+        wf = create_wf(world, max_retries=1)
+        self._seed_plan(world, wf, "read", "completed")
+        gsc_api.rows = http_error(403, "denied")
+        tick(MON_9)
+        assert [r.status for r in db_runs(world, wf)] == ["failed", "queued"]
+
+    def test_an_old_action_from_a_previous_week_does_not_block_retry(self, world, llm, gsc_api):
+        connect_gsc(world)
+        wf = create_wf(world, max_retries=1)
+        self._seed_plan(world, wf, "action", "completed", created=MON_9 - timedelta(days=7))
+        gsc_api.rows = http_error(403, "denied")
+        tick(MON_9)
+        assert [r.status for r in db_runs(world, wf)] == ["failed", "queued"]
+
+    def test_cancelling_an_approval_wait_rejects_the_plan(self, world, llm, gsc_api):
+        connect_gsc(world)
+        wf = create_wf(world)
+        pid = self._seed_plan(world, wf, "action", "awaiting_approval", plan_status="awaiting_approval")
+
+        async def go():
+            async with world.maker() as s:
+                w = await s.get(Workflow, wf)
+                s.add(WorkflowRun(id="r-wait", tenant_id=w.tenant_id, workflow_id=wf, trigger="scheduled",
+                                  slot="2026-10-19T09:00", status="awaiting_approval", plan_id=pid))
+                w.status = "awaiting_approval"
+                await s.commit()
+        run(go())
+        url = f"/api/v1/workflows/{wf}/runs/r-wait/cancel"
+        assert world.client.post(url, headers=world.auth("b_admin")).status_code == 404
+        assert world.client.post(url, headers=world.auth("a_admin")).json()["status"] == "cancelled"
+
+        async def plan_status():
+            async with world.maker() as s:
+                return (await s.get(ExecutionPlan, pid)).status
+        assert run(plan_status()) != "awaiting_approval"          # can no longer be approved and executed
+
+    def test_cancelling_a_setup_wait_cancels_the_saved_task(self, world, llm, gsc_api):
+        wf = create_wf(world)
+        tick(MON_9)                                               # nothing connected -> waiting_setup
+        r = db_runs(world, wf)[0]
+        assert r.status == "waiting_setup" and r.pending_task_id
+        url = f"/api/v1/workflows/{wf}/runs/{r.id}/cancel"
+        assert world.client.post(url, headers=world.auth("a_admin")).json()["status"] == "cancelled"
+        from app.db.pending_task_models import PendingTask
+
+        async def st():
+            async with world.maker() as s:
+                return (await s.get(PendingTask, r.pending_task_id)).status
+        assert run(st()) == "cancelled"
+
+    def test_a_cancelled_queued_run_never_executes(self, world, llm, gsc_api):
+        connect_gsc(world)
+        wf = create_wf(world, max_retries=1)
+        gsc_api.rows = http_error(403, "denied")
+        tick(MON_9)
+        queued = [r for r in db_runs(world, wf) if r.status == "queued"][0]
+        assert world.client.post(f"/api/v1/workflows/{wf}/runs/{queued.id}/cancel",
+                                 headers=world.auth("a_admin")).status_code == 200
+        before = len(gsc_api.queries)
+        assert run(wr.execute_run(queued.id)) == "cancelled"        # a direct attempt is refused too
+        tick(MON_9 + timedelta(hours=3))
+        assert len(gsc_api.queries) == before
+        assert db_runs(world, wf)[1].status == "cancelled"
