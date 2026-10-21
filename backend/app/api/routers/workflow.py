@@ -60,6 +60,12 @@ class WorkflowCreate(BaseModel):
     ai_employee_id: str | None = None
     is_enabled: bool = True
     created_by: str = Field(default="admin", max_length=128)
+    # Run settings. The workflow runs as this AI role, attributed to the administrator
+    # who saved it (taken from the verified login, never from the request body).
+    role_name: str | None = Field(None, max_length=128)
+    timezone: str = Field(default="UTC", max_length=64, description="IANA zone the cron schedule is read in")
+    max_retries: int = Field(default=0, ge=0, le=5)
+    retry_delay_minutes: int = Field(default=15, ge=1, le=1440)
 
 
 class WorkflowUpdate(BaseModel):
@@ -69,6 +75,10 @@ class WorkflowUpdate(BaseModel):
     schedule_cron: str | None = None
     steps: list[WorkflowStep] | None = None
     is_enabled: bool | None = None
+    role_name: str | None = Field(None, max_length=128)
+    timezone: str | None = Field(None, max_length=64)
+    max_retries: int | None = Field(None, ge=0, le=5)
+    retry_delay_minutes: int | None = Field(None, ge=1, le=1440)
 
 
 class WorkflowOut(BaseModel):
@@ -87,6 +97,27 @@ class WorkflowOut(BaseModel):
     created_by: str
     created_at: datetime
     updated_at: datetime
+    role_name: str | None = None
+    timezone: str = "UTC"
+    max_retries: int = 0
+    retry_delay_minutes: int = 15
+
+    model_config = {"from_attributes": True}
+
+
+class WorkflowRunOut(BaseModel):
+    id: str
+    workflow_id: str
+    trigger: str
+    attempt: int
+    status: str
+    plan_id: str | None = None
+    pending_task_id: str | None = None
+    detail: str = ""
+    not_before: datetime | None = None
+    started_at: datetime | None = None
+    finished_at: datetime | None = None
+    created_at: datetime
 
     model_config = {"from_attributes": True}
 
@@ -118,6 +149,10 @@ def _orm_to_out(w: Workflow) -> WorkflowOut:
         created_by=w.created_by,
         created_at=w.created_at,
         updated_at=w.updated_at,
+        role_name=w.role_name,
+        timezone=w.timezone or "UTC",
+        max_retries=w.max_retries or 0,
+        retry_delay_minutes=w.retry_delay_minutes or 15,
     )
 
 
@@ -168,6 +203,9 @@ def _validate_workflow(body: WorkflowCreate | WorkflowUpdate) -> None:
                 status_code=422,
                 detail=f"Step type '{step.step_type}' is not allowed. Allowed: {sorted(_ALLOWED_STEP_TYPES)}",
             )
+    from app.services.workflow_runner import valid_timezone
+    if getattr(body, "timezone", None) is not None and not valid_timezone(body.timezone):
+        raise HTTPException(status_code=422, detail="timezone must be a valid IANA zone such as 'Asia/Kolkata' or 'UTC'.")
     if body.schedule_cron is not None and not _valid_cron(body.schedule_cron):
         raise HTTPException(
             status_code=422,
@@ -200,6 +238,11 @@ async def create_workflow(
         is_enabled=body.is_enabled,
         status="idle",
         created_by=admin_user.email or admin_user.id,
+        role_name=body.role_name,
+        run_as_user_id=admin_user.id,
+        timezone=body.timezone,
+        max_retries=body.max_retries,
+        retry_delay_minutes=body.retry_delay_minutes,
     )
     db.add(wf)
     await db.commit()
@@ -268,6 +311,16 @@ async def update_workflow(
         wf.steps_json = json.dumps([s.model_dump() for s in body.steps])
     if body.is_enabled is not None:
         wf.is_enabled = body.is_enabled
+    if body.role_name is not None:
+        wf.role_name = body.role_name
+    if body.timezone is not None:
+        wf.timezone = body.timezone
+    if body.max_retries is not None:
+        wf.max_retries = body.max_retries
+    if body.retry_delay_minutes is not None:
+        wf.retry_delay_minutes = body.retry_delay_minutes
+    # Saving changes makes the saving administrator responsible for future runs.
+    wf.run_as_user_id = admin_user.id
 
     if wf.trigger == "scheduled" and (not wf.schedule_cron or not _valid_cron(wf.schedule_cron)):
         raise HTTPException(status_code=422, detail="A valid five-field schedule_cron is required for scheduled workflows.")
@@ -303,115 +356,93 @@ async def trigger_workflow(
     db: AsyncSession = Depends(get_db),
 ) -> WorkflowTriggerResponse:
     """
-    Manually trigger a workflow run.
-    Converts workflow steps into an execution plan via the existing planner.
+    Run a workflow now. Uses the same runner as scheduled runs, so the run is
+    recorded in the history, the owner's permissions and the role's grants are
+    re-checked, and the outcome is reported honestly.
     """
-    tenant_id = admin_user.tenant_id
-    result = await db.execute(
-        select(Workflow).where(
-            Workflow.id == workflow_id, Workflow.tenant_id == tenant_id
-        )
-    )
-    wf = result.scalar_one_or_none()
+    from app.services import workflow_runner
+
+    wf = (await db.execute(
+        select(Workflow).where(Workflow.id == workflow_id, Workflow.tenant_id == admin_user.tenant_id)
+    )).scalar_one_or_none()
     if not wf:
         raise HTTPException(status_code=404, detail="Workflow not found")
     if not wf.is_enabled:
         raise HTTPException(status_code=409, detail="Workflow is disabled")
+    if wf.status == "running":
+        raise HTTPException(status_code=409, detail="Workflow is already running")
+    await db.commit()          # release this session's snapshot before the runner opens its own
 
-    # Update status
-    wf.status = "running"
-    wf.last_run_at = datetime.now(timezone.utc)
-    await db.commit()
-
-    # Build objective from workflow steps for the planner
-    steps_data = json.loads(wf.steps_json or "[]")
-    step_descriptions = [s.get("description", "").strip() for s in steps_data if s.get("description", "").strip()]
-    task_instructions = "; ".join(step_descriptions[:5]) or wf.description.strip() or wf.name
-    objective = f"Execute workflow '{wf.name}': {task_instructions}"
-
-    logger.info(
-        "Workflow %s triggered manually for tenant %s — objective: %s",
-        workflow_id, tenant_id, objective[:100],
-    )
-
-    # ── Build a minimal blueprint for the planner ─────────────────────────────
-    # Use tools referenced in workflow steps plus standard safe tools.
-    step_tools = [
-        s.get("tool_name") for s in steps_data
-        if s.get("tool_name") and isinstance(s.get("tool_name"), str)
-    ]
-    from app.tools.registry import MASTER_TOOL_REGISTRY
-    allowed = list({t for t in step_tools if t in MASTER_TOOL_REGISTRY})
-    if not allowed:
-        allowed = ["query_company_data", "fetch_knowledge_base", "create_internal_task"]
-
-    from app.schemas.blueprint import AgentBlueprint
-    blueprint = AgentBlueprint(
-        agent_id=f"{tenant_id}-workflow-{workflow_id[:8]}",
-        role_name=wf.ai_employee_id or "Workflow Agent",
-        system_persona=(
-            f"You are executing the workflow '{wf.name}'. "
-            f"Complete each step methodically. "
-            f"Never send external communications without approval."
-        ),
-        allowed_tools=allowed,
-        guarded_tools=["send_email"],
-        tenant_id=tenant_id,
-        llm_model=None,
-    )
-
-    # Set tool context for the planner
-    from app.tools.registry import set_tool_context, clear_tool_context
-    set_tool_context(
-        db_session=db,
-        tenant_id=tenant_id,
-        role_key="WORKFLOW_AGENT",
-        allowed_tools=allowed,
-        guarded_tools=["send_email"],
-    )
-
-    try:
-        from app.services.planner import create_and_execute_plan
-        final_message, plan_id, tool_calls = await create_and_execute_plan(
-            user_prompt=objective,
-            blueprint=blueprint,
-            session_id=f"workflow:{workflow_id}",
-            db=db,
-        )
-    except Exception as exc:
-        logger.error("Workflow %s execution failed: %s", workflow_id, exc)
-        wf.status = "failed"
-        wf.last_run_status = str(exc)[:200]
-        await db.commit()
-        clear_tool_context()
-        return WorkflowTriggerResponse(
-            workflow_id=workflow_id,
-            status="failed",
-            message=f"Workflow '{wf.name}' execution failed: {str(exc)[:200]}",
-            plan_id=None,
-        )
-    finally:
-        clear_tool_context()
-
-    # Update workflow status
-    plan = await db.get(ExecutionPlan, plan_id) if plan_id else None
-    run_status = plan.status if plan else "failed"
-    wf.status = run_status
-    wf.last_run_status = run_status
-    await db.commit()
-
-    if run_status == "completed":
-        message = f"Workflow '{wf.name}' completed. {final_message[:300]}"
-    elif run_status == "awaiting_approval":
-        message = f"Workflow '{wf.name}' is waiting for an administrator's approval. {final_message[:300]}"
-    elif run_status == "rejected":
-        message = f"Workflow '{wf.name}' was rejected. {final_message[:300]}"
-    else:
-        message = f"Workflow '{wf.name}' failed. {final_message[:300]}"
-
+    run, status = await workflow_runner.run_now(workflow_id, admin_user.tenant_id, admin_user.id)
+    if run is None:
+        raise HTTPException(status_code=409, detail="Workflow could not be started")
+    full = run.detail
+    if run.plan_id:
+        plan = await db.get(ExecutionPlan, run.plan_id)
+        if plan is not None and plan.final_message:
+            full = plan.final_message[:2000]      # the complete answer, not the 300-char history summary
+    messages = {
+        "completed": f"Workflow '{wf.name}' completed. {full}",
+        "awaiting_approval": f"Workflow '{wf.name}' is waiting for an administrator's approval.",
+        "waiting_setup": f"Workflow '{wf.name}' needs integration setup before it can run. {run.detail}",
+        "skipped": f"Workflow '{wf.name}' was not run: {run.detail}",
+        "failed": f"Workflow '{wf.name}' failed. {run.detail}",
+    }
     return WorkflowTriggerResponse(
-        workflow_id=workflow_id,
-        status=run_status,
-        message=message,
-        plan_id=plan_id or None,
+        workflow_id=workflow_id, status=status,
+        message=messages.get(status, f"Workflow '{wf.name}' ended with status {status}."),
+        plan_id=run.plan_id,
     )
+
+
+@router.get("/{workflow_id}/runs", response_model=list[WorkflowRunOut])
+async def list_workflow_runs(
+    workflow_id: str,
+    tenant_id: str = Depends(get_current_tenant_id),
+    db: AsyncSession = Depends(get_db),
+) -> list[WorkflowRunOut]:
+    """Execution history (newest first). Tenant-scoped."""
+    from app.db.workflow_run_models import WorkflowRun
+
+    wf = (await db.execute(
+        select(Workflow.id).where(Workflow.id == workflow_id, Workflow.tenant_id == tenant_id)
+    )).first()
+    if wf is None:
+        raise HTTPException(status_code=404, detail="Workflow not found")
+    rows = (await db.execute(
+        select(WorkflowRun)
+        .where(WorkflowRun.workflow_id == workflow_id, WorkflowRun.tenant_id == tenant_id)
+        .order_by(WorkflowRun.created_at.desc(), WorkflowRun.attempt.desc())
+        .limit(100)
+    )).scalars().all()
+    return [WorkflowRunOut.model_validate(r) for r in rows]
+
+
+@router.post("/{workflow_id}/runs/{run_id}/cancel", response_model=WorkflowRunOut)
+async def cancel_workflow_run(
+    workflow_id: str, run_id: str,
+    admin_user: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+) -> WorkflowRunOut:
+    """Cancel a run that has not started (queued retry) or is waiting on setup/approval."""
+    from app.db.workflow_run_models import WorkflowRun
+
+    run = (await db.execute(
+        select(WorkflowRun).where(
+            WorkflowRun.id == run_id, WorkflowRun.workflow_id == workflow_id,
+            WorkflowRun.tenant_id == admin_user.tenant_id,
+        )
+    )).scalar_one_or_none()
+    if run is None:
+        raise HTTPException(status_code=404, detail="Run not found")
+    if run.status not in ("queued", "waiting_setup", "awaiting_approval"):
+        raise HTTPException(status_code=409, detail=f"A run that is {run.status} cannot be cancelled")
+    run.status = "cancelled"
+    run.detail = f"Cancelled by {admin_user.email or admin_user.id}"[:500]
+    run.finished_at = datetime.now(timezone.utc)
+    wf = await db.get(Workflow, workflow_id)
+    if wf is not None and wf.status == "awaiting_approval":
+        wf.status = "idle"
+    await db.commit()
+    await db.refresh(run)
+    return WorkflowRunOut.model_validate(run)

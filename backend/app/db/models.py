@@ -942,6 +942,13 @@ class Workflow(Base):
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="idle")
     last_run_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_run_status: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    # Run settings (Phase D).  Every run is executed as this AI role and attributed to
+    # this user, and both are re-validated at run time.
+    role_name: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    run_as_user_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    timezone: Mapped[str] = mapped_column(String(64), nullable=False, default="UTC", server_default="UTC")
+    max_retries: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    retry_delay_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=15, server_default="15")
     created_by: Mapped[str] = mapped_column(String(128), nullable=False, default="admin")
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False

@@ -14,12 +14,13 @@ IMPLEMENTED AND VERIFIED / IMPLEMENTED, MOCK-TESTED ONLY / IMPLEMENTED BUT NOT V
 | GA4 workflow with setup/resume | IMPLEMENTED, MOCK-TESTED ONLY |
 | Search Console workflow incl. property selection | IMPLEMENTED, MOCK-TESTED ONLY - live Google test pending the owner |
 | Local runtime errors (CORS/500 on old DB) | IMPLEMENTED AND VERIFIED against the real server on an old-schema DB |
-| Persistent workflows/scheduling, multi-agent, builder, other roles, knowledge, marketplace | PLANNED (see roadmap) |
+| Phase D: persistent workflow runs, schedules, retries, recovery (`docs/workflows_scheduling.md`) | IMPLEMENTED, MOCK-TESTED ONLY (fake LLM/Google); scheduler loop + crash recovery also exercised on a real uvicorn process (no live Google) |
+| Multi-agent/Meeting Room, builder, other roles, knowledge, marketplace | PLANNED (see roadmap) |
 
 ## Run / test
 * Backend tests: `cd backend; python -m pytest -q` (venv with `requirements`). Frontend: `npx tsc --noEmit`, `npm run build`.
 * Windows run + migration steps: `docs/local_windows_runtime.md`.
-* Migration head: `w0x4y59z1a17`. Rehearse any migration on a copy first.
+* Migration head: `x1y5z60a2b18`. Rehearse any migration on a copy first.
 
 ## Architecture pointers
 * Tool bridge: `app/tools/dynamic_tool.py` -> `app/integrations/manager.py` (`execute_capability`: tenant, status, role grant, decrypt in memory).
@@ -32,4 +33,4 @@ Tenant from verified auth only; model is never the authorization authority; secr
 no wildcard CORS; read-only by default; one-click approvals only for LOW-risk read capabilities.
 
 ## Next
-Phase A done after merge -> live-verify Search Console (owner) -> Phase D (persistent workflows/scheduling).
+Phases A and D merged locally -> owner live-verifies Search Console -> Phase E (multi-agent workforce / Meeting Room backend).

@@ -15,7 +15,7 @@ import pytest
 
 BACKEND = pathlib.Path(__file__).resolve().parents[2]
 PREVIOUS = "u8v2w37x9y15"
-HEAD = "w0x4y59z1a17"
+HEAD = "x1y5z60a2b18"
 
 
 def alembic(db: pathlib.Path, *args: str) -> str:
@@ -102,3 +102,33 @@ def test_pending_tasks_migration_up_down_up(tmp_path):
     assert cols(db, "pending_tasks") == {}
     alembic(db, "upgrade", "head")
     assert "prompt" in cols(db, "pending_tasks")
+
+
+def test_workflow_runs_migration_is_additive_and_reversible(tmp_path):
+    """Run history table + new workflow columns: existing workflow rows survive up and down."""
+    import sqlite3
+    db = tmp_path / "wfruns.db"
+    alembic(db, "upgrade", "w0x4y59z1a17")
+    con = sqlite3.connect(db)
+    con.execute("INSERT INTO companies (id, name, industry, region, employees, is_active) VALUES ('t','T','x','x',1,1)")
+    con.execute("INSERT INTO workflows (id, tenant_id, name, description, trigger, steps_json, is_enabled, status, created_by) "
+                "VALUES ('w1','t','Weekly','', 'manual','[]',1,'idle','admin')")
+    con.commit(); con.close()
+    alembic(db, "upgrade", "head")
+    wf_cols = cols(db, "workflows")
+    assert {"role_name", "run_as_user_id", "timezone", "max_retries", "retry_delay_minutes"} <= set(wf_cols)
+    run_cols = cols(db, "workflow_runs")
+    assert {"workflow_id", "slot", "attempt", "status", "not_before", "plan_id"} <= set(run_cols)
+    con = sqlite3.connect(db)
+    assert con.execute("SELECT name, timezone, max_retries FROM workflows WHERE id='w1'").fetchone() == ("Weekly", "UTC", 0)
+    # the unique (workflow, slot) constraint is what prevents duplicate runs
+    con.execute("INSERT INTO workflow_runs (id, tenant_id, workflow_id, slot) VALUES ('r1','t','w1','2026-10-21T09:00')")
+    with pytest.raises(sqlite3.IntegrityError):
+        con.execute("INSERT INTO workflow_runs (id, tenant_id, workflow_id, slot) VALUES ('r2','t','w1','2026-10-21T09:00')")
+    con.close()
+    alembic(db, "downgrade", "w0x4y59z1a17")
+    assert cols(db, "workflow_runs") == {}
+    assert "role_name" not in cols(db, "workflows")
+    con = sqlite3.connect(db)
+    assert con.execute("SELECT name FROM workflows WHERE id='w1'").fetchone() == ("Weekly",)
+    con.close()

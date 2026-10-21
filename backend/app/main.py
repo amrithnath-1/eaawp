@@ -146,6 +146,12 @@ async def lifespan(app: FastAPI):  # type: ignore[type-arg]
         )
     # ─────────────────────────────────────────────────────────────────────────
 
+    try:
+        from app.services.workflow_runner import recover_interrupted
+        await recover_interrupted()
+    except Exception as _exc:  # recovery must never block startup
+        logger.warning("Workflow recovery could not run: %s", type(_exc).__name__)
+
     await start_scheduler()
     yield
     logger.info("EAAWP backend shutting down")

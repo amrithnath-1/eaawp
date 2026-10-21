@@ -3515,6 +3515,10 @@ export interface WorkflowOut {
   created_by: string;
   created_at: string;
   updated_at: string;
+  role_name?: string | null;
+  timezone?: string;
+  max_retries?: number;
+  retry_delay_minutes?: number;
 }
 
 export interface WorkflowCreate {
@@ -3526,6 +3530,46 @@ export interface WorkflowCreate {
   ai_employee_id?: string | null;
   is_enabled?: boolean;
   created_by?: string;
+  role_name?: string | null;
+  timezone?: string;
+  max_retries?: number;
+  retry_delay_minutes?: number;
+}
+
+/** One execution attempt of a workflow (history). Status is the real outcome. */
+export interface WorkflowRunFE {
+  id: string;
+  workflow_id: string;
+  trigger: "manual" | "scheduled" | "retry";
+  attempt: number;
+  status: "queued" | "running" | "completed" | "failed" | "awaiting_approval" | "waiting_setup" | "skipped" | "cancelled";
+  plan_id: string | null;
+  pending_task_id: string | null;
+  detail: string;
+  not_before: string | null;
+  started_at: string | null;
+  finished_at: string | null;
+  created_at: string;
+}
+
+export function useWorkflowRuns(workflowId: string, enabled: boolean) {
+  return useQuery<WorkflowRunFE[]>({
+    queryKey: ["workflow-runs", workflowId] as const,
+    queryFn: () => intMgrFetch<WorkflowRunFE[]>("GET", `/api/v1/workflows/${workflowId}/runs`),
+    enabled,
+    staleTime: 5_000,
+  });
+}
+
+export function useCancelWorkflowRun(workflowId: string) {
+  const qc = useQueryClient();
+  return useMutation<WorkflowRunFE, Error, string>({
+    mutationFn: (runId) => intMgrFetch<WorkflowRunFE>("POST", `/api/v1/workflows/${workflowId}/runs/${runId}/cancel`),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["workflow-runs", workflowId] });
+      void qc.invalidateQueries({ queryKey: ["workflows"] });
+    },
+  });
 }
 
 export function useWorkflows() {
@@ -3575,7 +3619,10 @@ export function useTriggerWorkflow() {
   return useMutation<{ workflow_id: string; status: string; message: string; plan_id: string | null }, Error, string>({
     mutationFn: (id) =>
       intMgrFetch("POST", `/api/v1/workflows/${id}/trigger`),
-    onSuccess: () => { void qc.invalidateQueries({ queryKey: ["workflows"] }); },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["workflows"] });
+      void qc.invalidateQueries({ queryKey: ["workflow-runs"] });
+    },
   });
 }
 

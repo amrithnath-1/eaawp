@@ -258,159 +258,23 @@ def _has_run_this_minute(last_run_at: datetime | None, now: datetime) -> bool:
 
 async def _tick_workflows() -> None:
     """
-    One workflow tick: find due scheduled workflows and execute them.
-
-    A workflow is due when:
-      - trigger == "scheduled"
-      - is_enabled == True
-      - status not in ("running",)          [duplicate-run protection]
-      - schedule_cron is not null/empty
-      - The cron expression matches the current time
-
-    Each workflow is executed through the same planner + governance pipeline
-    as a manual trigger. HIGH-risk steps still require approval.
+    One workflow tick (see ``services/workflow_runner``): recover interrupted
+    runs, claim due scheduled runs under a unique slot (no duplicates), execute
+    them through the normal agent path with the owner's permissions re-checked,
+    and run any retries that have come due.
     """
-    now = datetime.now(timezone.utc)
-    due: list[tuple[str, str, str]] = []  # (wf_id, tenant_id, name)
+    from app.services import workflow_runner
 
     try:
-        async with AsyncSessionLocal() as session:
-            result = await session.execute(
-                select(
-                    Workflow.id,
-                    Workflow.tenant_id,
-                    Workflow.name,
-                    Workflow.schedule_cron,
-                    Workflow.last_run_at,
-                ).where(
-                    Workflow.trigger == "scheduled",
-                    Workflow.is_enabled == True,     # noqa: E712
-                    Workflow.status.notin_(("running", "awaiting_approval")),
-                    Workflow.schedule_cron != None,  # noqa: E711
-                )
-            )
-            rows = result.all()
+        stats = await workflow_runner.tick()
+        if stats["claimed"] or stats["executed"] or stats["recovered"]:
+            logger.info("Workflow scheduler tick: %s", stats)
     except Exception as exc:
-        logger.error("Workflow scheduler: failed to query due workflows: %s", exc)
-        return
-
-    for wf_id, tenant_id, name, cron, last_run_at in rows:
-        ran_this_minute = _has_run_this_minute(last_run_at, now)
-        if cron and not ran_this_minute and _cron_is_due(cron, now):
-            due.append((wf_id, tenant_id, name))
-
-    if not due:
-        return
-
-    logger.info("Workflow scheduler: %d workflow(s) due for execution", len(due))
-
-    for wf_id, tenant_id, name in due:
-        if not _running:
-            break
-        try:
-            await _execute_workflow(wf_id, tenant_id)
-        except Exception as exc:
-            logger.error(
-                "Workflow scheduler: workflow %s (tenant %s) failed: %s",
-                wf_id, tenant_id, exc,
-            )
+        logger.error("Workflow scheduler tick failed: %s", type(exc).__name__)
 
 
 async def _execute_workflow(workflow_id: str, tenant_id: str) -> None:
-    """
-    Execute a single scheduled workflow in its own DB session.
-    Goes through the planner + governance pipeline — does NOT bypass
-    capability grants or approval requirements.
-    """
-    async with AsyncSessionLocal() as session:
-        # Fetch workflow and mark as running (prevents concurrent execution)
-        result = await session.execute(
-            select(Workflow).where(
-                Workflow.id == workflow_id,
-                Workflow.tenant_id == tenant_id,
-            )
-        )
-        wf = result.scalar_one_or_none()
-        if not wf or not wf.is_enabled:
-            return
+    """Run one workflow now through the shared runner (kept for existing callers)."""
+    from app.services import workflow_runner
 
-        wf.status = "running"
-        wf.last_run_at = datetime.now(timezone.utc)
-        await session.commit()
-
-        try:
-            steps_data = json.loads(wf.steps_json or "[]")
-            step_descriptions = [
-                s.get("description", "").strip()
-                for s in steps_data
-                if s.get("description", "").strip()
-            ]
-            task_instructions = "; ".join(step_descriptions[:5]) or wf.description.strip() or wf.name
-            objective = (
-                f"Scheduled workflow '{wf.name}': "
-                + task_instructions
-            )
-
-            # Collect tools referenced in steps
-            step_tools = [
-                s.get("tool_name") for s in steps_data
-                if isinstance(s.get("tool_name"), str) and s.get("tool_name")
-            ]
-            from app.tools.registry import MASTER_TOOL_REGISTRY
-            allowed = list({t for t in step_tools if t in MASTER_TOOL_REGISTRY})
-            if not allowed:
-                allowed = ["query_company_data", "fetch_knowledge_base", "create_internal_task"]
-
-            from app.schemas.blueprint import AgentBlueprint
-            from app.services.planner import create_and_execute_plan
-            from app.tools.registry import clear_tool_context, set_tool_context
-
-            blueprint = AgentBlueprint(
-                agent_id=f"{tenant_id}-sched-{workflow_id[:8]}",
-                role_name=wf.ai_employee_id or "Scheduled Workflow Agent",
-                system_persona=(
-                    f"You are executing the scheduled workflow '{wf.name}'. "
-                    "Complete each step methodically. "
-                    "Never send external communications without explicit approval."
-                ),
-                allowed_tools=allowed,
-                guarded_tools=["send_email"],
-                tenant_id=tenant_id,
-                llm_model=None,
-            )
-
-            set_tool_context(
-                db_session=session,
-                tenant_id=tenant_id,
-                role_key="SCHEDULED_WORKFLOW",
-                allowed_tools=allowed,
-                guarded_tools=["send_email"],
-            )
-
-            try:
-                _final_message, plan_id, _ = await create_and_execute_plan(
-                    user_prompt=objective,
-                    blueprint=blueprint,
-                    session_id=f"workflow:{workflow_id}",
-                    db=session,
-                )
-                plan = await session.get(ExecutionPlan, plan_id) if plan_id else None
-                run_status = plan.status if plan else "failed"
-                wf.status = run_status
-                wf.last_run_status = run_status
-                logger.info(
-                    "Workflow %s (tenant %s) finished with status %s — plan_id: %s",
-                    workflow_id, tenant_id, run_status, plan_id,
-                )
-            finally:
-                clear_tool_context()
-
-        except Exception as exc:
-            wf.status = "failed"
-            wf.last_run_status = str(exc)[:200]
-            logger.error(
-                "Workflow %s (tenant %s) execution failed: %s",
-                workflow_id, tenant_id, exc,
-            )
-
-        await session.commit()
+    await workflow_runner.run_now(workflow_id, tenant_id, requested_by="")

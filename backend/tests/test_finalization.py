@@ -435,11 +435,20 @@ class TestConfigAndEnv:
 class TestWorkflowTrigger:
 
     def test_workflow_router_imports_planner(self):
-        """workflow.py trigger endpoint references create_and_execute_plan."""
+        """The trigger endpoint runs through the shared runner, which reaches the planner.
+
+        (Phase D: the trigger used to call create_and_execute_plan directly, with a
+        hard-coded tool list and a made-up role.  It now delegates to
+        workflow_runner -> execute_agent -> create_and_execute_plan so manual and
+        scheduled runs share one authorised path.  The invariant that matters -
+        a workflow trigger executes via the planner - is still asserted.)
+        """
         import inspect
-        from app.api.routers import workflow
-        src = inspect.getsource(workflow)
-        assert "create_and_execute_plan" in src
+        from app.api.routers import execution, workflow
+        from app.services import workflow_runner
+        assert "workflow_runner" in inspect.getsource(workflow)
+        assert "execute_agent" in inspect.getsource(workflow_runner)
+        assert "create_and_execute_plan" in inspect.getsource(execution)
 
     def test_workflow_trigger_endpoint_exists(self):
         """Workflow router has POST /{workflow_id}/trigger."""

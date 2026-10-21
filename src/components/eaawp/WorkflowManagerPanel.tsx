@@ -27,6 +27,8 @@ import {
   useUpdateWorkflow,
   useDeleteWorkflow,
   useTriggerWorkflow,
+  useWorkflowRuns,
+  useCancelWorkflowRun,
   type WorkflowOut,
   type WorkflowCreate,
   type WorkflowStep,
@@ -41,6 +43,10 @@ function StatusBadge({ status }: { status: string }) {
     completed: { cls: "text-success border-success/40",                   label: "COMPLETED" },
     failed:    { cls: "text-destructive border-destructive/40",           label: "FAILED" },
     rejected:  { cls: "text-destructive border-destructive/40",           label: "REJECTED" },
+    queued:    { cls: "text-muted-foreground border-muted-foreground/40", label: "QUEUED" },
+    waiting_setup: { cls: "text-warning border-warning/40",               label: "NEEDS SETUP" },
+    skipped:   { cls: "text-muted-foreground border-muted-foreground/40", label: "SKIPPED" },
+    cancelled: { cls: "text-muted-foreground border-muted-foreground/40", label: "CANCELLED" },
   };
   const cfg = cfgMap[status] ?? cfgMap["idle"]!;
   const { cls, label } = cfg;
@@ -48,6 +54,45 @@ function StatusBadge({ status }: { status: string }) {
     <span className={cn("border px-1.5 py-0.5 font-mono text-[9px] tracking-[0.06em]", cls)}>
       {label}
     </span>
+  );
+}
+
+// ── Run history (real outcomes of each attempt) ────────────────────────────
+function RunHistory({ workflowId }: { workflowId: string }) {
+  const { data, isLoading, error } = useWorkflowRuns(workflowId, true);
+  const cancel = useCancelWorkflowRun(workflowId);
+  if (isLoading) return <p className="text-[10px] text-muted-foreground">Loading history…</p>;
+  if (error) return <p className="text-[10px] text-destructive">Could not load run history.</p>;
+  if (!data || data.length === 0) {
+    return <p className="text-[10px] text-muted-foreground">No runs yet.</p>;
+  }
+  return (
+    <div className="border-t border-border/40 pt-2 space-y-1">
+      <p className="font-mono text-[9px] tracking-[0.1em] text-muted-foreground">RUN HISTORY</p>
+      {data.slice(0, 10).map((r) => (
+        <div key={r.id} className="flex items-start gap-2 text-[11px]">
+          <span className="font-mono text-[9px] text-muted-foreground shrink-0 w-28">
+            {new Date(r.created_at).toLocaleString()}
+          </span>
+          <StatusBadge status={r.status} />
+          <span className="font-mono text-[9px] text-muted-foreground shrink-0">
+            {r.trigger}{r.attempt > 1 ? ` · attempt ${r.attempt}` : ""}
+          </span>
+          <span className="min-w-0 flex-1 truncate text-muted-foreground" title={r.detail}>{r.detail}</span>
+          {["queued", "waiting_setup", "awaiting_approval"].includes(r.status) && (
+            <button
+              disabled={cancel.isPending}
+              onClick={() => cancel.mutate(r.id, {
+                onError: (e) => toast.error(e instanceof Error ? e.message : "Could not cancel the run."),
+              })}
+              className="shrink-0 border border-border px-1.5 font-mono text-[9px] text-muted-foreground hover:text-foreground disabled:opacity-50"
+            >
+              CANCEL
+            </button>
+          )}
+        </div>
+      ))}
+    </div>
   );
 }
 
@@ -92,6 +137,8 @@ function WorkflowCard({
             <span>{wf.trigger.toUpperCase()}</span>
             {wf.schedule_cron && <span>{wf.schedule_cron}</span>}
             <span>{wf.steps.length} steps</span>
+            {wf.trigger === "scheduled" && <span>{wf.timezone ?? "UTC"}</span>}
+            {(wf.max_retries ?? 0) > 0 && <span>retries: {wf.max_retries}</span>}
           </div>
         </div>
         <button
@@ -131,9 +178,11 @@ function WorkflowCard({
         </div>
       )}
 
+      {expanded && <RunHistory workflowId={wf.id} />}
+
       {/* Actions */}
       <div className="flex gap-1.5 flex-wrap pt-1">
-        {wf.trigger === "manual" && wf.is_enabled && (
+        {wf.is_enabled && (
           <button
             onClick={() => onTrigger(wf.id)}
             disabled={triggering || wf.status === "running"}
