@@ -15,7 +15,7 @@ import pytest
 
 BACKEND = pathlib.Path(__file__).resolve().parents[2]
 PREVIOUS = "u8v2w37x9y15"
-HEAD = "b5c9d04e6f22"
+HEAD = "c6d0e15f7a23"
 
 
 def alembic(db: pathlib.Path, *args: str) -> str:
@@ -223,6 +223,25 @@ def test_clerk_migration_is_additive_and_reversible(tmp_path):
     con.commit(); con.close()
     alembic(db, "downgrade", "a4b8c93d5e21")
     assert cols(db, "service_requests") == {} and cols(db, "issued_documents") == {} and cols(db, "service_request_events") == {}
+    con = sqlite3.connect(db)
+    assert con.execute("SELECT name FROM companies WHERE id='t'").fetchone() == ("T",)
+    con.close()
+
+
+def test_appointments_migration_is_additive_and_reversible(tmp_path):
+    import sqlite3
+    db = tmp_path / "appt.db"
+    alembic(db, "upgrade", "b5c9d04e6f22")
+    con = sqlite3.connect(db)
+    con.execute("INSERT INTO companies (id, name, industry, region, employees, is_active) VALUES ('t','T','x','x',1,1)")
+    con.commit(); con.close()
+    alembic(db, "upgrade", "head")
+    assert {"patient_id", "reason", "status", "red_flag", "red_flags_json", "intake_json", "notes_json"} <= set(cols(db, "appointments"))
+    con = sqlite3.connect(db)
+    con.execute("INSERT INTO appointments (id, tenant_id) VALUES ('a1','t')")
+    con.commit(); con.close()
+    alembic(db, "downgrade", "b5c9d04e6f22")
+    assert cols(db, "appointments") == {}
     con = sqlite3.connect(db)
     assert con.execute("SELECT name FROM companies WHERE id='t'").fetchone() == ("T",)
     con.close()

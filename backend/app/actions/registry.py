@@ -13,6 +13,7 @@ Adding a new action tool:
 from __future__ import annotations
 
 from app.actions.base import BaseActionTool
+from app.actions.medical_actions import UpdateAppointmentStatusAction
 from app.actions.clerk_actions import DraftServiceDocumentAction, UpdateServiceRequestAction
 from app.actions.campaign_actions import CreateCampaignAction, UpdateCampaignAction
 from app.actions.create_internal_task import CreateInternalTaskAction
@@ -31,6 +32,7 @@ ACTION_REGISTRY: dict[str, BaseActionTool] = {
     "update_marketing_objective": UpdateMarketingObjectiveAction(),
     "draft_service_document": DraftServiceDocumentAction(),
     "update_service_request": UpdateServiceRequestAction(),
+    "update_appointment_status": UpdateAppointmentStatusAction(),
 }
 
 

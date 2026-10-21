@@ -136,6 +136,17 @@ async def execute_agent(
 
     # Greetings and simple conversational turns must not be sent through the
     # planner: otherwise the model may invent an unrelated integration lookup.
+    if role_key == "MEDICAL_ASSISTANT":
+        # Deterministic safety boundary: emergencies, crisis wording and requests for medical advice are answered here,
+        # BEFORE any language model is involved.
+        from app.services.medical_guard import screen as _medical_screen
+        _g = _medical_screen(request.user_prompt)
+        if _g is not None:
+            return AgentExecutionResponse(
+                message=_g.message, tool_calls=[], sources=[], requires_approval=False,
+                session_id=resolved_session_id, plan_id=None, plan_status=None, step_summaries=[],
+            )
+
     conversational_reply = _simple_conversation_reply(
         request.user_prompt, authoritative_blueprint.role_name
     )
@@ -325,7 +336,11 @@ async def execute_agent(
             pending_task_id=_task.id,
         )
 
-    has_action_tools = any(is_action_tool(t) for t in authoritative_blueprint.allowed_tools)
+    # Approval-gated (guarded) actions count too: a role whose only actions need approval must still go through
+    # the planner, otherwise the approval flow can never be reached.
+    has_action_tools = any(
+        is_action_tool(t) for t in [*authoritative_blueprint.allowed_tools, *authoritative_blueprint.guarded_tools]
+    )
 
     # ── Shared pre-work: RAG + data context ───────────────────────────────────
     rag_chunks: list[ScoredChunk] = []
@@ -566,5 +581,6 @@ def _blueprint_role_key(role_name: str) -> str:
         "Operations Analyst": "OPERATIONS_ANALYST",
         "Data Intelligence Analyst": "DATA_INTELLIGENCE_ANALYST",
         "Institutional Clerk": "INSTITUTIONAL_CLERK",
+        "Medical Assistant": "MEDICAL_ASSISTANT",
     }
     return mapping.get(role_name, "DIGITAL_MARKETING_MANAGER")

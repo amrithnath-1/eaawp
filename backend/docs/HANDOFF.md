@@ -3,6 +3,9 @@
 Base branch: `master`. Never push/deploy without explicit approval. Nothing here claims live verification
 unless stated.
 
+## Phase I: Medical Assistant (branch feat/phase-i-medical-assistant)
+- Deterministic emergency/crisis/advice guard before the model, appointment requests + staff queue + verbatim-grounded intake summary, `MEDICAL_ASSISTANT` role (read tools + approval-gated status update), never stored in shared memory, `/clinic` page. See `docs/medical_assistant.md`. Migration `c6d0e15f7a23`. `execute_agent`: guarded-only action tools now count as action tools (affects all roles). Status: IMPLEMENTED, MOCK-TESTED ONLY. Data is unencrypted at rest (documented).
+
 ## Phase H: Institutional Clerk (branch feat/phase-h-institutional-clerk)
 - Service requests + review workflow + timeline, templated documents (draft/issue/void with serials), extraction from uploads, `INSTITUTIONAL_CLERK` role with identity-aware read tools and two governed actions. See `docs/institutional_clerk.md`. Migration `b5c9d04e6f22`. Tool context now carries `user_id`/`is_admin`. Status: IMPLEMENTED, MOCK-TESTED; two-user browser flow exercised on a real server with a scripted LLM.
 
@@ -35,12 +38,13 @@ IMPLEMENTED AND VERIFIED / IMPLEMENTED, MOCK-TESTED ONLY / IMPLEMENTED BUT NOT V
 | Phase D: persistent workflow runs, schedules, retries, recovery (`docs/workflows_scheduling.md`) | IMPLEMENTED, MOCK-TESTED ONLY (fake LLM/Google); scheduler loop + crash recovery also exercised on a real uvicorn process (no live Google) |
 | Meeting Room (E), AI Employee Builder lifecycle (F), Data Analyst (G) | IMPLEMENTED, MOCK-TESTED ONLY (scripted LLM; real server + browser exercised) |
 | Institutional Clerk (H) | IMPLEMENTED, MOCK-TESTED ONLY (scripted LLM; real server + browser exercised) |
-| Medical Assistant, invitations/messaging, knowledge/DB connectivity, marketplace | PLANNED (see roadmap) |
+| Medical Assistant (I) | IMPLEMENTED, MOCK-TESTED ONLY (scripted LLM; unencrypted at rest) |
+| Invitations/messaging, knowledge/DB connectivity, marketplace | PLANNED (see roadmap) |
 
 ## Run / test
 * Backend tests: `cd backend; python -m pytest -q` (venv with `requirements`). Frontend: `npx tsc --noEmit`, `npm run build`.
 * Windows run + migration steps: `docs/local_windows_runtime.md`.
-* Migration head: `b5c9d04e6f22`. Rehearse any migration on a copy first.
+* Migration head: `c6d0e15f7a23`. Rehearse any migration on a copy first.
 
 ## Architecture pointers
 * Tool bridge: `app/tools/dynamic_tool.py` -> `app/integrations/manager.py` (`execute_capability`: tenant, status, role grant, decrypt in memory).

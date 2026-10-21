@@ -32,6 +32,7 @@ import app.db.meeting_models  # noqa: E402, F401  ← Meeting Room
 import app.db.employee_version_models  # noqa: E402, F401  ← AI employee versions
 import app.db.dataset_models  # noqa: E402, F401  ← datasets and analysis reports
 import app.db.clerk_models  # noqa: E402, F401  ← Institutional Clerk
+import app.db.medical_models  # noqa: E402, F401  ← Medical Assistant (clinic support)
 # Phase H/I — new tables for employee builder and workflow engine
 # (These are defined in models.py so Base already knows them — no extra import needed)
 config = context.config

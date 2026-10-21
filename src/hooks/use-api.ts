@@ -4028,3 +4028,43 @@ export function useExtractClerkFields() {
     },
   });
 }
+
+
+// ── Medical Assistant (clinic support): appointments ──────────────────────────────
+export interface ClinicNoteFE { at: string; by_name: string; text: string; internal: boolean }
+export interface ClinicAppointmentFE {
+  id: string; patient_id: string; patient_name: string; contact: string; reason: string; preferred_time: string;
+  status: "requested" | "confirmed" | "completed" | "no_show" | "cancelled"; scheduled_for: string | null; clinician_name: string;
+  red_flag: boolean; red_flags: string[]; intake: { symptoms_reported?: string[]; duration?: string; medications_mentioned?: string[]; allergies_mentioned?: string[]; note?: string };
+  notes: ClinicNoteFE[]; emergency_notice: string | null; disclaimer: string; created_at: string; updated_at: string;
+}
+export function useClinicAppointments() {
+  return useQuery<ClinicAppointmentFE[]>({ queryKey: ["clinic-appointments"] as const, refetchInterval: 15_000, queryFn: () => intMgrFetch<ClinicAppointmentFE[]>("GET", "/api/v1/clinic/appointments") });
+}
+export function useClinicAppointment(id: string | null) {
+  return useQuery<ClinicAppointmentFE>({ queryKey: ["clinic-appointment", id] as const, enabled: !!id, queryFn: () => intMgrFetch<ClinicAppointmentFE>("GET", `/api/v1/clinic/appointments/${id}`) });
+}
+function useClinicMutation<V>(path: (v: V) => string, body?: (v: V) => unknown, method: "POST" | "DELETE" = "POST") {
+  const qc = useQueryClient();
+  return useMutation<ClinicAppointmentFE, Error, V>({
+    mutationFn: (v) => intMgrFetch<ClinicAppointmentFE>(method, path(v), body ? body(v) : undefined),
+    onSuccess: (d) => { if (d?.id) qc.setQueryData(["clinic-appointment", d.id], d); void qc.invalidateQueries({ queryKey: ["clinic-appointments"] }); },
+  });
+}
+export const useCreateAppointment = () => useClinicMutation<{ reason: string; preferred_time?: string; contact?: string }>(() => "/api/v1/clinic/appointments", (v) => v);
+export const useAppointmentNote = (id: string) => useClinicMutation<{ text: string; internal?: boolean }>(() => `/api/v1/clinic/appointments/${id}/notes`, (v) => v);
+export const useAppointmentCancel = (id: string) => useClinicMutation<void>(() => `/api/v1/clinic/appointments/${id}/cancel`);
+export const useAppointmentStatus = (id: string) => useClinicMutation<{ status: string; scheduled_for?: string; clinician_name?: string; note?: string }>(() => `/api/v1/clinic/appointments/${id}/status`, (v) => v);
+export const useAppointmentSummarize = (id: string) => useClinicMutation<void>(() => `/api/v1/clinic/appointments/${id}/summarize`);
+export function useEraseAppointment() {
+  const qc = useQueryClient();
+  return useMutation<void, Error, string>({
+    mutationFn: (id) => intMgrFetch<void>("DELETE", `/api/v1/clinic/appointments/${id}`),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ["clinic-appointments"] }),
+  });
+}
+export function useScreenText() {
+  return useMutation<{ kind: "emergency" | "crisis" | "boundary" | null; message: string | null }, Error, string>({
+    mutationFn: (text) => intMgrFetch("POST", "/api/v1/clinic/screen", { text }),
+  });
+}

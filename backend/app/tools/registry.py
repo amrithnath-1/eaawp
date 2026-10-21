@@ -1780,6 +1780,87 @@ async def get_service_request(params: str) -> str:
         return f"[ERROR] get_service_request: {str(exc)[:200]}"
 
 
+# -- Medical Assistant read tools (visibility depends on WHO is asking; no medical advice) -----
+
+@tool
+async def list_appointments(params: str = "{}") -> str:
+    """
+    List appointment requests. Clinic staff (administrators) see the company's; everyone else sees only their own.
+    Read only. This tool never gives medical advice.
+
+    Args:
+        params: JSON string. Optional keys: status (str), limit (int, default 20, max 50).
+    """
+    import json as _json
+    from sqlalchemy import select
+    from app.db.medical_models import Appointment
+    db = _db_session_ctx.get()
+    tenant_id = _tenant_id_ctx.get()
+    user_id, is_admin = _user_ctx.get()
+    if db is None or not tenant_id:
+        return "[ERROR] list_appointments: no database session."
+    try:
+        p = _json.loads(params) if isinstance(params, str) and params.strip() else {}
+    except _json.JSONDecodeError:
+        p = {}
+    try:
+        q = select(Appointment).where(Appointment.tenant_id == tenant_id)
+        if not is_admin:
+            if not user_id:
+                return "No appointments visible."
+            q = q.where(Appointment.patient_id == user_id)
+        if p.get("status"):
+            q = q.where(Appointment.status == str(p["status"])[:16])
+        limit = max(1, min(int(p.get("limit", 20)), 50))
+        items = (await db.execute(q.order_by(Appointment.created_at.desc()).limit(limit))).scalars().all()
+        if not items:
+            return "No appointments found."
+        lines = [f"Appointments ({len(items)}):"]
+        for a in items:
+            who = f" | {a.patient_name}" if is_admin else ""
+            when = f" | {a.scheduled_for}" if a.scheduled_for else ""
+            urgent = " | URGENT WORDING" if a.red_flag and a.status == "requested" else ""
+            lines.append(f"- [{a.status}] ID:{a.id}{who}{when}{urgent}")
+        return "\n".join(lines)
+    except Exception as exc:
+        logger.error("list_appointments error: %s", exc)
+        return f"[ERROR] list_appointments: {str(exc)[:200]}"
+
+
+@tool
+async def get_appointment(params: str) -> str:
+    """
+    Read one appointment request (reason in the patient's own words, status, public notes). Read only.
+    You only see appointments you are allowed to see. Never interpret the reason medically.
+
+    Args:
+        params: JSON string with key appointment_id.
+    """
+    import json as _json
+    from app.services import medical_service as ms
+    db = _db_session_ctx.get()
+    tenant_id = _tenant_id_ctx.get()
+    user_id, is_admin = _user_ctx.get()
+    if db is None or not tenant_id:
+        return "[ERROR] get_appointment: no database session."
+    try:
+        p = _json.loads(params) if isinstance(params, str) and params.strip() else {}
+    except _json.JSONDecodeError:
+        p = {}
+    try:
+        a = await ms.get(db, tenant_id, str(p.get("appointment_id", ""))[:36])
+        if a is None or not (is_admin or (user_id and a.patient_id == user_id)):
+            return "Appointment not found."
+        notes = [n for n in ms.notes_of(a) if is_admin or not n.get("internal")][-8:]
+        lines = [f"[{a.status}] {a.patient_name if is_admin else 'Your appointment'} | scheduled: {a.scheduled_for or 'not yet'}"
+                 f" | clinician: {a.clinician_name or 'unassigned'}", f"Reason (patient's words): {a.reason[:600]}"]
+        lines += [f"  - {n.get('by_name') or 'system'}: {str(n.get('text', ''))[:200]}" for n in notes]
+        return "\n".join(lines)
+    except Exception as exc:
+        logger.error("get_appointment error: %s", exc)
+        return f"[ERROR] get_appointment: {str(exc)[:200]}"
+
+
 MASTER_TOOL_REGISTRY: dict[str, object] = {
     "fetch_knowledge_base": fetch_knowledge_base,
     "draft_email": draft_email,
@@ -1813,6 +1894,8 @@ MASTER_TOOL_REGISTRY: dict[str, object] = {
     "analyze_dataset": analyze_dataset,
     "list_service_requests": list_service_requests,
     "get_service_request": get_service_request,
+    "list_appointments": list_appointments,
+    "get_appointment": get_appointment,
 }
 
 

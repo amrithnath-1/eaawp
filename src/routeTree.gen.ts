@@ -15,6 +15,7 @@ import { Route as ApprovalsRouteImport } from './routes/approvals'
 import { Route as AuditRouteImport } from './routes/audit'
 import { Route as CabinRouteImport } from './routes/cabin'
 import { Route as ClerkRouteImport } from './routes/clerk'
+import { Route as ClinicRouteImport } from './routes/clinic'
 import { Route as CompanyRouteImport } from './routes/company'
 import { Route as CustomizeRouteImport } from './routes/customize'
 import { Route as DataRouteImport } from './routes/data'
@@ -57,6 +58,11 @@ const CabinRoute = CabinRouteImport.update({
 const ClerkRoute = ClerkRouteImport.update({
   id: '/clerk',
   path: '/clerk',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ClinicRoute = ClinicRouteImport.update({
+  id: '/clinic',
+  path: '/clinic',
   getParentRoute: () => rootRouteImport,
 } as any)
 const CompanyRoute = CompanyRouteImport.update({
@@ -132,6 +138,7 @@ export interface FileRoutesByFullPath {
   '/audit': typeof AuditRoute
   '/cabin': typeof CabinRoute
   '/clerk': typeof ClerkRoute
+  '/clinic': typeof ClinicRoute
   '/company': typeof CompanyRoute
   '/customize': typeof CustomizeRoute
   '/data': typeof DataRoute
@@ -153,6 +160,7 @@ export interface FileRoutesByTo {
   '/audit': typeof AuditRoute
   '/cabin': typeof CabinRoute
   '/clerk': typeof ClerkRoute
+  '/clinic': typeof ClinicRoute
   '/company': typeof CompanyRoute
   '/customize': typeof CustomizeRoute
   '/data': typeof DataRoute
@@ -175,6 +183,7 @@ export interface FileRoutesById {
   '/audit': typeof AuditRoute
   '/cabin': typeof CabinRoute
   '/clerk': typeof ClerkRoute
+  '/clinic': typeof ClinicRoute
   '/company': typeof CompanyRoute
   '/customize': typeof CustomizeRoute
   '/data': typeof DataRoute
@@ -198,6 +207,7 @@ export interface FileRouteTypes {
     | '/audit'
     | '/cabin'
     | '/clerk'
+    | '/clinic'
     | '/company'
     | '/customize'
     | '/data'
@@ -219,6 +229,7 @@ export interface FileRouteTypes {
     | '/audit'
     | '/cabin'
     | '/clerk'
+    | '/clinic'
     | '/company'
     | '/customize'
     | '/data'
@@ -240,6 +251,7 @@ export interface FileRouteTypes {
     | '/audit'
     | '/cabin'
     | '/clerk'
+    | '/clinic'
     | '/company'
     | '/customize'
     | '/data'
@@ -262,6 +274,7 @@ export interface RootRouteChildren {
   AuditRoute: typeof AuditRoute
   CabinRoute: typeof CabinRoute
   ClerkRoute: typeof ClerkRoute
+  ClinicRoute: typeof ClinicRoute
   CompanyRoute: typeof CompanyRoute
   CustomizeRoute: typeof CustomizeRoute
   DataRoute: typeof DataRoute
@@ -319,6 +332,13 @@ declare module '@tanstack/react-router' {
       path: '/clerk'
       fullPath: '/clerk'
       preLoaderRoute: typeof ClerkRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/clinic': {
+      id: '/clinic'
+      path: '/clinic'
+      fullPath: '/clinic'
+      preLoaderRoute: typeof ClinicRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/company': {
@@ -422,6 +442,7 @@ const rootRouteChildren: RootRouteChildren = {
   AuditRoute: AuditRoute,
   CabinRoute: CabinRoute,
   ClerkRoute: ClerkRoute,
+  ClinicRoute: ClinicRoute,
   CompanyRoute: CompanyRoute,
   CustomizeRoute: CustomizeRoute,
   DataRoute: DataRoute,

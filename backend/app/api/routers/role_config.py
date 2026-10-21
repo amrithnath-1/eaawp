@@ -402,6 +402,53 @@ _CLERK_DEFAULTS: dict = {
 }
 
 
+_MEDICAL_DEFAULTS: dict = {
+    "role_name": "Medical Assistant",
+    "agent_name": "Clinic Assistant",
+    "description": "Clinic support only: appointment requests, clinic information and intake organisation. No medical advice.",
+    "responsibilities_json": json.dumps([
+        "Help patients request and track appointments",
+        "Answer questions about clinic hours, location and preparation from the knowledge base",
+        "Organise what a patient wrote so staff can read it quickly (in the patient's own words)",
+        "Direct anyone describing an emergency to emergency services immediately",
+    ]),
+    "objectives_json": json.dumps([
+        "Reduce front-desk workload without ever replacing clinical judgement",
+        "Make sure urgent wording is never missed",
+    ]),
+    "instructions": (
+        "You are NOT a clinician. Never diagnose, interpret symptoms, recommend or comment on medicines, doses or treatment. "
+        "If someone describes an emergency, tell them to call emergency services. Use list_appointments / get_appointment for "
+        "appointments; you only see what the person asking may see. Status changes require human approval."
+    ),
+    "system_persona": (
+        "You are the Clinic Assistant. You support the clinic's administration: appointments and clinic information. "
+        "You are calm, kind and brief. You never give medical advice, diagnoses or medication guidance, and you say so plainly "
+        "when asked, offering an appointment instead. You never disclose one person's information to another."
+    ),
+    "tool_scopes_json": json.dumps([
+        {"name": "List Appointments", "tool_key": "list_appointments", "governance": "enabled",
+         "description": "List appointment requests the asker may see - read only"},
+        {"name": "Get Appointment", "tool_key": "get_appointment", "governance": "enabled",
+         "description": "Read one appointment request - read only"},
+        {"name": "Update Appointment Status", "tool_key": "update_appointment_status", "governance": "requires_approval",
+         "description": "Confirm, reschedule, complete or cancel - always requires human approval"},
+        {"name": "Fetch Knowledge Base", "tool_key": "fetch_knowledge_base", "governance": "enabled",
+         "description": "Search clinic information documents - read only"},
+    ]),
+    "capabilities_json": "{}",
+    "permissions_json": "[]",
+    "workflows_json": "[]",
+    "monitoring_rules_json": "[]",
+    "communication_style": "Concise",
+    "schedule_preferences_json": "[]",
+    "memory_settings_json": "{}",
+    "llm_model": "gpt-4o-mini",
+    "autonomy_level": 1,
+    "quick_prompts_json": json.dumps(["I'd like to request an appointment", "What are the clinic hours?"]),
+}
+
+
 def _get_defaults(role_key: str) -> dict:
     """Return seed defaults for the given role key."""
     if role_key == "DIGITAL_MARKETING_MANAGER":
@@ -410,6 +457,8 @@ def _get_defaults(role_key: str) -> dict:
         return _DATA_ANALYST_DEFAULTS
     if role_key == "INSTITUTIONAL_CLERK":
         return _CLERK_DEFAULTS
+    if role_key == "MEDICAL_ASSISTANT":
+        return _MEDICAL_DEFAULTS
     # Fallback minimal defaults for any future role
     return {
         "role_name": role_key.replace("_", " ").title(),
