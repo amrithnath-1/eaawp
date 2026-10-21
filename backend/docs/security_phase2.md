@@ -12,7 +12,7 @@ parts are enforced by `tests/security/` and fail CI when they drift.
   deactivating a user takes effect on the next request, without waiting for token expiry.
 * Refresh tokens: stored as SHA-256 hashes, single use (rotated), revocable (logout / logout-all),
   signed subject must equal the record's user, user must still be active.
-* Startup refuses: placeholder/short `SECRET_KEY`, non-HMAC `ALGORITHM`, wildcard `CORS_ORIGINS` in production.
+* Startup refuses: empty, short (<32) or placeholder `SECRET_KEY` (anything containing `changeme`, `replace`, `placeholder`, `insecure`, `your-secret`, `generate-a`, ...; `.env.example` ships it empty), non-HMAC `ALGORITHM`, wildcard `CORS_ORIGINS` in production.
 
 ## Authorization (RBAC)
 Two levels: **Admin** (`Company Admin`, `admin`, `superadmin`, `AI Administrator`) and **member**.

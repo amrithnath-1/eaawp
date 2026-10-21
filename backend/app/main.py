@@ -64,6 +64,7 @@ from app.api.routers.admin_customization import router as admin_customization_ro
 from app.api.routers.admin_config import router as admin_config_router  # Admin Config Engine
 from app.middleware.observability import ObservabilityMiddleware  # Phase N
 from app.middleware.docs_guard import ProductionDocsGuard, is_production
+from app.core.startup_checks import secret_key_problem
 
 logging.basicConfig(
     level=logging.INFO,
@@ -82,19 +83,13 @@ async def lifespan(app: FastAPI):  # type: ignore[type-arg]
     # If SECRET_KEY still holds the repository default value the server cannot
     # safely sign JWTs — existing tokens cannot be trusted.  Refuse to start so
     # the operator is forced to set a real secret before going live.
-    _PLACEHOLDER_SECRETS = {
-        "dev-insecure-key-replace-in-production",
-        "changeme",
-        "secret",
-        "replace-me",
-        "your-secret-key",
-    }
-    if settings.secret_key in _PLACEHOLDER_SECRETS or len(settings.secret_key) < 32:
+    if secret_key_problem(settings.secret_key):
         raise RuntimeError(
-            "SERVER STARTUP REFUSED: SECRET_KEY is a known placeholder or too short "
-            "(minimum 32 characters).  Set a strong, unique SECRET_KEY in backend/.env "
-            "before starting the server.  All previously issued JWTs signed with a "
-            "placeholder key are invalid and must be re-issued after rotation."
+            "SERVER STARTUP REFUSED: SECRET_KEY is missing, a known placeholder (for example "
+            "containing 'changeme' or 'replace'), or shorter than 32 characters.  Generate one "
+            "with:  python -c \"import secrets; print(secrets.token_hex(32))\"  and set it in "
+            "backend/.env before starting the server.  Tokens signed with a placeholder key "
+            "are invalid and must be re-issued after rotation."
         )
 
     if settings.algorithm not in {"HS256", "HS384", "HS512"}:

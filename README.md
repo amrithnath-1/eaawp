@@ -82,7 +82,7 @@ Copy `backend/.env.example` to `backend/.env` and fill in:
 ```
 # Required
 GEMINI_API_KEY=your-key-here          # https://aistudio.google.com/app/apikey
-SECRET_KEY=generate-a-32-char-random-string
+SECRET_KEY=<paste output of the command below>   # required; placeholders are refused at startup
 
 # Optional — defaults shown
 DATABASE_URL=sqlite+aiosqlite:///./eaawp.db
@@ -95,6 +95,12 @@ Generate a SECRET_KEY:
 ```bash
 python -c "import secrets; print(secrets.token_hex(32))"
 ```
+
+The server refuses to start while `SECRET_KEY` is empty, shorter than 32 characters or contains placeholder text
+(`changeme`, `replace`, ...). Production additionally requires explicit `CORS_ORIGINS` (frontend URL first) and
+serves no API docs. Every authenticated endpoint needs a Bearer JWT in every environment; the `X-Tenant-ID`
+header is ignored. See `backend/.env.example` for all settings (`ENCRYPTION_KEY`, rate limits and registration
+controls, `TRUSTED_PROXY_COUNT`, `JWT_ISSUER`, `JWT_AUDIENCE`) and `backend/docs/security_phase2.md` for the security model.
 
 ---
 

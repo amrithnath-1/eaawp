@@ -215,7 +215,7 @@ The embedding calls in `vector_store.py` and `document_processor.py` use the raw
 
 ```
 GET /api/v1/llm/status
-Headers: X-Tenant-ID: <tenant>
+Headers: Authorization: Bearer <access token>   (the tenant is taken from the token's user)
 ```
 
 Returns:

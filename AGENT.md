@@ -58,7 +58,7 @@ Use the onboarding flow at `/company` to create your first company and admin acc
 
 ```
 Browser (React + TanStack Router)
-        │  JWT Bearer + X-Tenant-ID on every request
+        │  JWT Bearer on every authenticated request (tenant comes from the token's user)
         ▼
 FastAPI (port 8000)
   ├── Auth router          → JWT issue/refresh/revoke
@@ -101,7 +101,12 @@ All of these go in `backend/.env`. Never commit `.env`. Use `.env.example` as th
 | `GEMINI_DEFAULT_MODEL` | No | Defaults to `gemini-3.5-flash-lite` |
 | `CORS_ORIGINS` | No | Comma-separated allowed origins, e.g. `http://localhost:5173,http://localhost:5174` |
 | `OPENAI_API_KEY` | Optional | Only needed if you want GPT models or OpenAI embeddings. Not required for Gemini. |
-| `ENVIRONMENT` | No | `development` or `production`. Production disables all dev shortcuts. |
+| `ENVIRONMENT` | No | `development` or `production`. Production disables API docs and requires explicit `CORS_ORIGINS`. Authentication is identical in both. |
+| `ENCRYPTION_KEY` | Recommended in production | Separate key for encrypting stored integration credentials. See `backend/.env.example` for the rotation caveat. |
+| `TRUSTED_PROXY_COUNT` | If behind a proxy | Number of trusted reverse proxies for client-IP detection (rate limiting). Default 0. |
+| `REGISTRATION_ENABLED`, `REGISTRATION_RATE_LIMIT`, `REGISTRATION_RATE_WINDOW_SECONDS`, `REGISTRATION_DAILY_CAP` | No | Controls for public company sign-up. |
+| `LOGIN_RATE_LIMIT`, `LOGIN_MAX_FAILURES`, `LOGIN_FAILURE_WINDOW_SECONDS`, `REFRESH_RATE_LIMIT`, `OAUTH_CALLBACK_RATE_LIMIT` (+ `*_WINDOW_SECONDS`), `RATE_LIMIT_ENABLED` | No | Login brute-force and endpoint throttling. Per process. |
+| `JWT_ISSUER`, `JWT_AUDIENCE` | No | When set, written into tokens and required on every token. |
 
 Frontend `.env` (in `kinetic-office-main/`):
 
@@ -183,10 +188,9 @@ These are the known gaps in priority order.
 - `intFetch`, `dataFetch`, `actionFetch`, `monFetch`, `emailFetch`, `campFetch`, `perfFetch`, `funnelFetch`, `stratFetch`, `contentFetch`, `notifFetch`, `chanFetch`, `intMgrFetch` — all do the same switch-on-method dispatch through `apiClient`
 - Fix: replace all 13 with a single `apiFetch<T>(method, path, body?)` function. ~200 lines of dead code removed.
 
-**8. `_tenant()` defined identically in 20+ backend routers**
-- Every router has: `def _tenant(x_tenant_id: str = Header(..., alias="X-Tenant-ID")) -> str: return x_tenant_id`
-- This is the old pre-JWT pattern. Most of these routers have been moved to `get_current_user` / `get_current_tenant_id` but some still use the raw header
-- Fix: delete the local `_tenant` definition in each router and import `get_current_tenant_id` from `app.core.auth`
+**8. ~~`_tenant()` header dependency in 20+ routers~~ — RESOLVED in Phase 2**
+- All routers now use `get_current_tenant_id` / `get_current_user` / `require_admin`; `X-Tenant-ID` is ignored.
+- `backend/docs/route_auth_inventory.md` lists every route and the role it needs; tests in `backend/tests/security/` enforce it.
 
 **9. `src/lib/error-reporting.ts` is a TODO stub**
 - The frontend has a `reportError()` function that only `console.error`s in dev
@@ -246,11 +250,13 @@ Run a specific suite:
 
 The following security hardening has been applied (see commit history for details):
 
-- JWT required on all authenticated endpoints — no X-Tenant-ID header bypass
+- JWT required on all authenticated endpoints in every environment — no X-Tenant-ID header bypass (tenant and role come from the database user)
 - Server-side blueprint override — clients cannot inject tool permissions
 - File upload path traversal protection (UUID filenames, resolve check)
 - SSRF protection on MCP and PostgreSQL provider URLs
-- Startup refuses to boot with placeholder `SECRET_KEY`
+- Startup refuses to boot with an empty, short or placeholder `SECRET_KEY` (e.g. containing `changeme`/`replace`), a non-HMAC `ALGORITHM`, or wildcard CORS in production
+- Admin-only authorization for integrations, role configuration, employee administration, knowledge uploads and other privileged actions; rate limiting and lockout on the public endpoints; API docs disabled in production
+- Details: `backend/docs/security_phase2.md`
 - Admin role enforced on approval and user-creation endpoints
 - Reviewer identity always from JWT, never from request body
 - Prompt injection guard on all user inputs to the agent
@@ -278,7 +284,8 @@ In order:
 
 ```
 GEMINI_API_KEY        — from https://aistudio.google.com/app/apikey
-SECRET_KEY            — generate with: python -c "import secrets; print(secrets.token_hex(32))"
+SECRET_KEY            — generate with: python -c "import secrets; print(secrets.token_hex(32))"  (placeholders are refused)
+ENCRYPTION_KEY        — optional separate key for stored integration credentials (same generator)
 DATABASE_URL          — PostgreSQL connection string for production
 GOOGLE_CLIENT_ID      — from Google Cloud Console (for GSC + GA OAuth)
 GOOGLE_CLIENT_SECRET  — from Google Cloud Console

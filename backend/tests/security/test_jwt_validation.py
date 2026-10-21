@@ -168,7 +168,11 @@ class TestStartupGuards:
                 pass
         run(go())
 
-    @pytest.mark.parametrize("secret", ["changeme", "short", "dev-insecure-key-replace-in-production"])
+    @pytest.mark.parametrize("secret", [
+        "changeme", "short", "", "dev-insecure-key-replace-in-production",
+        "changeme-generate-a-real-secret-key",            # the old .env.example value
+        "CHANGEME" + "x" * 40, "a-long-enough-key-but-Replace-Me-1234567890", "x" * 64,
+    ])
     def test_weak_secret_refuses_to_start(self, monkeypatch, secret):
         monkeypatch.setattr(settings, "secret_key", secret)
         with pytest.raises(RuntimeError, match="STARTUP REFUSED"):
@@ -187,3 +191,31 @@ class TestStartupGuards:
         monkeypatch.setattr(settings, "cors_origins", "*")
         with pytest.raises(RuntimeError, match="CORS_ORIGINS"):
             self._boot()
+
+
+class TestSecretKeyPolicy:
+    from app.core.startup_checks import secret_key_problem
+
+    def test_generated_secrets_are_accepted(self):
+        import secrets
+        from app.core.startup_checks import secret_key_problem
+        for _ in range(200):
+            assert secret_key_problem(secrets.token_hex(32)) is None
+            assert secret_key_problem(secrets.token_urlsafe(48)) is None
+
+    def test_env_example_ships_no_usable_secret(self):
+        import pathlib, re
+        from app.core.startup_checks import secret_key_problem
+        text = (pathlib.Path(__file__).resolve().parents[2] / ".env.example").read_text(encoding="utf-8")
+        m = re.search(r"^SECRET_KEY=(.*)$", text, re.M)
+        assert m, "SECRET_KEY line missing from .env.example"
+        value = m.group(1).strip().strip('"').strip("'")
+        assert value == "", "the example file must not contain a SECRET_KEY value"
+        assert secret_key_problem(value) is not None
+
+    def test_empty_secret_refuses_to_start_in_production(self, monkeypatch):
+        monkeypatch.setattr(settings, "environment", "production")
+        monkeypatch.setattr(settings, "secret_key", "")
+        monkeypatch.setattr(settings, "cors_origins", "https://app.example.com")
+        with pytest.raises(RuntimeError, match="STARTUP REFUSED"):
+            TestStartupGuards()._boot()
