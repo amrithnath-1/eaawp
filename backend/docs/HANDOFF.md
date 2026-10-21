@@ -87,3 +87,9 @@ Status: IMPLEMENTED, MOCK-TESTED ONLY (embedder faked; no live Gemini). See docs
 - Fixed: document `access_level` was stored but never enforced; `/retrieve` honoured client `role_scope`, required an OpenAI key, listings leaked restricted document names, agent tool printed blank source names, no text-size cap, unvalidated `role_scope`.
 - Tests: tests/test_knowledge_access.py (19), 7 mutations killed.
 - Still open: MCP user flow, MySQL, Phase L, Phase M.
+
+## CURRENT STATE (updated 2026-10-21 ~22:30 IST)
+- Latest code commit: 6a9fdfd (Phase K2), merged to local master; 17 commits unpushed (nothing pushed/deployed without explicit approval).
+- Full suite: 2130 passed, 13 skipped (8 skipped = real-PostgreSQL tests, need EAAWP_TEST_PG_* env).
+- Completed: A-K2 (see per-phase sections). Current task: Phase L (marketplace/entitlements/module activation) not yet started.
+- Next action: Phase L, then MCP user flow, then Phase M. Progress dashboard (Claude artifact) mirrors this file.
