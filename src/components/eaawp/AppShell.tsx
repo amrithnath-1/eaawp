@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from "react";
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
-import {
+import { Store,
   Bell,
   BotMessageSquare,
   CalendarClock,
@@ -48,6 +48,7 @@ const NAV = [
   { to: "/messages",    label: "Messages",    icon: MessageSquare },
   { to: "/team",        label: "Team",        icon: UserPlus },
   { to: "/connections", label: "Connections", icon: Cable },
+  { to: "/marketplace", label: "Marketplace", icon: Store },
   { to: "/activity",    label: "Activity",    icon: BotMessageSquare },
   { to: "/scheduled",   label: "Scheduled",   icon: CalendarClock },
   { to: "/library",     label: "Library",     icon: Library },

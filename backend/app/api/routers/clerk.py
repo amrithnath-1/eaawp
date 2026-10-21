@@ -23,7 +23,9 @@ from app.db.models import User
 from app.db.session import get_db
 from app.services import clerk_service as cs
 
-router = APIRouter(prefix="/api/v1/clerk", tags=["institutional-clerk"])
+from app.services.modules import require_module
+
+router = APIRouter(prefix="/api/v1/clerk", tags=["institutional-clerk"], dependencies=[Depends(require_module("INSTITUTIONAL_CLERK"))])
 
 
 class RequestCreate(BaseModel):

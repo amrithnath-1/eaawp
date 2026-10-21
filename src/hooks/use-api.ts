@@ -4158,3 +4158,17 @@ export function useSendMessage(userId: string | null) {
     onSuccess: () => { void qc.invalidateQueries({ queryKey: ["msg-thread", userId] }); void qc.invalidateQueries({ queryKey: ["msg-conversations"] }); },
   });
 }
+
+
+// ── Marketplace: module catalog and activation (Phase L) ──────────────────────────
+export interface ModuleFE { key: string; name: string; description: string; category: string; status: "available" | "coming_soon"; active: boolean; changed_at: string | null }
+export function useModules() {
+  return useQuery<ModuleFE[]>({ queryKey: ["modules"] as const, queryFn: () => intMgrFetch<ModuleFE[]>("GET", "/api/v1/modules") });
+}
+export function useSetModule() {
+  const qc = useQueryClient();
+  return useMutation<ModuleFE, Error, { key: string; active: boolean }>({
+    mutationFn: (v) => intMgrFetch<ModuleFE>("POST", `/api/v1/modules/${v.key}/${v.active ? "activate" : "deactivate"}`),
+    onSuccess: () => { void qc.invalidateQueries({ queryKey: ["modules"] }); },
+  });
+}

@@ -24,7 +24,9 @@ from app.db.session import get_db
 from app.services import medical_guard as guard
 from app.services import medical_service as ms
 
-router = APIRouter(prefix="/api/v1/clinic", tags=["medical-assistant"])
+from app.services.modules import require_module
+
+router = APIRouter(prefix="/api/v1/clinic", tags=["medical-assistant"], dependencies=[Depends(require_module("MEDICAL_ASSISTANT"))])
 
 
 class AppointmentCreate(BaseModel):

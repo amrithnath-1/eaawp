@@ -96,6 +96,11 @@ async def execute_agent(
         if _known:
             role_key = _known
 
+    from app.services.modules import is_module_active, module_for_role, get_module
+    _mod = module_for_role(role_key)
+    if _mod and not await is_module_active(db, tenant_id, _mod):
+        raise HTTPException(status_code=403, detail=f"The {get_module(_mod).name} module is not activated for your company. A company administrator can activate it from the Marketplace.")
+
     from app.services.employee_lifecycle import employee_is_blocked as _blocked
     if await _blocked(db, tenant_id, role_key):
         raise HTTPException(status_code=403, detail="This AI employee is paused. An administrator can resume it from the Employees page.")

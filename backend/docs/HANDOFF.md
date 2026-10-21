@@ -93,3 +93,10 @@ Status: IMPLEMENTED, MOCK-TESTED ONLY (embedder faked; no live Gemini). See docs
 - Full suite: 2130 passed, 13 skipped (8 skipped = real-PostgreSQL tests, need EAAWP_TEST_PG_* env).
 - Completed: A-K2 (see per-phase sections). Current task: Phase L (marketplace/entitlements/module activation) not yet started.
 - Next action: Phase L, then MCP user flow, then Phase M. Progress dashboard (Claude artifact) mirrors this file.
+
+
+## Phase L (part 1): marketplace and module activation (branch feat/phase-l-modules)
+Status: IMPLEMENTED, MOCK-TESTED ONLY (no browser run yet at time of writing; see docs/marketplace.md).
+- New: app/services/modules.py, app/api/routers/modules.py, app/db/module_models.py, migration a0b4c59d1e67 (head; pinned in tests/security/test_migrations.py), tests/test_marketplace.py (9); frontend MarketplacePanel + /marketplace route + nav entry.
+- Enforcement on clerk, clinic and agent execution. No row = default ON, so existing companies are unchanged.
+- Remaining for Phase L: billing/plan tiers, per-user entitlements, usage limits (not started).

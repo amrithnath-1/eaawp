@@ -34,6 +34,7 @@ import app.db.dataset_models  # noqa: E402, F401  ← datasets and analysis repo
 import app.db.clerk_models  # noqa: E402, F401  ← Institutional Clerk
 import app.db.medical_models  # noqa: E402, F401  ← Medical Assistant (clinic support)
 import app.db.invitation_models  # noqa: E402, F401  ← Team invitations
+import app.db.module_models  # noqa: E402, F401  ← Marketplace module activation
 import app.db.message_models  # noqa: E402, F401  ← Internal messaging
 # Phase H/I — new tables for employee builder and workflow engine
 # (These are defined in models.py so Base already knows them — no extra import needed)
