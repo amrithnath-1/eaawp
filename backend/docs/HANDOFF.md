@@ -88,12 +88,17 @@ Status: IMPLEMENTED, MOCK-TESTED ONLY (embedder faked; no live Gemini). See docs
 - Tests: tests/test_knowledge_access.py (19), 7 mutations killed.
 - Still open: MCP user flow, MySQL, Phase L, Phase M.
 
-## CURRENT STATE (updated 2026-10-21 ~22:30 IST)
-- Latest code commit: 6a9fdfd (Phase K2), merged to local master; 17 commits unpushed (nothing pushed/deployed without explicit approval).
-- Full suite: 2130 passed, 13 skipped (8 skipped = real-PostgreSQL tests, need EAAWP_TEST_PG_* env).
-- Completed: A-K2 (see per-phase sections). Current task: Phase L (marketplace/entitlements/module activation) not yet started.
-- Next action: Phase L, then MCP user flow, then Phase M. Progress dashboard (Claude artifact) mirrors this file.
+## CURRENT STATE (updated 2026-10-21 ~19:20 UTC)
+- Latest merged code commit: 1f8304d (MCP connection flow), on local master; 20 commits unpushed (nothing pushed/deployed without explicit approval). Phase M part 1 (audit visibility) is on branch feat/phase-m-audit, committed at the end of this step.
+- Full suite before Phase M: 2168 passed, 13 skipped (skips = real-PostgreSQL tests needing EAAWP_TEST_PG_* env).
+- Completed: A-L1, K2, MCP flow, M1 (audit). Current task: Phase M remaining (Roles page honesty, Settings tabs, notifications, activity history, Windows install docs).
+- Next action: audit the Roles page and Settings tabs for controls that do nothing; make real or label honestly.
+- Migration head: a0b4c59d1e67 (the owner's local DB is not migrated by me; back up first).
 
+## Phase M (part 1): audit log visibility (branch feat/phase-m-audit)
+Status: IMPLEMENTED, MOCK-TESTED + REAL-BROWSER CHECKED on a scratch DB.
+- Backend: GET /api/v1/audit and /audit/traces are admin-only (employees got the whole company log before); bounded limit; `actor_name` resolves user ids/emails to names. tests/test_audit_visibility.py (4), mutation-checked.
+- Frontend: /audit and /activity show real rows (real timestamps, names), actor filter built from data, honest empty state for traces (no trace feed exists), no audit calls (and no 403s) for non-admins.
 
 ## Phase L (part 1): marketplace and module activation (branch feat/phase-l-modules)
 Status: IMPLEMENTED, MOCK-TESTED ONLY (no browser run yet at time of writing; see docs/marketplace.md).

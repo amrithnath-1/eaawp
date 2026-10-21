@@ -14,6 +14,7 @@
  * Never claims simulated actions actually occurred externally.
  */
 import { useState } from "react";
+import { useSession } from "@/state/session";
 import { toast } from "sonner";
 import {
   Activity, AlertTriangle, CheckCircle, Clock, XCircle,
@@ -99,13 +100,15 @@ function ActivityRow({ item }: { item: ActivityItem }) {
 export function UnifiedActivityPanel() {
   const [activeKind, setActiveKind] = useState<EventKind>("all");
 
-  // Real data sources
+  // Real data sources (the audit log is administrator-only on the live API)
+  const { user } = useSession();
+  const auditAllowed = !USE_REAL_API || user?.role === "Company Admin" || user?.role === "AI Administrator";
   const { data: approvals = [], isLoading: loadingApprovals, refetch: refetchApprovals } =
     useApprovalRequests();
   const { data: auditLogs = [], isLoading: loadingAudit, refetch: refetchAudit } =
-    useAuditLog();
+    useAuditLog(auditAllowed);
   const { data: traces = [], isLoading: loadingTraces, refetch: refetchTraces } =
-    useExecutionTraces();
+    useExecutionTraces(auditAllowed);
 
   const isLoading = loadingApprovals || loadingAudit || loadingTraces;
 
@@ -143,7 +146,7 @@ export function UnifiedActivityPanel() {
       detail: "",
       status: String(log.status ?? "ok"),
       actor: String(log.actor ?? "system"),
-      timestamp: String(log.time ?? ""),
+      timestamp: String(log.at ?? log.time ?? ""),
       isSimulated,
     });
   }

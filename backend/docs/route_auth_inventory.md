@@ -6,7 +6,7 @@ is neither JWT-protected nor on the documented public allowlist.
 
 - JWT-protected endpoints: **236**
 - Intentionally public endpoints: **9**
-- Admin-only (JWT-protected) endpoints: **102**
+- Admin-only (JWT-protected) endpoints: **104**
 
 ## Intentionally public
 
@@ -55,8 +55,8 @@ is neither JWT-protected nor on the documented public allowlist.
 | GET | `/api/v1/analysis-reports/{report_id}/export.csv` | datasets | Any signed-in user |
 | GET | `/api/v1/approvals` | approvals | Any signed-in user |
 | POST | `/api/v1/approvals/{approval_id}/decide` | approvals | Admin |
-| GET | `/api/v1/audit` | audit | Any signed-in user |
-| GET | `/api/v1/audit/traces` | audit | Any signed-in user |
+| GET | `/api/v1/audit` | audit | Admin |
+| GET | `/api/v1/audit/traces` | audit | Admin |
 | POST | `/api/v1/auth/logout/all` | auth | Any signed-in user |
 | GET | `/api/v1/auth/me` | auth | Any signed-in user |
 | GET | `/api/v1/campaigns` | campaigns | Any signed-in user |

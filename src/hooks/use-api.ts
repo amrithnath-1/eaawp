@@ -134,20 +134,36 @@ export function useKnowledgeStatus() {
 
 // ── Audit ─────────────────────────────────────────────────────────────────────
 
-export function useAuditLog() {
+interface AuditApiRow { id: string; actor: string; actor_name?: string; event: string; department: string | null; status: string; created_at: string }
+const AUDIT_TIME = new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false });
+/** The audit API sends created_at (UTC, no zone suffix from SQLite) and actor_name; the UI wants time/actor. */
+function auditFromApi(r: AuditApiRow): AuditEntry {
+  const iso = /[zZ]|[+-]\d\d:?\d\d$/.test(r.created_at) ? r.created_at : `${r.created_at}Z`;
+  const d = new Date(iso);
+  const e: AuditEntry = { id: r.id, time: isNaN(d.getTime()) ? "" : AUDIT_TIME.format(d),
+    event: r.event, actor: r.actor_name || r.actor || "system", status: r.status };
+  if (!isNaN(d.getTime())) e.at = d.toISOString();
+  if (r.department) e.department = r.department;
+  return e;
+}
+
+/** Administrators only on the live API (the audit log records everyone's activity). */
+export function useAuditLog(enabled = true) {
   return useQuery<AuditEntry[]>({
     queryKey: queryKeys.audit,
-    queryFn: () =>
+    enabled,
+    queryFn: async () =>
       USE_REAL_API
-        ? apiClient.get<AuditEntry[]>("/api/v1/audit")
-        : Promise.resolve(auditService.list()),
+        ? (await apiClient.get<AuditApiRow[]>("/api/v1/audit")).map(auditFromApi)
+        : auditService.list(),
     staleTime: 15_000,
   });
 }
 
-export function useExecutionTraces() {
+export function useExecutionTraces(enabled = true) {
   return useQuery<ExecutionTrace[]>({
     queryKey: queryKeys.traces,
+    enabled,
     queryFn: () =>
       USE_REAL_API
         ? apiClient.get<ExecutionTrace[]>("/api/v1/audit/traces")

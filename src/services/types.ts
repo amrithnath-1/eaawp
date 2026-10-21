@@ -135,9 +135,10 @@ export interface AuditEntry {
   id: string;
   time: string;
   event: string;
-  actor: "AI" | "Manager" | "Company Admin" | "System" | "Employee";
-  department?: DepartmentKey;
-  status: "ok" | "pending" | "denied";
+  actor: string;                 // mock: a role label; live API: the person's name/email, "AI" or "system"
+  department?: DepartmentKey | string;
+  status: "ok" | "pending" | "denied" | string;
+  at?: string;                   // live API: full ISO timestamp (time is the short display form)
 }
 
 export interface RecentItem {

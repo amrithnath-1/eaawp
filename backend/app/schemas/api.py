@@ -274,5 +274,6 @@ class AuditLogOut(BaseModel):
     department: str | None
     status: str
     created_at: datetime
+    actor_name: str = ""          # filled by the audit router: the person's name/email when `actor` is a user id
 
     model_config = {"from_attributes": True}

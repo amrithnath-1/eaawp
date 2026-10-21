@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { useState } from "react";
 import { toast } from "sonner";
 import { AppShell } from "@/components/eaawp/AppShell";
@@ -39,7 +39,7 @@ function RolesPage() {
             >
               CREATE ROLE
             </button>
-          ) : <span className="text-[10px] text-muted-foreground">No live user-role permission editor is connected yet.</span>}
+          ) : <Link to="/team" className="border border-primary px-3 py-1.5 font-mono text-[10px] tracking-[0.14em] text-primary hover:bg-primary/10">MANAGE MEMBERS &amp; ROLES</Link>}
         />
 
         <div className="mt-4 overflow-x-auto border border-border">
@@ -82,7 +82,7 @@ function RolesPage() {
                   ))}
                 </tr>
               ))}
-              {USE_REAL_API && roles.length === 0 && <tr><td colSpan={1} className="px-3 py-5 text-center text-xs text-muted-foreground">No live role permission records are available. The displayed demo roles have been disabled.</td></tr>}
+              {USE_REAL_API && roles.length === 0 && <tr><td colSpan={1} className="px-3 py-5 text-xs text-muted-foreground">Custom permission matrices are not available yet. Access is controlled by each member&apos;s role (administrators vs. employees), which administrators change on the Team page; what employees can see is further limited by knowledge-base access levels and by which modules are active in the Marketplace.</td></tr>}
               {!USE_REAL_API && <tr>
                 <td className="label-xs border-r border-border px-3 py-2">Assign users</td>
                 {roles.map((r) => (

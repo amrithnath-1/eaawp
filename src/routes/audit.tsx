@@ -4,6 +4,9 @@ import { ChevronDown, Zap, Wrench, Database, Clock, CheckCircle2, XCircle } from
 import { AppShell } from "@/components/eaawp/AppShell";
 import { PageHeader } from "@/components/eaawp/Panel";
 import { auditService, departmentName } from "@/services";
+import { useAuditLog } from "@/hooks/use-api";
+import { useSession } from "@/state/session";
+import { USE_REAL_API } from "@/lib/api-client";
 import type { ExecutionStepKind, ExecutionTraceStep } from "@/services/types";
 import { cn } from "@/lib/utils";
 
@@ -11,7 +14,7 @@ export const Route = createFileRoute("/audit")({
   component: AuditPage,
 });
 
-const ACTORS = ["All", "AI", "Manager", "Company Admin", "System", "Employee"] as const;
+const MOCK_ACTORS = ["All", "AI", "Manager", "Company Admin", "System", "Employee"];
 const VIEWS = ["Log", "Traces"] as const;
 
 // ── Execution trace helpers ──────────────────────────────────────────────────
@@ -86,10 +89,18 @@ function TraceStep({ step }: { step: ExecutionTraceStep }) {
 }
 
 function AuditPage() {
-  const rows = auditService.list();
-  const traces = auditService.traces();
+  const { user } = useSession();
+  const isAdmin = !USE_REAL_API || user?.role === "Company Admin" || user?.role === "AI Administrator";
+  const audit = useAuditLog(isAdmin);
+  const rows = audit.data ?? [];
+  // Live mode has no execution-trace feed yet: show an honest empty state, never sample traces.
+  const traces = USE_REAL_API ? [] : auditService.traces();
+  const ACTORS = useMemo(
+    () => (USE_REAL_API ? ["All", ...Array.from(new Set(rows.map((r) => r.actor))).sort()] : MOCK_ACTORS),
+    [rows],
+  );
   const [view, setView] = useState<(typeof VIEWS)[number]>("Log");
-  const [actor, setActor] = useState<(typeof ACTORS)[number]>("All");
+  const [actor, setActor] = useState<string>("All");
   const [q, setQ] = useState("");
   const [selectedTrace, setSelectedTrace] = useState(traces[0]?.id ?? "");
 
