@@ -7,7 +7,8 @@ import { PageHeader, Panel } from "@/components/eaawp/Panel";
 import { NLIntegrationPanel } from "@/components/eaawp/NLIntegrationPanel";
 import { GoogleSearchConsolePanel } from "@/components/eaawp/GoogleSearchConsolePanel";
 import { cn } from "@/lib/utils";
-import { useCreateIntegration, useTestIntegration } from "@/hooks/use-api";
+import { apiErrorMessage } from "@/lib/api-client";
+import { useCreateIntegration, useGaAuthorize, useTestIntegration } from "@/hooks/use-api";
 
 export const Route = createFileRoute("/integrations")({
   component: IntegrationsPage,
@@ -25,6 +26,9 @@ const TABS: { id: Tab; label: string; icon: React.ElementType }[] = [
 
 function IntegrationsPage() {
   const [activeTab, setActiveTab] = useState<Tab>("setup");
+  // The authorize endpoint needs the Bearer token, so it must be called with the
+  // API client (which sends it) - never by navigating the browser to its URL.
+  const gaAuth = useGaAuthorize();
 
   // Handle OAuth callback redirect params
   useEffect(() => {
@@ -86,16 +90,20 @@ function IntegrationsPage() {
                 engagement, and conversion data.
               </p>
               <p className="text-[12px] text-muted-foreground">
-                Uses the same Google OAuth credentials as Search Console.
-                Scope: <span className="font-mono text-[10px]">analytics.readonly</span>
+                Uses the same Google OAuth client as Search Console (set it up in the Setup Assistant if
+                you have not yet). Scope: <span className="font-mono text-[10px]">analytics.readonly</span>
               </p>
               <button
+                disabled={gaAuth.isPending}
                 onClick={() => {
-                  window.location.href = `${import.meta.env["VITE_API_BASE_URL"] ?? "http://localhost:8000"}/api/v1/oauth/google/analytics/authorize`;
+                  gaAuth.mutate(undefined, {
+                    onSuccess: (r) => { window.location.href = r.authorization_url; },
+                    onError: (e) => toast.error(`Could not start Google authorisation: ${apiErrorMessage(e)}`),
+                  });
                 }}
-                className="inline-flex items-center gap-2 border border-foreground/20 bg-foreground/5 px-3 py-1.5 font-mono text-[11px] tracking-[0.08em] hover:bg-foreground/10"
+                className="inline-flex items-center gap-2 border border-foreground/20 bg-foreground/5 px-3 py-1.5 font-mono text-[11px] tracking-[0.08em] hover:bg-foreground/10 disabled:opacity-40"
               >
-                <BarChart2 className="size-3.5" /> CONNECT GOOGLE ANALYTICS
+                <BarChart2 className="size-3.5" /> {gaAuth.isPending ? "OPENING…" : "CONNECT GOOGLE ANALYTICS"}
               </button>
             </div>
           )}

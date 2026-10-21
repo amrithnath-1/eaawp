@@ -317,18 +317,22 @@ def build_dynamic_tool_adapter(defn: DynamicToolDefinition) -> Any:
         "Args: JSON string with structured parameters (no credentials, no SQL)."
     )
 
-    # Create the actual function — body is constant, routing is closure-captured.
-    # The @langchain_tool decorator inspects the docstring for tool description.
-    def _adapter_fn(params_json: str = "{}") -> str:  # noqa: B008
-        """Dynamic integration tool adapter — do not call directly."""
-        # ── Import context vars ───────────────────────────────────────────────
-        from app.tools.registry import _db_session_ctx, _role_key_ctx, _tenant_id_ctx
-        from app.tools.dynamic_tool import (
-            MAX_RESULT_CHARS,
-            MAX_RESULT_ROWS,
-            _FORBIDDEN_PARAM_FIELDS,
-            validate_tool_arguments,
+    # The tool body is constant; only the closure-captured routing metadata
+    # differs per tool.  There is ONE execution path, written as a coroutine, so
+    # it runs on the request's own event loop with the request's own DB session.
+    # (An earlier sync adapter bridged to the loop through threads; the bridge
+    # crashed with an unbound ``loop`` and could never share the async session.)
+
+    def _high_risk_block() -> str:
+        return (
+            f"[GOVERNANCE REQUIRED] Capability '{_capability_key}' on "
+            f"'{_integration_name}' is HIGH risk and cannot be executed "
+            "directly. It must go through the human approval workflow."
         )
+
+    def _precheck(params_json: Any) -> tuple[str | None, dict[str, Any], Any, str, str]:
+        """Context, risk and argument checks.  Returns (error, args, db, tenant, role)."""
+        from app.tools.registry import _db_session_ctx, _role_key_ctx, _tenant_id_ctx
 
         db = _db_session_ctx.get()
         tenant_id = _tenant_id_ctx.get()
@@ -337,81 +341,68 @@ def build_dynamic_tool_adapter(defn: DynamicToolDefinition) -> Any:
         if db is None:
             return (
                 f"[ERROR] {_tool_key}: no database session available. "
-                "This tool requires an active request context."
+                "This tool requires an active request context.",
+                {}, None, tenant_id, role_key,
             )
-
-        # ── HIGH risk: block immediately ─────────────────────────────────────
-        if _risk_level == "high":
-            return (
-                f"[GOVERNANCE REQUIRED] Capability '{_capability_key}' on "
-                f"'{_integration_name}' is HIGH risk and cannot be executed "
-                "directly. It must go through the human approval workflow."
-            )
-
-        # ── Parse arguments ───────────────────────────────────────────────────
         try:
             raw = json.loads(params_json) if isinstance(params_json, str) else params_json
         except json.JSONDecodeError as exc:
-            return f"[ERROR] {_tool_key}: invalid JSON parameters — {exc}"
-
-        is_valid, err_msg, sanitised = validate_tool_arguments(
-            raw, _capability_key, _input_schema
-        )
+            return f"[ERROR] {_tool_key}: invalid JSON parameters — {exc}", {}, db, tenant_id, role_key
+        is_valid, err_msg, sanitised = validate_tool_arguments(raw, _capability_key, _input_schema)
         if not is_valid:
-            return f"[VALIDATION ERROR] {_tool_key}: {err_msg}"
+            return f"[VALIDATION ERROR] {_tool_key}: {err_msg}", {}, db, tenant_id, role_key
+        return None, sanitised, db, tenant_id, role_key
 
-        # ── Execute via Integration Manager ───────────────────────────────────
-        # The manager performs all security checks:
-        #   - integration belongs to tenant_id (derived from ContextVar, not LLM)
-        #   - integration is connected + enabled
-        #   - capability grant exists for role_key
-        # Credentials are decrypted inside the manager, never here.
+    async def _execute(params_json: str = "{}") -> str:
+        """Dynamic integration tool (async path)."""
+        if _risk_level == "high":      # first check, before anything is parsed or run
+            return _high_risk_block()
+        err, sanitised, db, tenant_id, role_key = _precheck(params_json)
+        if err:
+            return err
+
+        # The manager performs every security check: tenant ownership, connected
+        # + enabled, and the role's capability grant.  Credentials are decrypted
+        # there and never pass through this function.
         from app.integrations.manager import execute_capability as mgr_execute
-        import concurrent.futures
-
-        coro = mgr_execute(
-            integration_id=_integration_id,
-            capability_key=_capability_key,
-            parameters=sanitised,
-            role_key=role_key,
-            tenant_id=tenant_id,
-            db=db,
-        )
 
         try:
-            loop = asyncio.get_running_loop()
-            # We are inside a running async event loop (FastAPI request).
-            # run_until_complete() cannot be called from a running loop, so
-            # we schedule the coroutine as a task and block a worker thread
-            # to wait for it. nest_asyncio is installed but patching the global
-            # event loop is fragile — thread-based dispatch is safer.
-            future = asyncio.run_coroutine_threadsafe(coro, loop)
-            try:
-                exec_result = future.result(timeout=60)
-            except concurrent.futures.TimeoutError:
-                return f"[TIMEOUT] {_tool_key}: integration call timed out after 60 s"
-        except RuntimeError:
-            # No running loop — run directly (test / CLI context)
-            exec_result = asyncio.run(coro)
+            exec_result = await asyncio.wait_for(
+                mgr_execute(
+                    integration_id=_integration_id,
+                    capability_key=_capability_key,
+                    parameters=sanitised,
+                    role_key=role_key,
+                    tenant_id=tenant_id,
+                    db=db,
+                ),
+                timeout=60,
+            )
+        except asyncio.TimeoutError:
+            await _write_dynamic_tool_audit(
+                _integration_id, _capability_key, _tool_key, role_key, tenant_id,
+                False, 0, "timed out after 60 s", db,
+            )
+            return f"[TIMEOUT] {_tool_key}: integration call timed out after 60 s"
+        except PermissionError as exc:
+            await _write_dynamic_tool_audit(
+                _integration_id, _capability_key, _tool_key, role_key, tenant_id,
+                False, 0, f"permission denied: {exc}", db,
+            )
+            return f"[PERMISSION DENIED] {_tool_key}: {exc}"
+        except (LookupError, ValueError) as exc:
+            await _write_dynamic_tool_audit(
+                _integration_id, _capability_key, _tool_key, role_key, tenant_id,
+                False, 0, str(exc), db,
+            )
+            return f"[INTEGRATION ERROR] {_tool_key}: {exc}"
 
-        # ── Write audit record ────────────────────────────────────────────────
-        _write_dynamic_tool_audit(
-            integration_id=_integration_id,
-            capability_key=_capability_key,
-            tool_key=_tool_key,
-            role_key=role_key,
-            tenant_id=tenant_id,
-            success=exec_result.success,
-            row_count=exec_result.row_count,
-            error=exec_result.error,
-            db=db,
-            loop=loop,
+        await _write_dynamic_tool_audit(
+            _integration_id, _capability_key, _tool_key, role_key, tenant_id,
+            exec_result.success, exec_result.row_count, exec_result.error, db,
         )
-
-        # ── Format result for LLM context ─────────────────────────────────────
         if not exec_result.success:
             return f"[INTEGRATION ERROR] {_tool_key}: {exec_result.error or 'Unknown error'}"
-
         return _format_result_for_llm(
             exec_result=exec_result,
             tool_key=_tool_key,
@@ -419,19 +410,73 @@ def build_dynamic_tool_adapter(defn: DynamicToolDefinition) -> Any:
             capability_key=_capability_key,
         )
 
-    # Rename the function so LangChain uses the right tool name
-    _adapter_fn.__name__ = defn.tool_key
-    _adapter_fn.__doc__ = desc
+    def _sync_execute(params_json: str = "{}") -> str:
+        """Synchronous entry point (no running event loop only)."""
+        if _risk_level == "high":
+            return _high_risk_block()
+        err, *_ = _precheck(params_json)
+        if err:
+            return err
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            return asyncio.run(_execute(params_json))
+        return (
+            f"[ERROR] {_tool_key}: this tool is asynchronous; "
+            "call it with ainvoke() from async code."
+        )
 
-    # Decorate as a LangChain tool
-    decorated = langchain_tool(_adapter_fn)
-    # Override the name attribute that LangChain reads
-    decorated.name = defn.tool_key  # type: ignore[attr-defined]
+    from langchain_core.tools import StructuredTool
 
-    return decorated
+    return StructuredTool.from_function(
+        func=_sync_execute,
+        coroutine=_execute,
+        name=defn.tool_key,
+        description=desc,
+    )
 
 
 # ── Result formatting ─────────────────────────────────────────────────────────
+
+# Count-like metrics that can be added up across rows (users, rates and
+# averages cannot, so they are never totalled).
+_ADDITIVE_METRICS = ("sessions", "screenPageViews", "eventCount", "conversions", "totalRevenue", "clicks", "impressions")
+
+
+def _derived_lines(rows: list[Any]) -> list[str]:
+    """Deterministic totals and shares so the model never has to do arithmetic."""
+    dict_rows = [r for r in rows if isinstance(r, dict)]
+    if not dict_rows:
+        return []
+    out: list[str] = []
+    for metric in _ADDITIVE_METRICS:
+        try:
+            vals = [float(str(r[metric]).replace(",", "")) for r in dict_rows if metric in r]
+        except ValueError:
+            continue
+        if len(vals) != len(dict_rows):
+            continue
+        total = sum(vals)
+        out.append("")
+        out.append(f"Total {metric} across the {len(dict_rows)} rows above: {total:,.0f}")
+        if total > 0 and len(dict_rows) > 1:
+            label_key = next((k for k, v in dict_rows[0].items() if k != metric and not _is_number(v)), None)
+            if label_key:
+                shares = ", ".join(
+                    f"{r.get(label_key)} {v / total * 100:.1f}%" for r, v in zip(dict_rows, vals)
+                )
+                out.append(f"Share of {metric} by {label_key}: {shares}")
+        break  # one worked example metric is enough; the rows carry the rest
+    return out
+
+
+def _is_number(v: Any) -> bool:
+    try:
+        float(str(v).replace(",", ""))
+        return True
+    except ValueError:
+        return False
+
 
 def _format_result_for_llm(
     exec_result: Any,
@@ -480,6 +525,7 @@ def _format_result_for_llm(
                 row_str = str(row)
             lines.append(f"  {i}. {row_str}")
 
+        lines.extend(_derived_lines(rows))
         result_str = "\n".join(lines)
         if len(result_str) > MAX_RESULT_CHARS:
             result_str = result_str[:MAX_RESULT_CHARS] + "\n[Result truncated due to size]"
@@ -496,7 +542,7 @@ def _format_result_for_llm(
 
 # ── Audit writer ──────────────────────────────────────────────────────────────
 
-def _write_dynamic_tool_audit(
+async def _write_dynamic_tool_audit(
     integration_id: str,
     capability_key: str,
     tool_key: str,
@@ -506,40 +552,43 @@ def _write_dynamic_tool_audit(
     row_count: int,
     error: str | None,
     db: Any,
-    loop: Any,
 ) -> None:
     """
-    Write a DynamicToolAuditLog record for this execution.
+    Write a DynamicToolAuditLog record for this execution (every outcome:
+    success, provider error, permission denial, timeout).
 
-    Runs in the same event loop as the tool call.
-    Never raises — audit failures are logged but do not break execution.
-    Does NOT store credentials, connection strings, or sensitive row data.
+    Never raises - an audit failure is logged but must not break the request.
+    Stores no credentials, connection strings or row data.
     """
     try:
         from app.db.integration_models import DynamicToolAuditLog
 
-        async def _write() -> None:
-            audit = DynamicToolAuditLog(
-                id=str(uuid.uuid4()),
-                tenant_id=tenant_id,
-                integration_id=integration_id,
-                role_key=role_key,
-                capability_key=capability_key,
-                tool_key=tool_key,
-                success=success,
-                row_count=row_count,
-                error_message=(error or "")[:500] if error else None,
-            )
-            db.add(audit)
-            await db.flush()
-
-        if loop.is_running():
-            # Schedule as a fire-and-forget task — audit must not block execution
-            loop.create_task(_write())
-        else:
-            loop.run_until_complete(_write())
+        db.add(DynamicToolAuditLog(
+            id=str(uuid.uuid4()),
+            tenant_id=tenant_id,
+            integration_id=integration_id,
+            role_key=role_key,
+            capability_key=capability_key,
+            tool_key=tool_key,
+            success=success,
+            row_count=row_count,
+            error_message=(error or "")[:500] if error else None,
+        ))
+        await db.flush()
     except Exception as exc:  # noqa: BLE001
-        logger.warning("Dynamic tool audit write failed (non-fatal): %s", exc)
+        logger.warning("Dynamic tool audit write failed (non-fatal): %s", type(exc).__name__)
+
+
+# Result prefixes that mean "this call did NOT produce data".  The planner and
+# the engine use this single list so a failed call is never presented as data.
+TOOL_FAILURE_PREFIXES: tuple[str, ...] = (
+    "[TOOL ERROR]", "[ERROR]", "[INTEGRATION ERROR]", "[VALIDATION ERROR]",
+    "[GOVERNANCE REQUIRED]", "[PERMISSION DENIED]", "[TIMEOUT]",
+)
+
+
+def is_tool_failure(result: str) -> bool:
+    return (result or "").lstrip().startswith(TOOL_FAILURE_PREFIXES)
 
 
 # ── Tool availability query ────────────────────────────────────────────────────

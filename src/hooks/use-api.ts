@@ -827,6 +827,8 @@ export interface AgentExecutionResponse {
   plan_id?: string | null;
   plan_status?: string | null;
   step_summaries?: string[];
+  /** Set when the request is saved waiting for an integration to be set up. */
+  pending_task_id?: string | null;
 }
 
 /**
@@ -3259,6 +3261,73 @@ export function useGaAuthorize() {
   return useMutation<OAuthAuthorizeResponse, Error, void>({
     mutationFn: () =>
       apiClient.get<OAuthAuthorizeResponse>("/api/v1/oauth/google/analytics/authorize"),
+  });
+}
+
+// ── Requests waiting for integration setup ───────────────────────────────────
+// A request that needs an integration which is not set up is saved server-side;
+// it is resumed (the original text, not a retyped one) once setup is complete.
+
+export interface PendingTaskFE {
+  id: string;
+  prompt: string;
+  role_name: string;
+  status: string;
+  blocking_state: string;
+  ready: boolean;
+  next_action: string;
+  action_data: Record<string, unknown>;
+  message: string;
+  created_at?: string | null;
+}
+
+const PENDING_TASKS_KEY = ["pending-tasks"] as const;
+
+export function usePendingTasks() {
+  return useQuery<PendingTaskFE[]>({
+    queryKey: PENDING_TASKS_KEY,
+    queryFn: () => apiClient.get<PendingTaskFE[]>("/api/v1/agent/pending-tasks"),
+    enabled: USE_REAL_API,
+    refetchInterval: 20_000,
+  });
+}
+
+/** Admin: approve read-only access for the task's AI role, then it can be resumed. */
+export function useAuthorizePendingTask() {
+  const qc = useQueryClient();
+  return useMutation<PendingTaskFE, Error, string>({
+    mutationFn: (id) => apiClient.post<PendingTaskFE>(`/api/v1/agent/pending-tasks/${id}/authorize`, {}),
+    onSuccess: () => { void qc.invalidateQueries({ queryKey: PENDING_TASKS_KEY }); },
+  });
+}
+
+export function useResumePendingTask() {
+  const qc = useQueryClient();
+  return useMutation<AgentExecutionResponse, Error, string>({
+    mutationFn: async (id) => {
+      try {
+        return await apiClient.post<AgentExecutionResponse>(`/api/v1/agent/pending-tasks/${id}/resume`, {});
+      } catch (err) {
+        // 409 carries the next setup step in `detail.message`; show that, not "status 409".
+        const detail = (err as { body?: { detail?: unknown } }).body?.detail;
+        if (detail && typeof detail === "object" && "message" in detail) {
+          throw new Error(String((detail as { message: unknown }).message));
+        }
+        throw err;
+      }
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: PENDING_TASKS_KEY });
+      void qc.invalidateQueries({ queryKey: queryKeys.activity });
+    },
+  });
+}
+
+export function useCancelPendingTask() {
+  const qc = useQueryClient();
+  return useMutation<PendingTaskFE, Error, string>({
+    mutationFn: (id) => apiClient.post<PendingTaskFE>(`/api/v1/agent/pending-tasks/${id}/cancel`, {}),
+    onSuccess: () => { void qc.invalidateQueries({ queryKey: PENDING_TASKS_KEY }); },
   });
 }
 

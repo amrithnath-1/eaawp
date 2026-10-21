@@ -331,10 +331,16 @@ async def get_current_tenant_id(
     return user.tenant_id
 
 
+_ADMIN_ROLES = frozenset({"admin", "superadmin", "company admin", "ai administrator"})
+
+
+def is_admin_user(user: User) -> bool:
+    return (user.role or "").lower() in _ADMIN_ROLES
+
+
 def require_admin(user: User = Depends(get_current_user)) -> User:
     """Raise 403 if the authenticated user is not an admin."""
-    _ADMIN_ROLES = {"admin", "superadmin", "company admin", "ai administrator"}
-    if user.role.lower() not in _ADMIN_ROLES:
+    if not is_admin_user(user):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Admin access required",

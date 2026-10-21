@@ -71,6 +71,7 @@ from app.schemas.planning import (
     PlannedStep,
 )
 from app.services.action_governance import process_action_request
+from app.tools.dynamic_tool import is_tool_failure
 from app.tools.registry import MASTER_TOOL_REGISTRY
 
 logger = logging.getLogger(__name__)
@@ -330,6 +331,9 @@ async def create_and_execute_plan(
                     blueprint=blueprint,
                     system_persona=system_persona,
                 )
+                final_msg, grounding = _verify_against_evidence(
+                    final_msg, plan, db_steps, step_results, user_prompt
+                )
             except Exception as exc:
                 logger.error("Final response generation failed (%s)", type(exc).__name__, exc_info=True)
                 db_step.status = "failed"
@@ -339,7 +343,7 @@ async def create_and_execute_plan(
                 await db.flush()
                 break
             db_step.status = "completed"
-            db_step.result_summary = "Final response synthesised."
+            db_step.result_summary = f"Final response synthesised. {grounding}"
             db_step.completed_at = datetime.now(timezone.utc)
             db_plan.final_message = final_msg
             db_plan.completed_steps += 1
@@ -358,15 +362,15 @@ async def create_and_execute_plan(
             result = await _invoke_tool(ps.tool_name, ps.arguments, blueprint)
             tool_calls_used += 1
             db_plan.tool_calls_used = tool_calls_used
-            if result.lstrip().startswith(("[TOOL ERROR]", "[ERROR]")):
+            if is_tool_failure(result):
                 db_step.status = "failed"
                 db_step.result_summary = result[:500]
                 db_step.completed_at = datetime.now(timezone.utc)
                 db_plan.status = "failed"
-                db_plan.final_message = f"I couldn’t complete this request because the {ps.tool_name} data request failed. Check the integration and required inputs, then retry. No result was generated from the failed request."
+                db_plan.final_message = _failure_message(ps.tool_name, result)
                 await db.flush()
                 break
-            step_results[ps.step_index] = result[:1000]  # safe truncated summary
+            step_results[ps.step_index] = result[:_EVIDENCE_CHARS]  # bounded; integration output is already capped
             db_step.status = "completed"
             db_step.result_summary = result[:500]
             db_step.completed_at = datetime.now(timezone.utc)
@@ -909,7 +913,7 @@ async def _synthesise_response(
 ) -> str:
     """Ask the LLM to synthesise a final response from step results."""
     results_text = "\n".join(
-        f"Step {idx}: {result[:400]}"
+        f"Step {idx}: {result[:_EVIDENCE_CHARS]}"
         for idx, result in sorted(step_results.items())
         if result and result != f"Analysed results from {len(step_results)} prior steps."
     )
@@ -965,6 +969,74 @@ async def _synthesise_response(
     except Exception as exc:
         logger.error("Response synthesis failed (%s): %s", type(exc).__name__, exc, exc_info=True)
         raise RuntimeError("The AI provider failed to prepare a response.") from exc
+
+
+_EVIDENCE_CHARS = 6000   # per step; a report cut to 400 chars would leave the model guessing the rest
+
+
+def _verify_against_evidence(
+    final_msg: str,
+    plan: AgentPlan,
+    db_steps: list[PlanStep],
+    step_results: dict[int, str],
+    user_prompt: str,
+) -> tuple[str, str]:
+    """
+    For answers built on integration data: check every figure against what the
+    integration returned; if the prose states anything it cannot support, show
+    the returned data instead.  Always append where the data came from.
+    """
+    from app.services.grounding import ungrounded_figures
+    from app.tools.dynamic_tool import is_dynamic_tool_key
+
+    evidence_parts: list[str] = []
+    for step, planned in zip(db_steps, plan.steps):
+        if (planned.tool_name and is_dynamic_tool_key(planned.tool_name)
+                and step.status == "completed" and step_results.get(planned.step_index)):
+            evidence_parts.append(step_results[planned.step_index])
+    if not evidence_parts:
+        return final_msg, "No integration data used."
+
+    evidence = "\n".join(evidence_parts)
+    sources = list(dict.fromkeys(
+        line.split("Source:", 1)[1].strip()
+        for line in evidence.splitlines() if line.strip().startswith("Source:")
+    ))
+    bad = ungrounded_figures(final_msg, f"{evidence}\n{plan.objective}\n{user_prompt}")
+    if bad:
+        logger.warning("Response stated %d figure(s) not found in tool data; showing data instead", len(bad))
+        final_msg = (
+            "I couldn’t verify my own summary against the data, so here are the figures exactly as "
+            "the integration returned them:\n\n" + evidence
+        )
+        verdict = f"Grounding: replaced (unsupported figures: {', '.join(bad[:5])})."
+    else:
+        verdict = "Grounding: all figures traced to integration data."
+    if sources:
+        final_msg = f"{final_msg}\n\nData source: {'; '.join(sources)}"
+    return final_msg, verdict
+
+
+def _failure_message(tool_name: str, result: str) -> str:
+    """
+    Truthful user-facing text for a failed tool call.
+
+    The reason comes from our own sanitised error strings (provider errors are
+    scrubbed of credentials before they get here), never from the model.
+    """
+    import re
+
+    reason = re.sub(r"^\[[A-Z ]+\]\s*[\w.\-]*:?\s*", "", result.strip(), count=1)[:300]
+    if result.lstrip().startswith("[PERMISSION DENIED]"):
+        lead = "I wasn’t able to run this because that access has not been authorised for my role."
+    elif result.lstrip().startswith("[GOVERNANCE REQUIRED]"):
+        lead = "That action needs human approval before I can run it."
+    else:
+        lead = "I couldn’t complete this request because the data request failed."
+    return (
+        f"{lead} Reason: {reason or 'no further detail was returned'} "
+        "No figures were produced, so I have nothing to report from it."
+    )
 
 
 def _clean_response(text: str) -> str:

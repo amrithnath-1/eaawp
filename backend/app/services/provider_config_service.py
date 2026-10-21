@@ -230,6 +230,7 @@ async def get_decrypted_field(
     field_key: str,
     tenant_id: str,
     db: AsyncSession,
+    env_fallback: bool = True,
 ) -> str | None:
     """
     Return the decrypted value of a provider configuration field.
@@ -260,7 +261,7 @@ async def get_decrypted_field(
         return decrypt_password(row.encrypted_value)
 
     # Fallback: for Google providers, check env vars.
-    if provider_type in ("google_search_console", "google_analytics"):
+    if env_fallback and provider_type in ("google_search_console", "google_analytics"):
         if field_key == "client_id" and settings.google_client_id:
             return settings.google_client_id
         if field_key == "client_secret" and settings.google_client_secret:

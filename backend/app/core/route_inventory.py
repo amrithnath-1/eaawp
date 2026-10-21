@@ -41,6 +41,8 @@ PUBLIC_ROUTES: dict[tuple[str, str], str] = {
 _DAILY = "Day-to-day marketing work for the caller's own tenant; no credentials, access control or configuration."
 MEMBER_MUTATIONS: dict[tuple[str, str], str] = {
     ("POST", "/api/v1/agent/execute"): "Core use of the AI employee; tenant forced from the JWT, permissions enforced per capability grant.",
+    ("POST", "/api/v1/agent/pending-tasks/{task_id}/resume"): "Re-runs the caller's OWN saved request (admins: any in their company) once setup is complete; same permissions as /agent/execute.",
+    ("POST", "/api/v1/agent/pending-tasks/{task_id}/cancel"): "Drops the caller's own waiting request; reduces, never expands, what runs.",
     ("POST", "/api/v1/roles/{role_key}/validate"): "Dry-run validation; persists nothing.",
     ("POST", "/api/v1/knowledge/retrieve"): "Read-only semantic search (POST for the body).",
     ("POST", "/api/v1/data/query"): "Read-only query through admin-defined mappings and entity permissions; audited.",

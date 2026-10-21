@@ -15,7 +15,7 @@ import pytest
 
 BACKEND = pathlib.Path(__file__).resolve().parents[2]
 PREVIOUS = "u8v2w37x9y15"
-HEAD = "v9w3x48y0z16"
+HEAD = "w0x4y59z1a17"
 
 
 def alembic(db: pathlib.Path, *args: str) -> str:
@@ -89,3 +89,16 @@ def test_downgrade_then_upgrade_round_trip_preserves_rows(tmp_path):
         assert con.execute("select state_token from oauth_states").fetchall() == [("s1",)]
     alembic(db, "upgrade", "head")
     assert "initiated_by_user_id" in cols(db, "oauth_states")
+
+
+def test_pending_tasks_migration_up_down_up(tmp_path):
+    """The pending_tasks table is created, removed on downgrade, and recreated."""
+    db = tmp_path / "pending.db"
+    alembic(db, "upgrade", "head")
+    c = cols(db, "pending_tasks")
+    assert {"tenant_id", "user_id", "role_key", "prompt", "status", "requirement_json"} <= set(c)
+    assert c["tenant_id"][3] == 1 and c["user_id"][3] == 1  # NOT NULL
+    alembic(db, "downgrade", "v9w3x48y0z16")
+    assert cols(db, "pending_tasks") == {}
+    alembic(db, "upgrade", "head")
+    assert "prompt" in cols(db, "pending_tasks")

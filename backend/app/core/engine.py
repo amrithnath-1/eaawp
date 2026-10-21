@@ -226,6 +226,19 @@ async def _execute_tool(
         return f"[ERROR] Tool '{tool_name}' is not available in this agent's scope."
 
     try:
+        from app.tools.dynamic_tool import is_dynamic_tool_key
+
+        if is_dynamic_tool_key(tool_name):
+            # Integration tools take ONE JSON-object string.  Never unwrap a
+            # single-key dict here: {"property_id": "42"} must reach the tool
+            # as JSON, not as the bare value "42".
+            if isinstance(tool_args, dict) and set(tool_args) == {"params_json"}:
+                payload = tool_args["params_json"]
+                payload = payload if isinstance(payload, str) else json.dumps(payload)
+            else:
+                payload = json.dumps(tool_args if isinstance(tool_args, dict) else {})
+            return str(await tool_fn.ainvoke({"params_json": payload}))
+
         # LangChain @tool functions expose .invoke() for sync and .ainvoke() for async
         if hasattr(tool_fn, "ainvoke"):
             # Build the argument — LangChain tools accept a single string or dict

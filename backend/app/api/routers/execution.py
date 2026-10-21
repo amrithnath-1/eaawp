@@ -27,7 +27,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.actions.registry import is_action_tool
 from app.config import settings
-from app.core.auth import get_current_tenant_id
+from app.core.auth import get_current_tenant_id, get_current_user, is_admin_user
+from app.db.models import User
 from app.core.engine import DynamicAgentEngine
 from app.core.prompt_guard import validate_user_prompt
 from app.db.session import get_db
@@ -73,6 +74,7 @@ async def execute_agent(
     request: AgentExecutionRequest,
     tenant_id: str = Depends(get_current_tenant_id),
     db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
 ) -> AgentExecutionResponse:
 
     # Determine if any action tools are in the blueprint
@@ -279,6 +281,40 @@ async def execute_agent(
     except Exception as _intent_exc:
         # Intent detection is best-effort — if it fails, continue to normal execution
         logger.warning("Integration intent pre-flight failed: %s", _intent_exc)
+
+    # ── Task readiness gate ───────────────────────────────────────────────────
+    # A request that needs an integration which is not set up (OAuth client,
+    # authorisation, or this role's read grant) must NOT be answered from the
+    # model's memory.  Save it, tell the user exactly what is missing, and let
+    # POST /agent/pending-tasks/{id}/resume run it once setup is complete.
+    from app.services import task_readiness as _ready
+
+    _requirement = await _ready.detect_requirement(
+        request.user_prompt, tenant_id, role_key, db
+    )
+    if _requirement is not None:
+        _assessment = await _ready.assess(_requirement, tenant_id, role_key, db)
+        if not _assessment.ready:
+            _task = await _ready.save_pending(
+                tenant_id=tenant_id, user_id=user.id, role_key=role_key,
+                role_name=authoritative_blueprint.role_name,
+                session_id=resolved_session_id, prompt=request.user_prompt,
+                a=_assessment, db=db,
+            )
+            _reply, _next, _data = _ready.setup_message(_assessment, is_admin=is_admin_user(user))
+            _data = {**_data, "pending_task_id": _task.id}
+            import json as _json2
+            return AgentExecutionResponse(
+                message=_reply,
+                tool_calls=[],
+                sources=[f"__integration_action__:{_json2.dumps({'next_action': _next, 'action_data': _data})}"],
+                requires_approval=False,
+                session_id=resolved_session_id,
+                plan_id=None,
+                plan_status="awaiting_setup",
+                step_summaries=[f"[SETUP] {_assessment.state} → {_next}"],
+                pending_task_id=_task.id,
+            )
 
     has_action_tools = any(is_action_tool(t) for t in authoritative_blueprint.allowed_tools)
 

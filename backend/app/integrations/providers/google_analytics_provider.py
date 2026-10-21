@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any
@@ -55,6 +56,43 @@ _ALLOWED_METRICS = {
 
 _MAX_ROWS = 1000
 _MAX_DAYS_RANGE = 365
+_PROPERTY_ID_RE = re.compile(r"^\d{1,20}$")
+_RELATIVE_DATE_RE = re.compile(r"^(\d{1,4})daysAgo$")
+
+
+def resolve_report_date(value: Any, today: "datetime.date | None" = None) -> "datetime.date":
+    """
+    Turn a GA-style date into a concrete date.
+
+    Accepts YYYY-MM-DD, ``today``, ``yesterday`` and ``NdaysAgo`` (the same
+    relative forms the GA4 API itself understands), so "the last 7 days" can be
+    asked for without the caller (or the model) knowing today's date.
+    """
+    today = today or datetime.utcnow().date()
+    text = str(value or "").strip()
+    if text == "today":
+        return today
+    if text == "yesterday":
+        return today - timedelta(days=1)
+    m = _RELATIVE_DATE_RE.match(text)
+    if m:
+        return today - timedelta(days=int(m.group(1)))
+    try:
+        return datetime.strptime(text, "%Y-%m-%d").date()
+    except ValueError:
+        raise GAApiError(
+            f"Invalid date '{text[:30]}'. Use YYYY-MM-DD, 'today', 'yesterday' or 'NdaysAgo'."
+        )
+
+
+def normalise_property_id(value: Any) -> str:
+    """Accept '123456789' or 'properties/123456789'; reject anything else."""
+    text = str(value or "").strip()
+    if text.startswith("properties/"):
+        text = text[len("properties/"):]
+    if not _PROPERTY_ID_RE.match(text):
+        raise GAApiError("property_id must be the numeric GA4 property ID (for example 123456789).")
+    return text
 
 
 @dataclass(frozen=True)
@@ -183,17 +221,18 @@ class GoogleAnalyticsProvider(IntegrationProvider):
                     "properties": {
                         "property_id": {
                             "type": "string",
-                            "description": "GA4 property ID (e.g. '123456789')",
+                            "description": (
+                                "GA4 property ID (e.g. '123456789'). Optional when the "
+                                "account has exactly one property."
+                            ),
                         },
                         "start_date": {
                             "type": "string",
-                            "format": "date",
-                            "description": "Start date YYYY-MM-DD",
+                            "description": "Start date: YYYY-MM-DD, or '7daysAgo', '30daysAgo', 'yesterday', 'today'",
                         },
                         "end_date": {
                             "type": "string",
-                            "format": "date",
-                            "description": "End date YYYY-MM-DD",
+                            "description": "End date: YYYY-MM-DD, or 'yesterday' / 'today' / 'NdaysAgo'",
                         },
                         "metrics": {
                             "type": "array",
@@ -212,7 +251,7 @@ class GoogleAnalyticsProvider(IntegrationProvider):
                             "description": f"Max rows (≤{_MAX_ROWS})",
                         },
                     },
-                    "required": ["property_id", "start_date", "end_date"],
+                    "required": ["start_date", "end_date"],
                 },
             ),
             ProviderCapability(
@@ -235,7 +274,7 @@ class GoogleAnalyticsProvider(IntegrationProvider):
                             "description": "Dimensions (subset of standard real-time dimensions)",
                         },
                     },
-                    "required": ["property_id"],
+                    "required": [],
                 },
             ),
         ]
@@ -309,41 +348,67 @@ class GoogleAnalyticsProvider(IntegrationProvider):
         self, credentials: dict[str, Any], parameters: dict[str, Any]
     ) -> CapabilityResult:
         await self._ensure_fresh_token(credentials)
-        account_id = parameters.get("account_id", "")
-        filter_param = f"parent:accounts/{account_id}" if account_id else None
-        response = await self._call_admin_api(
-            credentials, "properties",
-            {"filter": filter_param} if filter_param else {},
-        )
-        props = response.get("properties", [])
-        data = [
-            {
-                "name": p.get("name", ""),
-                "display_name": p.get("displayName", ""),
-                "time_zone": p.get("timeZone", ""),
-                "currency_code": p.get("currencyCode", ""),
-            }
-            for p in props[:_MAX_ROWS]
-        ]
+        wanted = str(parameters.get("account_id", "") or "").replace("accounts/", "")
+        data = await self._property_summaries(credentials, wanted)
         return CapabilityResult(
             data=data, row_count=len(data), source_label="Google Analytics"
         )
 
+    async def _property_summaries(
+        self, credentials: dict[str, Any], account_id: str = ""
+    ) -> list[dict[str, str]]:
+        """
+        Every GA4 property the authorised user can read, via accountSummaries.
+
+        (properties.list needs a ``filter`` argument and fails without one;
+        accountSummaries lists accounts and their properties in one call.)
+        """
+        response = await self._call_admin_api(credentials, "accountSummaries", {})
+        out: list[dict[str, str]] = []
+        for acct in response.get("accountSummaries", []):
+            acct_id = str(acct.get("account", "")).replace("accounts/", "")
+            if account_id and acct_id != account_id:
+                continue
+            for prop in acct.get("propertySummaries", []):
+                out.append({
+                    "property_id": str(prop.get("property", "")).replace("properties/", ""),
+                    "display_name": prop.get("displayName", ""),
+                    "account": acct.get("displayName", ""),
+                    "account_id": acct_id,
+                })
+        return out[:_MAX_ROWS]
+
+    async def _resolve_property(self, credentials: dict[str, Any], given: Any) -> str:
+        """Use the given property, or the only accessible one; never guess between several."""
+        if given:
+            return normalise_property_id(given)
+        props = await self._property_summaries(credentials)
+        if not props:
+            raise GAApiError(
+                "This Google account has no Google Analytics 4 properties that EAAWP can read."
+            )
+        if len(props) > 1:
+            names = "; ".join(f"{p['display_name']} ({p['property_id']})" for p in props[:10])
+            raise GAApiError(
+                "Several Google Analytics properties are available, so I need to know which "
+                f"one to use: {names}. Ask for the property by name or ID."
+            )
+        return props[0]["property_id"]
+
     async def _run_report(
         self, credentials: dict[str, Any], parameters: dict[str, Any]
     ) -> CapabilityResult:
-        # Validate dates
-        start_date = parameters["start_date"]
-        end_date = parameters["end_date"]
-        try:
-            start_dt = datetime.strptime(start_date, "%Y-%m-%d").date()
-            end_dt = datetime.strptime(end_date, "%Y-%m-%d").date()
-        except ValueError as exc:
-            raise GAApiError(f"Invalid date format: {exc}")
+        # Validate dates (relative forms are resolved here, server-side)
+        today = datetime.utcnow().date()
+        start_dt = resolve_report_date(parameters.get("start_date") or "7daysAgo", today)
+        end_dt = resolve_report_date(parameters.get("end_date") or "yesterday", today)
+        if end_dt < start_dt:
+            raise GAApiError("end_date is before start_date")
         if (end_dt - start_dt).days > _MAX_DAYS_RANGE:
             raise GAApiError(f"Date range exceeds {_MAX_DAYS_RANGE} days")
-        if end_dt > datetime.utcnow().date():
+        if end_dt > today:
             raise GAApiError("End date cannot be in the future")
+        start_date, end_date = start_dt.isoformat(), end_dt.isoformat()
 
         # Validate metrics and dimensions
         metrics = parameters.get("metrics", ["sessions", "activeUsers"])
@@ -356,9 +421,9 @@ class GoogleAnalyticsProvider(IntegrationProvider):
             raise GAApiError(f"Unsupported dimensions: {sorted(invalid_d)}")
 
         row_limit = min(int(parameters.get("row_limit", 100)), _MAX_ROWS)
-        property_id = parameters["property_id"]
 
         await self._ensure_fresh_token(credentials)
+        property_id = await self._resolve_property(credentials, parameters.get("property_id"))
         body = {
             "dateRanges": [{"startDate": start_date, "endDate": end_date}],
             "metrics": [{"name": m} for m in metrics],
@@ -383,13 +448,14 @@ class GoogleAnalyticsProvider(IntegrationProvider):
             data=data,
             row_count=len(data),
             truncated=len(rows) > row_limit,
-            source_label="Google Analytics 4",
+            source_label=(
+                f"Google Analytics 4 property {property_id}, {start_date} to {end_date}"
+            ),
         )
 
     async def _get_realtime_report(
         self, credentials: dict[str, Any], parameters: dict[str, Any]
     ) -> CapabilityResult:
-        property_id = parameters["property_id"]
         dimensions = parameters.get("dimensions", ["unifiedScreenName"])
         invalid_d = set(dimensions) - (
             _ALLOWED_DIMENSIONS | {"unifiedScreenName", "minutesAgo"}
@@ -398,6 +464,7 @@ class GoogleAnalyticsProvider(IntegrationProvider):
             raise GAApiError(f"Unsupported realtime dimensions: {sorted(invalid_d)}")
 
         await self._ensure_fresh_token(credentials)
+        property_id = await self._resolve_property(credentials, parameters.get("property_id"))
         body = {
             "dimensions": [{"name": d} for d in dimensions],
             "metrics": [{"name": "activeUsers"}],
@@ -461,69 +528,78 @@ class GoogleAnalyticsProvider(IntegrationProvider):
     async def _call_admin_api(
         self, credentials: dict[str, Any], resource: str, params: dict
     ) -> dict:
-        """Call Google Analytics Admin API v1."""
-        try:
-            import google.oauth2.credentials
-            from googleapiclient import discovery
-            creds = google.oauth2.credentials.Credentials(
-                token=credentials.get("access_token"),
-                refresh_token=credentials.get("refresh_token"),
-                token_uri="https://oauth2.googleapis.com/token",
-                client_id=credentials.get("client_id"),
-                client_secret=credentials.get("client_secret"),
-            )
-            service = discovery.build(
-                "analyticsadmin", "v1beta", credentials=creds, cache_discovery=False
-            )
-            loop = asyncio.get_running_loop()
-            if resource == "accounts":
-                request = service.accounts().list()
-            elif resource == "properties":
-                request = service.properties().list(**{k: v for k, v in params.items() if v})
-            else:
-                raise GAApiError(f"Unknown admin resource: {resource}")
-            response = await loop.run_in_executor(None, request.execute)
-            return response if isinstance(response, dict) else {}
-        except GAApiError:
-            raise
-        except Exception as exc:
-            raise GAApiError(self._sanitise_error(str(exc)))
+        """Call Google Analytics Admin API v1beta (read-only endpoints only)."""
+        if resource not in ("accounts", "accountSummaries"):
+            raise GAApiError(f"Unknown admin resource: {resource}")
+
+        def _do() -> Any:
+            service = self._build("analyticsadmin", "v1beta", credentials)
+            api = service.accountSummaries() if resource == "accountSummaries" else service.accounts()
+            return api.list(**{k: v for k, v in params.items() if v}).execute()
+
+        return await self._run_google(_do)
 
     async def _call_data_api(
         self, credentials: dict[str, Any], path: str, body: dict
     ) -> dict:
-        """Call Google Analytics Data API v1beta."""
-        import asyncio
+        """Call Google Analytics Data API v1beta (runReport / runRealtimeReport only)."""
+        resource_path, _, method_suffix = path.partition(":")
+        prop_id = normalise_property_id(resource_path.split("/")[-1])
+        if method_suffix not in ("runReport", "runRealtimeReport"):
+            raise GAApiError(f"Unknown data API method: {method_suffix or '(none)'}")
+
+        def _do() -> Any:
+            service = self._build("analyticsdata", "v1beta", credentials)
+            props = service.properties()
+            call = props.runReport if method_suffix == "runReport" else props.runRealtimeReport
+            return call(property=f"properties/{prop_id}", body=body).execute()
+
+        return await self._run_google(_do)
+
+    def _build(self, api: str, version: str, credentials: dict[str, Any]) -> Any:
+        import google.oauth2.credentials
+        from googleapiclient import discovery
+
+        creds = google.oauth2.credentials.Credentials(
+            token=credentials.get("access_token"),
+            refresh_token=credentials.get("refresh_token"),
+            token_uri="https://oauth2.googleapis.com/token",
+            client_id=credentials.get("client_id"),
+            client_secret=credentials.get("client_secret"),
+        )
+        return discovery.build(api, version, credentials=creds, cache_discovery=False)
+
+    async def _run_google(self, fn: Any) -> dict:
+        """Run a blocking Google client call in a worker thread; map failures to safe text."""
+        loop = asyncio.get_running_loop()
         try:
-            import google.oauth2.credentials
-            from googleapiclient import discovery
-            creds = google.oauth2.credentials.Credentials(
-                token=credentials.get("access_token"),
-                refresh_token=credentials.get("refresh_token"),
-                token_uri="https://oauth2.googleapis.com/token",
-                client_id=credentials.get("client_id"),
-                client_secret=credentials.get("client_secret"),
-            )
-            service = discovery.build(
-                "analyticsdata", "v1beta", credentials=creds, cache_discovery=False
-            )
-            loop = asyncio.get_running_loop()
-            parts = path.split(":")
-            resource_path = parts[0]
-            method_suffix = parts[1] if len(parts) > 1 else "runReport"
-            # Extract property ID
-            prop_id = resource_path.split("/")[-1]
-            if method_suffix == "runReport":
-                request = service.properties().runReport(property=f"properties/{prop_id}", body=body)
-            elif method_suffix == "runRealtimeReport":
-                request = service.properties().runRealtimeReport(
-                    property=f"properties/{prop_id}", body=body
-                )
-            else:
-                raise GAApiError(f"Unknown data API method: {method_suffix}")
-            response = await loop.run_in_executor(None, request.execute)
+            response = await loop.run_in_executor(None, fn)
             return response if isinstance(response, dict) else {}
         except GAApiError:
             raise
         except Exception as exc:
-            raise GAApiError(self._sanitise_error(str(exc)))
+            raise GAApiError(self._explain_google_error(exc))
+
+    def _explain_google_error(self, exc: Exception) -> str:
+        """Readable, credential-free reason for a Google API failure."""
+        status = getattr(getattr(exc, "resp", None), "status", None)
+        raw = self._sanitise_error(str(exc))
+        if status == 401:
+            return "Google rejected the stored authorisation (401). Reconnect Google Analytics."
+        if status == 403:
+            if "has not been used" in raw or "is disabled" in raw or "accessNotConfigured" in raw:
+                return (
+                    "The Google Analytics Data/Admin API is not enabled in the Google Cloud project "
+                    "used for this connection (403). An admin must enable it in Google Cloud Console."
+                )
+            return (
+                "Google denied access (403). The connected Google account may not have access to "
+                "this Analytics property."
+            )
+        if status == 404:
+            return "Google could not find that Analytics property (404). Check the property ID."
+        if status == 429:
+            return "Google Analytics is rate-limiting requests (429). Try again shortly."
+        if status == 400:
+            return f"Google rejected the report request (400): {raw[:200]}"
+        return raw

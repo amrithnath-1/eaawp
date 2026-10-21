@@ -10,10 +10,11 @@ import { ContextPanel } from "@/components/eaawp/ContextPanel";
 import { useSession } from "@/state/session";
 import { EmailDraftPreview, parseDraftPreview } from "@/components/eaawp/EmailDraftPreview";
 import { AdminProviderConfigPanel } from "@/components/eaawp/AdminProviderConfigPanel";
+import { PendingTaskPanel } from "@/components/eaawp/PendingTaskPanel";
 import {
   useAgentExecute, DEFAULT_BLUEPRINT, useRoleConfig, roleConfigToBlueprint,
   useResumePlan, useRejectPlan, type ExecutionPlanFE,
-  useGscAuthorize, useGaAuthorize,
+  useGscAuthorize, useGaAuthorize, type AgentExecutionResponse,
 } from "@/hooks/use-api";
 import { USE_REAL_API } from "@/lib/api-client";
 import { reportError } from "@/lib/error-reporting";
@@ -294,6 +295,25 @@ function CabinPage() {
       : turn));
   }
 
+  /** A saved request was run after setup: show the original question and the real answer. */
+  function showResumedResult(prompt: string, result: AgentExecutionResponse) {
+    setTurns((t) => [
+      ...t,
+      { id: `u-${Date.now()}`, from: "user" as const, text: prompt, time: clock(), sources: [], requiresApproval: false },
+      {
+        id: `a-${Date.now()}`,
+        from: "ai" as const,
+        time: clock(),
+        text: result.message,
+        sources: result.sources ?? [],
+        requiresApproval: result.requires_approval ?? false,
+        planId: result.plan_id ?? null,
+        planStatus: result.plan_status ?? null,
+        stepSummaries: result.step_summaries ?? [],
+      },
+    ]);
+  }
+
   useEffect(() => {
     boxRef.current?.focus();
   }, []);
@@ -401,6 +421,7 @@ function CabinPage() {
           </div>
 
           <div className="min-h-0 flex-1 overflow-y-auto">
+            <PendingTaskPanel onResult={showResumedResult} />
             {empty ? (
               <div className="mx-auto flex h-full max-w-[680px] flex-col items-center justify-center px-4 py-10 text-center">
                 <h1 className="text-2xl font-medium tracking-tight">

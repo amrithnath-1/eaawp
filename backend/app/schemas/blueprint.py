@@ -93,3 +93,7 @@ class AgentExecutionResponse(BaseModel):
         default_factory=list,
         description="Safe user-visible step descriptions (no chain-of-thought)",
     )
+    pending_task_id: str | None = Field(
+        default=None,
+        description="Set when the request is saved waiting for an integration to be set up",
+    )

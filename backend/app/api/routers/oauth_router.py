@@ -111,6 +111,49 @@ def _require_google_config() -> None:
         )
 
 
+_SIBLING_GOOGLE_PROVIDER = {
+    "google_analytics": "google_search_console",
+    "google_search_console": "google_analytics",
+}
+
+
+class _GoogleClient:
+    """Resolved OAuth client for one tenant.  Never logged or returned to a client."""
+
+    __slots__ = ("client_id", "client_secret", "redirect_uri")
+
+    def __init__(self, client_id: str, client_secret: str, redirect_uri: str) -> None:
+        self.client_id, self.client_secret, self.redirect_uri = client_id, client_secret, redirect_uri
+
+
+async def _google_client_config(provider_type: str, tenant_id: str, db: AsyncSession) -> _GoogleClient:
+    """
+    Google OAuth client for this tenant.
+
+    Order: the tenant's own admin-entered settings for this provider, then for
+    the sibling Google provider (GSC and GA share one Google OAuth client),
+    then the server environment.  The admin configuration panel stores values
+    encrypted per tenant; before this, nothing but the environment was ever
+    read, so the panel configured nothing.
+    """
+    from app.services.provider_config_service import get_decrypted_field
+
+    values: dict[str, str] = {}
+    for key, env_value in (
+        ("client_id", settings.google_client_id),
+        ("client_secret", settings.google_client_secret),
+        ("redirect_uri", settings.google_redirect_uri),
+    ):
+        found = None
+        for pt in (provider_type, _SIBLING_GOOGLE_PROVIDER.get(provider_type)):
+            if pt and not found:
+                found = await get_decrypted_field(pt, key, tenant_id, db, env_fallback=False)
+        values[key] = found or env_value or ""
+    if not (values["client_id"] and values["client_secret"] and values["redirect_uri"]):
+        _require_google_config()  # raises the standard 503 describing what is missing
+    return _GoogleClient(values["client_id"], values["client_secret"], values["redirect_uri"])
+
+
 def _generate_state_token() -> str:
     """
     Generate a cryptographically random OAuth2 state token.
@@ -126,22 +169,23 @@ def _build_google_authorize(
     integration_id: str,
     state_token: str,
     expires_at: datetime,
+    client: "_GoogleClient",
 ) -> str:
     """Build a Google OAuth2 authorization URL for the given provider."""
     scopes = _PROVIDER_SCOPES.get(provider_type, _GSC_OAUTH_SCOPES)
     flow = google_auth_oauthlib.flow.Flow.from_client_config(
         client_config={
             "web": {
-                "client_id": settings.google_client_id,
-                "client_secret": settings.google_client_secret,
-                "redirect_uris": [settings.google_redirect_uri],
+                "client_id": client.client_id,
+                "client_secret": client.client_secret,
+                "redirect_uris": [client.redirect_uri],
                 "auth_uri": "https://accounts.google.com/o/oauth2/auth",
                 "token_uri": "https://oauth2.googleapis.com/token",
             }
         },
         scopes=scopes,
     )
-    flow.redirect_uri = settings.google_redirect_uri
+    flow.redirect_uri = client.redirect_uri
     authorization_url, _ = flow.authorization_url(
         access_type="offline",
         include_granted_scopes="false",
@@ -161,7 +205,7 @@ async def _google_authorize_common(
     The tenant and initiating user come from the verified JWT only.
     """
     tenant_id = user.tenant_id
-    _require_google_config()
+    client = await _google_client_config(provider_type, tenant_id, db)
 
     provider = integration_registry.get(provider_type)
     if not provider:
@@ -220,6 +264,7 @@ async def _google_authorize_common(
         integration_id=integration.id,
         state_token=state_token,
         expires_at=expires_at,
+        client=client,
     )
 
     logger.info(
@@ -292,7 +337,8 @@ async def google_callback(
     Security note: The authorization code is single-use and short-lived.
     This endpoint must be called within minutes of the user's authorization.
     """
-    _require_google_config()
+    # (Client credentials are resolved per tenant once the state token has
+    #  identified the tenant - see below.)
 
     # 1. Google may return an error (e.g., user denied permission)
     if error:
@@ -386,19 +432,30 @@ async def google_callback(
         provider_type = oauth_state.provider_type
         scopes = _PROVIDER_SCOPES.get(provider_type, _GSC_OAUTH_SCOPES)
 
+        try:
+            client = await _google_client_config(provider_type, tenant_id, db)
+        except HTTPException:
+            return RedirectResponse(
+                url=_build_frontend_redirect(
+                    error="not_configured",
+                    error_description="Google OAuth is not configured for this company.",
+                ),
+                status_code=302,
+            )
+
         flow = google_auth_oauthlib.flow.Flow.from_client_config(
             client_config={
                 "web": {
-                    "client_id": settings.google_client_id,
-                    "client_secret": settings.google_client_secret,
-                    "redirect_uris": [settings.google_redirect_uri],
+                    "client_id": client.client_id,
+                    "client_secret": client.client_secret,
+                    "redirect_uris": [client.redirect_uri],
                     "auth_uri": "https://accounts.google.com/o/oauth2/auth",
                     "token_uri": "https://oauth2.googleapis.com/token",
                 }
             },
             scopes=scopes,
         )
-        flow.redirect_uri = settings.google_redirect_uri
+        flow.redirect_uri = client.redirect_uri
 
         loop = asyncio.get_running_loop()
         await loop.run_in_executor(
@@ -411,8 +468,8 @@ async def google_callback(
             "access_token": flow.credentials.token,
             "refresh_token": flow.credentials.refresh_token,
             "token_expiry": flow.credentials.expiry.isoformat() if flow.credentials.expiry else None,
-            "client_id": settings.google_client_id,
-            "client_secret": settings.google_client_secret,
+            "client_id": client.client_id,
+            "client_secret": client.client_secret,
         }
 
         # 8. Update integration_catalog with encrypted credentials

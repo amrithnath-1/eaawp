@@ -22,6 +22,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
 from app.api.routers.execution import router as execution_router
+from app.api.routers.pending_tasks import router as pending_tasks_router
 from app.api.routers.companies import router as companies_router
 from app.api.routers.users import router as users_router
 from app.api.routers.llm_models import router as llm_models_router
@@ -156,6 +157,7 @@ app.add_middleware(ProductionDocsGuard)
 
 # ── Routers ───────────────────────────────────────────────────────────────────
 app.include_router(execution_router)
+app.include_router(pending_tasks_router)
 app.include_router(companies_router)
 app.include_router(users_router)
 app.include_router(llm_models_router)

@@ -23,6 +23,15 @@ export class ApiError extends Error {
   }
 }
 
+/** The server's own explanation (FastAPI `detail`) when there is one, else the error message. */
+export function apiErrorMessage(err: unknown): string {
+  if (err instanceof ApiError) {
+    const detail = (err.body as { detail?: unknown } | null)?.detail;
+    if (typeof detail === "string" && detail) return detail;
+  }
+  return err instanceof Error ? err.message : "Unexpected error";
+}
+
 function handleSessionExpired(): void {
   if (typeof window === "undefined") return;
   try {
