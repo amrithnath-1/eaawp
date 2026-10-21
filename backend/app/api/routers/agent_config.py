@@ -2,7 +2,7 @@
 from __future__ import annotations
 import json
 from fastapi import APIRouter, Depends, HTTPException
-from app.core.auth import get_current_tenant_id
+from app.core.auth import get_current_tenant_id, require_admin
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.session import get_db
@@ -28,7 +28,7 @@ async def get_agent_config(
         raise HTTPException(status_code=404, detail="Agent configuration not found")
     return cfg
 
-@router.patch("/config", response_model=AgentConfigOut)
+@router.patch("/config", response_model=AgentConfigOut, dependencies=[Depends(require_admin)])
 async def update_agent_config(
     ai_employee_id: str,
     body: AgentConfigUpdate,

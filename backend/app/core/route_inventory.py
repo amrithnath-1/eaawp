@@ -35,6 +35,45 @@ PUBLIC_ROUTES: dict[tuple[str, str], str] = {
 }
 
 
+# Mutating (non-GET) endpoints that ORDINARY employees may call.  Everything else
+# that changes state must carry ``require_admin``.  Adding here is a security
+# decision: write the reason.  tests/security/test_rbac.py enforces this list.
+_DAILY = "Day-to-day marketing work for the caller's own tenant; no credentials, access control or configuration."
+MEMBER_MUTATIONS: dict[tuple[str, str], str] = {
+    ("POST", "/api/v1/agent/execute"): "Core use of the AI employee; tenant forced from the JWT, permissions enforced per capability grant.",
+    ("POST", "/api/v1/roles/{role_key}/validate"): "Dry-run validation; persists nothing.",
+    ("POST", "/api/v1/knowledge/retrieve"): "Read-only semantic search (POST for the body).",
+    ("POST", "/api/v1/data/query"): "Read-only query through admin-defined mappings and entity permissions; audited.",
+    ("POST", "/api/v1/tasks"): _DAILY,
+    ("PATCH", "/api/v1/tasks/{task_id}"): _DAILY,
+    ("POST", "/api/v1/insights/{insight_id}/dismiss"): _DAILY,
+    ("POST", "/api/v1/email/drafts/{draft_id}/cancel"): "Cancels a pending draft; reduces, never expands, outbound email.",
+    ("POST", "/api/v1/campaigns"): _DAILY,
+    ("PATCH", "/api/v1/campaigns/{campaign_id}"): _DAILY,
+    ("DELETE", "/api/v1/campaigns/{campaign_id}"): "Archives (soft-deletes) a campaign of the caller's tenant.",
+    ("POST", "/api/v1/campaigns/{campaign_id}/metrics"): _DAILY,
+    ("POST", "/api/v1/performance/compare"): "Read-only analysis.",
+    ("POST", "/api/v1/funnel/analyze"): "Read-only analysis.",
+    ("POST", "/api/v1/funnel/campaign/{campaign_id}"): "Read-only analysis.",
+    ("POST", "/api/v1/strategy/objectives"): _DAILY,
+    ("PATCH", "/api/v1/strategy/objectives/{obj_id}"): _DAILY,
+    ("POST", "/api/v1/strategy/analyze"): "Read-only analysis.",
+    ("POST", "/api/v1/content"): _DAILY,
+    ("PATCH", "/api/v1/content/{content_id}"): _DAILY,
+    ("POST", "/api/v1/content/generate/brief"): _DAILY,
+    ("POST", "/api/v1/content/generate/ideas"): _DAILY,
+    ("POST", "/api/v1/content/generate/draft"): _DAILY,
+    ("POST", "/api/v1/content/generate/variants"): _DAILY,
+    ("POST", "/api/v1/content/analyze"): "Read-only analysis.",
+    ("POST", "/api/v1/memory"): _DAILY,
+    ("POST", "/api/v1/notifications/{notification_id}/read"): "Per-tenant notification state.",
+    ("POST", "/api/v1/notifications/read-all"): "Per-tenant notification state.",
+    ("POST", "/api/v1/nl-integration/parse"): "Intent classification only; takes no action.",
+    ("POST", "/api/v1/nl-integration/chat"): "Conversation reply only; takes no action.",
+    ("POST", "/api/v1/auth/logout/all"): "Revokes the caller's own refresh tokens.",
+}
+
+
 @dataclass(frozen=True)
 class RouteAuth:
     method: str
@@ -42,6 +81,7 @@ class RouteAuth:
     module: str
     classification: str  # JWT | PUBLIC | UNPROTECTED | HEADER_TENANT
     reason: str = ""
+    access: str = "-"  # ADMIN | MEMBER (JWT routes) | - (public)
 
 
 def _walk(dep: Dependant) -> tuple[set[str], set[str]]:
@@ -74,7 +114,8 @@ def build_inventory(app: FastAPI) -> list[RouteAuth]:
                 cls, reason = "PUBLIC", public_reason
             else:
                 cls, reason = "UNPROTECTED", "No authentication dependency and not on the public allowlist."
-            rows.append(RouteAuth(method, route.path, module, cls, reason))
+            access = "-" if cls != "JWT" else ("ADMIN" if "require_admin" in names else "MEMBER")
+            rows.append(RouteAuth(method, route.path, module, cls, reason, access))
     return sorted(rows, key=lambda r: (r.path, r.method))
 
 
@@ -90,6 +131,7 @@ def render_markdown(rows: list[RouteAuth]) -> str:
         "",
         f"- JWT-protected endpoints: **{len(jwt_rows)}**",
         f"- Intentionally public endpoints: **{len(public_rows)}**",
+        f"- Admin-only (JWT-protected) endpoints: **{len([r for r in jwt_rows if r.access == 'ADMIN'])}**",
         "",
         "## Intentionally public",
         "",
@@ -98,7 +140,7 @@ def render_markdown(rows: list[RouteAuth]) -> str:
     ]
     out += [f"| {r.method} | `{r.path}` | {r.reason} |" for r in public_rows]
     out += ["", "## JWT-protected (tenant and user come from the verified token)", "",
-            "| Method | Path | Router module |", "| --- | --- | --- |"]
-    out += [f"| {r.method} | `{r.path}` | {r.module} |" for r in jwt_rows]
+            "| Method | Path | Router module | Role needed |", "| --- | --- | --- | --- |"]
+    out += [f"| {r.method} | `{r.path}` | {r.module} | {'Admin' if r.access == 'ADMIN' else 'Any signed-in user'} |" for r in jwt_rows]
     out.append("")
     return "\n".join(out)

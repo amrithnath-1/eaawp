@@ -36,7 +36,7 @@ import uuid
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
-from app.core.auth import get_current_tenant_id
+from app.core.auth import get_current_tenant_id, require_admin
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -176,7 +176,7 @@ async def list_monitoring_rules(
 
 # ── Create rule ───────────────────────────────────────────────────────────────
 
-@router.post("/rules", response_model=MonitoringRuleOut, status_code=201)
+@router.post("/rules", response_model=MonitoringRuleOut, status_code=201, dependencies=[Depends(require_admin)])
 async def create_monitoring_rule(
     body: MonitoringRuleCreate,
     role_key: str = "DIGITAL_MARKETING_MANAGER",
@@ -236,7 +236,7 @@ async def get_monitoring_rule(
 
 # ── Update rule ───────────────────────────────────────────────────────────────
 
-@router.patch("/rules/{rule_id}", response_model=MonitoringRuleOut)
+@router.patch("/rules/{rule_id}", response_model=MonitoringRuleOut, dependencies=[Depends(require_admin)])
 async def update_monitoring_rule(
     rule_id: str,
     body: MonitoringRuleUpdate,
@@ -284,7 +284,7 @@ async def update_monitoring_rule(
 
 # ── Delete rule ───────────────────────────────────────────────────────────────
 
-@router.delete("/rules/{rule_id}", status_code=204, response_model=None)
+@router.delete("/rules/{rule_id}", status_code=204, response_model=None, dependencies=[Depends(require_admin)])
 async def delete_monitoring_rule(
     rule_id: str,
     tenant_id: str = Depends(get_current_tenant_id),
@@ -298,7 +298,7 @@ async def delete_monitoring_rule(
 
 # ── Enable / disable ──────────────────────────────────────────────────────────
 
-@router.post("/rules/{rule_id}/enable", response_model=MonitoringRuleOut)
+@router.post("/rules/{rule_id}/enable", response_model=MonitoringRuleOut, dependencies=[Depends(require_admin)])
 async def enable_monitoring_rule(
     rule_id: str,
     tenant_id: str = Depends(get_current_tenant_id),
@@ -314,7 +314,7 @@ async def enable_monitoring_rule(
     return _rule_to_out(rule)
 
 
-@router.post("/rules/{rule_id}/disable", response_model=MonitoringRuleOut)
+@router.post("/rules/{rule_id}/disable", response_model=MonitoringRuleOut, dependencies=[Depends(require_admin)])
 async def disable_monitoring_rule(
     rule_id: str,
     tenant_id: str = Depends(get_current_tenant_id),
@@ -355,7 +355,7 @@ async def get_rule_audit(
 
 # ── Manual evaluation trigger (admin only) ────────────────────────────────────
 
-@router.post("/evaluate/{rule_id}", response_model=dict)
+@router.post("/evaluate/{rule_id}", response_model=dict, dependencies=[Depends(require_admin)])
 async def manually_evaluate_rule(
     rule_id: str,
     tenant_id: str = Depends(get_current_tenant_id),

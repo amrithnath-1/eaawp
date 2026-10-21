@@ -1,7 +1,7 @@
 """EAAWP Marketing Channel Integration Router"""
 from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException
-from app.core.auth import get_current_tenant_id
+from app.core.auth import get_current_tenant_id, require_admin
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.session import get_db
 from app.services.channel_service import (
@@ -17,7 +17,7 @@ async def list_channels(tenant_id: str = Depends(get_current_tenant_id), db: Asy
     return await list_channel_integrations(tenant_id, db)
 
 
-@router.post("", response_model=dict, status_code=201)
+@router.post("", response_model=dict, status_code=201, dependencies=[Depends(require_admin)])
 async def create_channel(
     body: dict, tenant_id: str = Depends(get_current_tenant_id), db: AsyncSession = Depends(get_db)
 ) -> dict:
@@ -32,14 +32,14 @@ async def create_channel(
     )
 
 
-@router.post("/{integration_id}/test", response_model=dict)
+@router.post("/{integration_id}/test", response_model=dict, dependencies=[Depends(require_admin)])
 async def test_channel(
     integration_id: str, tenant_id: str = Depends(get_current_tenant_id), db: AsyncSession = Depends(get_db)
 ) -> dict:
     return await test_channel_integration(integration_id, tenant_id, db)
 
 
-@router.post("/{integration_id}/enable", response_model=dict)
+@router.post("/{integration_id}/enable", response_model=dict, dependencies=[Depends(require_admin)])
 async def enable_channel(
     integration_id: str, tenant_id: str = Depends(get_current_tenant_id), db: AsyncSession = Depends(get_db)
 ) -> dict:
@@ -49,7 +49,7 @@ async def enable_channel(
     return r
 
 
-@router.post("/{integration_id}/disable", response_model=dict)
+@router.post("/{integration_id}/disable", response_model=dict, dependencies=[Depends(require_admin)])
 async def disable_channel(
     integration_id: str, tenant_id: str = Depends(get_current_tenant_id), db: AsyncSession = Depends(get_db)
 ) -> dict:
@@ -59,7 +59,7 @@ async def disable_channel(
     return r
 
 
-@router.post("/{integration_id}/prepare", response_model=dict)
+@router.post("/{integration_id}/prepare", response_model=dict, dependencies=[Depends(require_admin)])
 async def prepare_content(
     integration_id: str, body: dict,
     tenant_id: str = Depends(get_current_tenant_id), db: AsyncSession = Depends(get_db)

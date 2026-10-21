@@ -32,7 +32,7 @@ import logging
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException
-from app.core.auth import get_current_tenant_id
+from app.core.auth import get_current_tenant_id, require_admin
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -394,6 +394,7 @@ async def get_role_config(
     "/{role_key}",
     response_model=RoleConfigOut,
     summary="Replace the full role configuration",
+    dependencies=[Depends(require_admin)],
 )
 async def replace_role_config(
     role_key: str,
@@ -420,6 +421,7 @@ async def replace_role_config(
     "/{role_key}",
     response_model=RoleConfigOut,
     summary="Partially update the role configuration",
+    dependencies=[Depends(require_admin)],
 )
 async def update_role_config(
     role_key: str,

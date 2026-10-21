@@ -2,7 +2,7 @@
 from __future__ import annotations
 import uuid
 from fastapi import APIRouter, Depends, HTTPException
-from app.core.auth import get_current_tenant_id
+from app.core.auth import get_current_tenant_id, require_admin
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.session import get_db
@@ -33,7 +33,7 @@ async def get_ai_employee(
         raise HTTPException(status_code=404, detail="AI employee not found")
     return employee
 
-@router.post("", response_model=AIEmployeeOut, status_code=201)
+@router.post("", response_model=AIEmployeeOut, status_code=201, dependencies=[Depends(require_admin)])
 async def create_ai_employee(
     body: AIEmployeeCreate,
     tenant_id: str = Depends(get_current_tenant_id),
@@ -45,7 +45,7 @@ async def create_ai_employee(
     await db.refresh(employee)
     return employee
 
-@router.patch("/{ai_employee_id}/status", response_model=AIEmployeeOut)
+@router.patch("/{ai_employee_id}/status", response_model=AIEmployeeOut, dependencies=[Depends(require_admin)])
 async def update_status(
     ai_employee_id: str,
     status: str,

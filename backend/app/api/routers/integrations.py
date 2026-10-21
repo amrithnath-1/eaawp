@@ -32,7 +32,7 @@ import uuid
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
-from app.core.auth import get_current_tenant_id
+from app.core.auth import get_current_tenant_id, require_admin
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -94,7 +94,7 @@ async def _get_conn_or_404(conn_id: str, tenant_id: str, db: AsyncSession) -> Da
 
 # ── Create ────────────────────────────────────────────────────────────────────
 
-@router.post("/connections", response_model=DataConnectionOut, status_code=201)
+@router.post("/connections", response_model=DataConnectionOut, status_code=201, dependencies=[Depends(require_admin)])
 async def create_connection(
     body: DataConnectionCreate,
     tenant_id: str = Depends(get_current_tenant_id),
@@ -166,7 +166,7 @@ async def get_connection(
 
 # ── Update ────────────────────────────────────────────────────────────────────
 
-@router.patch("/connections/{conn_id}", response_model=DataConnectionOut)
+@router.patch("/connections/{conn_id}", response_model=DataConnectionOut, dependencies=[Depends(require_admin)])
 async def update_connection(
     conn_id: str,
     body: DataConnectionUpdate,
@@ -195,7 +195,7 @@ async def update_connection(
 
 # ── Delete ────────────────────────────────────────────────────────────────────
 
-@router.delete("/connections/{conn_id}", response_model=dict)
+@router.delete("/connections/{conn_id}", response_model=dict, dependencies=[Depends(require_admin)])
 async def delete_connection(
     conn_id: str,
     tenant_id: str = Depends(get_current_tenant_id),
@@ -209,7 +209,7 @@ async def delete_connection(
 
 # ── Test connection ───────────────────────────────────────────────────────────
 
-@router.post("/connections/{conn_id}/test", response_model=ConnectionTestResponse)
+@router.post("/connections/{conn_id}/test", response_model=ConnectionTestResponse, dependencies=[Depends(require_admin)])
 async def test_connection(
     conn_id: str,
     tenant_id: str = Depends(get_current_tenant_id),
@@ -259,7 +259,7 @@ async def test_connection(
 
 # ── Discover schema ───────────────────────────────────────────────────────────
 
-@router.post("/connections/{conn_id}/discover", response_model=list[SchemaEntityOut])
+@router.post("/connections/{conn_id}/discover", response_model=list[SchemaEntityOut], dependencies=[Depends(require_admin)])
 async def discover_schema(
     conn_id: str,
     tenant_id: str = Depends(get_current_tenant_id),
@@ -360,7 +360,7 @@ async def list_entities(
 
 # ── Set entity permission ─────────────────────────────────────────────────────
 
-@router.patch("/entities/{entity_id}/permission", response_model=SchemaEntityOut)
+@router.patch("/entities/{entity_id}/permission", response_model=SchemaEntityOut, dependencies=[Depends(require_admin)])
 async def set_entity_permission(
     entity_id: str,
     body: EntityPermissionUpdate,
@@ -383,7 +383,7 @@ async def set_entity_permission(
 
 # ── Bulk permission ───────────────────────────────────────────────────────────
 
-@router.post("/connections/{conn_id}/entities/bulk-permission", response_model=dict)
+@router.post("/connections/{conn_id}/entities/bulk-permission", response_model=dict, dependencies=[Depends(require_admin)])
 async def bulk_set_permission(
     conn_id: str,
     body: BulkEntityPermissionUpdate,

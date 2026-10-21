@@ -2,7 +2,7 @@
 from __future__ import annotations
 import uuid
 from fastapi import APIRouter, Depends, HTTPException
-from app.core.auth import get_current_tenant_id
+from app.core.auth import get_current_tenant_id, require_admin
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.session import get_db
@@ -23,7 +23,7 @@ async def list_schedules(
     result = await db.execute(stmt)
     return result.scalars().all()
 
-@router.post("", response_model=ScheduleOut, status_code=201)
+@router.post("", response_model=ScheduleOut, status_code=201, dependencies=[Depends(require_admin)])
 async def create_schedule(
     body: ScheduleCreate,
     ai_employee_id: str,
@@ -41,7 +41,7 @@ async def create_schedule(
     await db.refresh(schedule)
     return schedule
 
-@router.patch("/{schedule_id}/toggle", response_model=ScheduleOut)
+@router.patch("/{schedule_id}/toggle", response_model=ScheduleOut, dependencies=[Depends(require_admin)])
 async def toggle_schedule(
     schedule_id: str,
     tenant_id: str = Depends(get_current_tenant_id),

@@ -32,7 +32,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
-from app.core.auth import get_current_user
+from app.core.auth import get_current_user, require_admin
 from app.db.models import DocumentChunk, KnowledgeDocument, User
 from app.db.session import get_db
 from app.schemas.knowledge import (
@@ -66,6 +66,7 @@ def _get_openai_client():  # type: ignore[return]
     response_model=KnowledgeDocumentOut,
     status_code=202,
     summary="Upload a company knowledge document for indexing",
+    dependencies=[Depends(require_admin)],
 )
 async def upload_document(
     file: UploadFile = File(...),
@@ -214,6 +215,7 @@ async def get_document(
     "/documents/{doc_id}",
     status_code=200,
     summary="Delete a knowledge document and all its chunks",
+    dependencies=[Depends(require_admin)],
 )
 async def delete_document(
     doc_id: str,

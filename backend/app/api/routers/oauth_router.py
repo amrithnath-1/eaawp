@@ -42,7 +42,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db
 from app.config import settings
-from app.core.auth import as_utc, get_current_user
+from app.core.auth import as_utc, get_current_user, require_admin
+from app.core.rate_limit import rate_limit
 from app.db.models import User
 from app.db.integration_models import Integration
 from app.db.oauth_models import OAuthState
@@ -84,6 +85,11 @@ _OAUTH_STATE_TTL_MINUTES = 10
 # Frontend redirect URL after successful authorization.
 # This must be a page that can display the connection status.
 _FRONTEND_CALLBACK_PATH = "/integrations"
+
+
+def _log_safe(value: str | None, limit: int = 80) -> str:
+    """Make an untrusted string safe for a single log line."""
+    return "".join(ch if ch.isprintable() else "?" for ch in (value or ""))[:limit]
 
 
 def _frontend_callback_path(provider_type: str) -> str:
@@ -229,7 +235,7 @@ async def _google_authorize_common(
     )
 
 
-@router.get("/google/authorize", response_model=OAuthAuthorizeResponse)
+@router.get("/google/authorize", response_model=OAuthAuthorizeResponse, dependencies=[Depends(require_admin)])
 async def google_authorize(
     request: Request,
     db: Annotated[AsyncSession, Depends(get_db)],
@@ -242,7 +248,7 @@ async def google_authorize(
     return await _google_authorize_common("google_search_console", user, db)
 
 
-@router.get("/google/analytics/authorize", response_model=OAuthAuthorizeResponse)
+@router.get("/google/analytics/authorize", response_model=OAuthAuthorizeResponse, dependencies=[Depends(require_admin)])
 async def google_analytics_authorize(
     request: Request,
     db: Annotated[AsyncSession, Depends(get_db)],
@@ -256,7 +262,11 @@ async def google_analytics_authorize(
     return await _google_authorize_common("google_analytics", user, db)
 
 
-@router.get("/google/callback", response_model=OAuthCallbackResponse)
+@router.get(
+    "/google/callback",
+    response_model=OAuthCallbackResponse,
+    dependencies=[Depends(rate_limit("oauth_callback", "oauth_callback_rate_limit", "oauth_callback_rate_window_seconds"))],
+)
 async def google_callback(
     request: Request,
     db: Annotated[AsyncSession, Depends(get_db)],
@@ -286,11 +296,9 @@ async def google_callback(
 
     # 1. Google may return an error (e.g., user denied permission)
     if error:
-        logger.warning(
-            "Google OAuth callback error: %s (%s)",
-            error,
-            error_description or "no description",
-        )
+        # ``error`` is attacker-controllable (it comes from the query string):
+        # log a short, newline-free copy only.
+        logger.warning("Google OAuth callback error: %s", _log_safe(error))
         # Redirect to frontend with error parameters
         frontend_url = _build_frontend_redirect(error=error, error_description=error_description)
         return RedirectResponse(url=frontend_url, status_code=302)
@@ -350,10 +358,24 @@ async def google_callback(
         )
         return RedirectResponse(url=frontend_url, status_code=302)
 
-    # 5. Mark state as used (defend against replay attacks)
-    oauth_state.used = True
-    db.add(oauth_state)
+    # 5. Consume the state atomically (defends against replay AND against two
+    #    concurrent callbacks both passing the check above): only the request
+    #    whose UPDATE flips used False -> True may continue.
+    from sqlalchemy import update as sql_update
+    consumed = await db.execute(
+        sql_update(OAuthState)
+        .where(OAuthState.state_token == state, OAuthState.used == False)  # noqa: E712
+        .values(used=True)
+    )
     await db.commit()
+    if consumed.rowcount != 1:
+        logger.warning("OAuth callback rejected: state consumed by a concurrent request")
+        return RedirectResponse(
+            url=_build_frontend_redirect(
+                error="invalid_state", error_description="Invalid or expired OAuth state token."
+            ),
+            status_code=302,
+        )
 
     tenant_id = oauth_state.tenant_id
     integration_id = oauth_state.integration_id
@@ -432,7 +454,8 @@ async def google_callback(
         except Exception as test_exc:
             # Non-fatal — tokens are already stored; user can test manually
             logger.warning(
-                "Post-OAuth auto-test raised an exception (non-fatal): %s", test_exc
+                "Post-OAuth auto-test raised an exception (non-fatal): %s",
+                type(test_exc).__name__,
             )
 
         # 10. Write an audit log entry for the successful OAuth connection
@@ -461,10 +484,13 @@ async def google_callback(
         return RedirectResponse(url=frontend_url, status_code=302)
 
     except Exception as exc:
-        logger.exception(
-            "Google OAuth token exchange failed for tenant %s, integration %s",
+        # Deliberately no traceback / message: library errors can embed the
+        # token endpoint response or request body.
+        logger.error(
+            "Google OAuth token exchange failed for tenant %s, integration %s (%s)",
             tenant_id,
             integration_id,
+            type(exc).__name__,
         )
         frontend_url = _build_frontend_redirect(
             error="token_exchange_failed",

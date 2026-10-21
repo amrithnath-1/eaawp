@@ -19,7 +19,7 @@ import logging
 import uuid
 
 from fastapi import APIRouter, Depends, Header, HTTPException
-from app.core.auth import get_current_tenant_id
+from app.core.auth import get_current_tenant_id, require_admin
 from app.schemas.role_config import IMPLEMENTED_ROLES
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -102,7 +102,7 @@ async def list_mappings(
     return [_mapping_to_schema(m) for m in mappings]
 
 
-@router.post("/mappings", response_model=SemanticMappingOut, status_code=201)
+@router.post("/mappings", response_model=SemanticMappingOut, status_code=201, dependencies=[Depends(require_admin)])
 async def create_mapping(
     body: SemanticMappingCreate,
     tenant_id: str = Depends(get_current_tenant_id),
@@ -137,7 +137,7 @@ async def create_mapping(
     return _mapping_to_schema(mapping)
 
 
-@router.patch("/mappings/{mapping_id}", response_model=SemanticMappingOut)
+@router.patch("/mappings/{mapping_id}", response_model=SemanticMappingOut, dependencies=[Depends(require_admin)])
 async def update_mapping(
     mapping_id: str,
     body: SemanticMappingUpdate,
@@ -161,7 +161,7 @@ async def update_mapping(
     return _mapping_to_schema(mapping)
 
 
-@router.delete("/mappings/{mapping_id}", response_model=dict)
+@router.delete("/mappings/{mapping_id}", response_model=dict, dependencies=[Depends(require_admin)])
 async def delete_mapping(
     mapping_id: str,
     tenant_id: str = Depends(get_current_tenant_id),

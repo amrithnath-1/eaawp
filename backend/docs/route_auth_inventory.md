@@ -6,6 +6,7 @@ is neither JWT-protected nor on the documented public allowlist.
 
 - JWT-protected endpoints: **164**
 - Intentionally public endpoints: **7**
+- Admin-only (JWT-protected) endpoints: **67**
 
 ## Intentionally public
 
@@ -21,169 +22,169 @@ is neither JWT-protected nor on the documented public allowlist.
 
 ## JWT-protected (tenant and user come from the verified token)
 
-| Method | Path | Router module |
-| --- | --- | --- |
-| GET | `/api/v1/actions/audits` | actions |
-| GET | `/api/v1/actions/audits/{audit_id}` | actions |
-| POST | `/api/v1/actions/audits/{audit_id}/approve` | actions |
-| POST | `/api/v1/actions/audits/{audit_id}/reject` | actions |
-| GET | `/api/v1/actions/tools` | actions |
-| GET | `/api/v1/activity` | activity |
-| POST | `/api/v1/admin/customize/execute` | admin_customization |
-| POST | `/api/v1/admin/customize/plan` | admin_customization |
-| POST | `/api/v1/admin/provider-config/{provider_type}` | admin_config |
-| GET | `/api/v1/admin/provider-config/{provider_type}/status` | admin_config |
-| GET | `/api/v1/agent/config` | agent_config |
-| PATCH | `/api/v1/agent/config` | agent_config |
-| POST | `/api/v1/agent/execute` | execution |
-| GET | `/api/v1/ai-employees` | ai_employees |
-| POST | `/api/v1/ai-employees` | ai_employees |
-| GET | `/api/v1/ai-employees/{ai_employee_id}` | ai_employees |
-| PATCH | `/api/v1/ai-employees/{ai_employee_id}/status` | ai_employees |
-| GET | `/api/v1/approvals` | approvals |
-| POST | `/api/v1/approvals/{approval_id}/decide` | approvals |
-| GET | `/api/v1/audit` | audit |
-| GET | `/api/v1/audit/traces` | audit |
-| POST | `/api/v1/auth/logout/all` | auth |
-| GET | `/api/v1/auth/me` | auth |
-| GET | `/api/v1/campaigns` | campaigns |
-| POST | `/api/v1/campaigns` | campaigns |
-| DELETE | `/api/v1/campaigns/{campaign_id}` | campaigns |
-| GET | `/api/v1/campaigns/{campaign_id}` | campaigns |
-| PATCH | `/api/v1/campaigns/{campaign_id}` | campaigns |
-| GET | `/api/v1/campaigns/{campaign_id}/metrics` | campaigns |
-| POST | `/api/v1/campaigns/{campaign_id}/metrics` | campaigns |
-| GET | `/api/v1/campaigns/{campaign_id}/summary` | campaigns |
-| GET | `/api/v1/channels` | channels |
-| POST | `/api/v1/channels` | channels |
-| POST | `/api/v1/channels/{integration_id}/disable` | channels |
-| POST | `/api/v1/channels/{integration_id}/enable` | channels |
-| POST | `/api/v1/channels/{integration_id}/prepare` | channels |
-| POST | `/api/v1/channels/{integration_id}/test` | channels |
-| GET | `/api/v1/companies` | companies |
-| POST | `/api/v1/companies` | companies |
-| GET | `/api/v1/companies/{company_id}` | companies |
-| GET | `/api/v1/content` | content |
-| POST | `/api/v1/content` | content |
-| POST | `/api/v1/content/analyze` | content |
-| POST | `/api/v1/content/generate/brief` | content |
-| POST | `/api/v1/content/generate/draft` | content |
-| POST | `/api/v1/content/generate/ideas` | content |
-| POST | `/api/v1/content/generate/variants` | content |
-| GET | `/api/v1/content/{content_id}` | content |
-| PATCH | `/api/v1/content/{content_id}` | content |
-| GET | `/api/v1/data/audits` | data_access |
-| GET | `/api/v1/data/mappings` | data_access |
-| POST | `/api/v1/data/mappings` | data_access |
-| DELETE | `/api/v1/data/mappings/{mapping_id}` | data_access |
-| PATCH | `/api/v1/data/mappings/{mapping_id}` | data_access |
-| POST | `/api/v1/data/query` | data_access |
-| GET | `/api/v1/email/audit` | email_integration |
-| GET | `/api/v1/email/drafts` | email_drafts |
-| GET | `/api/v1/email/drafts/{draft_id}` | email_drafts |
-| POST | `/api/v1/email/drafts/{draft_id}/cancel` | email_drafts |
-| DELETE | `/api/v1/email/integration` | email_integration |
-| GET | `/api/v1/email/integration` | email_integration |
-| PATCH | `/api/v1/email/integration` | email_integration |
-| POST | `/api/v1/email/integration` | email_integration |
-| POST | `/api/v1/email/integration/disable` | email_integration |
-| POST | `/api/v1/email/integration/enable` | email_integration |
-| POST | `/api/v1/email/integration/test` | email_integration |
-| GET | `/api/v1/employees` | employee_builder |
-| GET | `/api/v1/employees/blueprints` | employee_builder |
-| POST | `/api/v1/employees/blueprints/{proposal_id}/approve` | employee_builder |
-| POST | `/api/v1/employees/blueprints/{proposal_id}/reject` | employee_builder |
-| POST | `/api/v1/employees/build` | employee_builder |
-| POST | `/api/v1/funnel/analyze` | funnel |
-| POST | `/api/v1/funnel/campaign/{campaign_id}` | funnel |
-| GET | `/api/v1/insights` | insights |
-| POST | `/api/v1/insights/{insight_id}/dismiss` | insights |
-| DELETE | `/api/v1/integration-manager/grants/{grant_id}` | integration_manager |
-| GET | `/api/v1/integration-manager/integrations` | integration_manager |
-| POST | `/api/v1/integration-manager/integrations` | integration_manager |
-| DELETE | `/api/v1/integration-manager/integrations/{integration_id}` | integration_manager |
-| GET | `/api/v1/integration-manager/integrations/{integration_id}` | integration_manager |
-| PATCH | `/api/v1/integration-manager/integrations/{integration_id}` | integration_manager |
-| POST | `/api/v1/integration-manager/integrations/{integration_id}/discover` | integration_manager |
-| POST | `/api/v1/integration-manager/integrations/{integration_id}/execute` | integration_manager |
-| GET | `/api/v1/integration-manager/integrations/{integration_id}/grants` | integration_manager |
-| POST | `/api/v1/integration-manager/integrations/{integration_id}/grants` | integration_manager |
-| POST | `/api/v1/integration-manager/integrations/{integration_id}/test` | integration_manager |
-| GET | `/api/v1/integration-manager/providers` | integration_manager |
-| GET | `/api/v1/integration-manager/status` | integration_manager |
-| GET | `/api/v1/integration-manager/tools` | integration_manager |
-| GET | `/api/v1/integrations/connections` | integrations |
-| POST | `/api/v1/integrations/connections` | integrations |
-| DELETE | `/api/v1/integrations/connections/{conn_id}` | integrations |
-| GET | `/api/v1/integrations/connections/{conn_id}` | integrations |
-| PATCH | `/api/v1/integrations/connections/{conn_id}` | integrations |
-| POST | `/api/v1/integrations/connections/{conn_id}/discover` | integrations |
-| GET | `/api/v1/integrations/connections/{conn_id}/entities` | integrations |
-| POST | `/api/v1/integrations/connections/{conn_id}/entities/bulk-permission` | integrations |
-| POST | `/api/v1/integrations/connections/{conn_id}/test` | integrations |
-| PATCH | `/api/v1/integrations/entities/{entity_id}/permission` | integrations |
-| GET | `/api/v1/knowledge/documents` | knowledge |
-| DELETE | `/api/v1/knowledge/documents/{doc_id}` | knowledge |
-| GET | `/api/v1/knowledge/documents/{doc_id}` | knowledge |
-| POST | `/api/v1/knowledge/retrieve` | knowledge |
-| GET | `/api/v1/knowledge/status` | knowledge |
-| POST | `/api/v1/knowledge/upload` | knowledge |
-| GET | `/api/v1/llm-models` | llm_models |
-| GET | `/api/v1/llm/status` | llm_gateway |
-| POST | `/api/v1/memory` | memory |
-| GET | `/api/v1/memory/search` | memory |
-| POST | `/api/v1/monitoring/evaluate/{rule_id}` | monitoring |
-| GET | `/api/v1/monitoring/rules` | monitoring |
-| POST | `/api/v1/monitoring/rules` | monitoring |
-| DELETE | `/api/v1/monitoring/rules/{rule_id}` | monitoring |
-| GET | `/api/v1/monitoring/rules/{rule_id}` | monitoring |
-| PATCH | `/api/v1/monitoring/rules/{rule_id}` | monitoring |
-| GET | `/api/v1/monitoring/rules/{rule_id}/audit` | monitoring |
-| POST | `/api/v1/monitoring/rules/{rule_id}/disable` | monitoring |
-| POST | `/api/v1/monitoring/rules/{rule_id}/enable` | monitoring |
-| GET | `/api/v1/monitoring/status` | monitoring |
-| POST | `/api/v1/nl-integration/chat` | nl_integration |
-| POST | `/api/v1/nl-integration/parse` | nl_integration |
-| GET | `/api/v1/notifications` | notifications |
-| POST | `/api/v1/notifications/read-all` | notifications |
-| POST | `/api/v1/notifications/{notification_id}/read` | notifications |
-| GET | `/api/v1/oauth/google/analytics/authorize` | oauth_router |
-| GET | `/api/v1/oauth/google/authorize` | oauth_router |
-| POST | `/api/v1/onboarding/activate-dmm` | onboarding |
-| GET | `/api/v1/onboarding/status/{tenant_id}` | onboarding |
-| GET | `/api/v1/performance/campaigns/{campaign_id}` | performance |
-| POST | `/api/v1/performance/compare` | performance |
-| GET | `/api/v1/planning/plans` | planning |
-| GET | `/api/v1/planning/plans/{plan_id}` | planning |
-| POST | `/api/v1/planning/plans/{plan_id}/reject` | planning |
-| POST | `/api/v1/planning/plans/{plan_id}/resume` | planning |
-| GET | `/api/v1/reports/marketing-summary` | reporting |
-| GET | `/api/v1/roles/{role_key}` | role_config |
-| PATCH | `/api/v1/roles/{role_key}` | role_config |
-| PUT | `/api/v1/roles/{role_key}` | role_config |
-| GET | `/api/v1/roles/{role_key}/blueprint` | role_config |
-| POST | `/api/v1/roles/{role_key}/nl-configure` | config_interpreter |
-| GET | `/api/v1/roles/{role_key}/proposals` | config_interpreter |
-| POST | `/api/v1/roles/{role_key}/proposals/{proposal_id}/approve` | config_interpreter |
-| POST | `/api/v1/roles/{role_key}/proposals/{proposal_id}/reject` | config_interpreter |
-| POST | `/api/v1/roles/{role_key}/validate` | role_config |
-| GET | `/api/v1/schedules` | schedules |
-| POST | `/api/v1/schedules` | schedules |
-| PATCH | `/api/v1/schedules/{schedule_id}/toggle` | schedules |
-| POST | `/api/v1/strategy/analyze` | strategy |
-| GET | `/api/v1/strategy/objectives` | strategy |
-| POST | `/api/v1/strategy/objectives` | strategy |
-| GET | `/api/v1/strategy/objectives/{obj_id}` | strategy |
-| PATCH | `/api/v1/strategy/objectives/{obj_id}` | strategy |
-| GET | `/api/v1/tasks` | tasks |
-| POST | `/api/v1/tasks` | tasks |
-| GET | `/api/v1/tasks/{task_id}` | tasks |
-| PATCH | `/api/v1/tasks/{task_id}` | tasks |
-| GET | `/api/v1/users` | users |
-| POST | `/api/v1/users` | users |
-| GET | `/api/v1/workflows` | workflow |
-| POST | `/api/v1/workflows` | workflow |
-| DELETE | `/api/v1/workflows/{workflow_id}` | workflow |
-| GET | `/api/v1/workflows/{workflow_id}` | workflow |
-| PATCH | `/api/v1/workflows/{workflow_id}` | workflow |
-| POST | `/api/v1/workflows/{workflow_id}/trigger` | workflow |
+| Method | Path | Router module | Role needed |
+| --- | --- | --- | --- |
+| GET | `/api/v1/actions/audits` | actions | Any signed-in user |
+| GET | `/api/v1/actions/audits/{audit_id}` | actions | Any signed-in user |
+| POST | `/api/v1/actions/audits/{audit_id}/approve` | actions | Admin |
+| POST | `/api/v1/actions/audits/{audit_id}/reject` | actions | Admin |
+| GET | `/api/v1/actions/tools` | actions | Any signed-in user |
+| GET | `/api/v1/activity` | activity | Any signed-in user |
+| POST | `/api/v1/admin/customize/execute` | admin_customization | Admin |
+| POST | `/api/v1/admin/customize/plan` | admin_customization | Admin |
+| POST | `/api/v1/admin/provider-config/{provider_type}` | admin_config | Admin |
+| GET | `/api/v1/admin/provider-config/{provider_type}/status` | admin_config | Any signed-in user |
+| GET | `/api/v1/agent/config` | agent_config | Any signed-in user |
+| PATCH | `/api/v1/agent/config` | agent_config | Admin |
+| POST | `/api/v1/agent/execute` | execution | Any signed-in user |
+| GET | `/api/v1/ai-employees` | ai_employees | Any signed-in user |
+| POST | `/api/v1/ai-employees` | ai_employees | Admin |
+| GET | `/api/v1/ai-employees/{ai_employee_id}` | ai_employees | Any signed-in user |
+| PATCH | `/api/v1/ai-employees/{ai_employee_id}/status` | ai_employees | Admin |
+| GET | `/api/v1/approvals` | approvals | Any signed-in user |
+| POST | `/api/v1/approvals/{approval_id}/decide` | approvals | Admin |
+| GET | `/api/v1/audit` | audit | Any signed-in user |
+| GET | `/api/v1/audit/traces` | audit | Any signed-in user |
+| POST | `/api/v1/auth/logout/all` | auth | Any signed-in user |
+| GET | `/api/v1/auth/me` | auth | Any signed-in user |
+| GET | `/api/v1/campaigns` | campaigns | Any signed-in user |
+| POST | `/api/v1/campaigns` | campaigns | Any signed-in user |
+| DELETE | `/api/v1/campaigns/{campaign_id}` | campaigns | Any signed-in user |
+| GET | `/api/v1/campaigns/{campaign_id}` | campaigns | Any signed-in user |
+| PATCH | `/api/v1/campaigns/{campaign_id}` | campaigns | Any signed-in user |
+| GET | `/api/v1/campaigns/{campaign_id}/metrics` | campaigns | Any signed-in user |
+| POST | `/api/v1/campaigns/{campaign_id}/metrics` | campaigns | Any signed-in user |
+| GET | `/api/v1/campaigns/{campaign_id}/summary` | campaigns | Any signed-in user |
+| GET | `/api/v1/channels` | channels | Any signed-in user |
+| POST | `/api/v1/channels` | channels | Admin |
+| POST | `/api/v1/channels/{integration_id}/disable` | channels | Admin |
+| POST | `/api/v1/channels/{integration_id}/enable` | channels | Admin |
+| POST | `/api/v1/channels/{integration_id}/prepare` | channels | Admin |
+| POST | `/api/v1/channels/{integration_id}/test` | channels | Admin |
+| GET | `/api/v1/companies` | companies | Any signed-in user |
+| POST | `/api/v1/companies` | companies | Admin |
+| GET | `/api/v1/companies/{company_id}` | companies | Any signed-in user |
+| GET | `/api/v1/content` | content | Any signed-in user |
+| POST | `/api/v1/content` | content | Any signed-in user |
+| POST | `/api/v1/content/analyze` | content | Any signed-in user |
+| POST | `/api/v1/content/generate/brief` | content | Any signed-in user |
+| POST | `/api/v1/content/generate/draft` | content | Any signed-in user |
+| POST | `/api/v1/content/generate/ideas` | content | Any signed-in user |
+| POST | `/api/v1/content/generate/variants` | content | Any signed-in user |
+| GET | `/api/v1/content/{content_id}` | content | Any signed-in user |
+| PATCH | `/api/v1/content/{content_id}` | content | Any signed-in user |
+| GET | `/api/v1/data/audits` | data_access | Any signed-in user |
+| GET | `/api/v1/data/mappings` | data_access | Any signed-in user |
+| POST | `/api/v1/data/mappings` | data_access | Admin |
+| DELETE | `/api/v1/data/mappings/{mapping_id}` | data_access | Admin |
+| PATCH | `/api/v1/data/mappings/{mapping_id}` | data_access | Admin |
+| POST | `/api/v1/data/query` | data_access | Any signed-in user |
+| GET | `/api/v1/email/audit` | email_integration | Any signed-in user |
+| GET | `/api/v1/email/drafts` | email_drafts | Any signed-in user |
+| GET | `/api/v1/email/drafts/{draft_id}` | email_drafts | Any signed-in user |
+| POST | `/api/v1/email/drafts/{draft_id}/cancel` | email_drafts | Any signed-in user |
+| DELETE | `/api/v1/email/integration` | email_integration | Admin |
+| GET | `/api/v1/email/integration` | email_integration | Any signed-in user |
+| PATCH | `/api/v1/email/integration` | email_integration | Admin |
+| POST | `/api/v1/email/integration` | email_integration | Admin |
+| POST | `/api/v1/email/integration/disable` | email_integration | Admin |
+| POST | `/api/v1/email/integration/enable` | email_integration | Admin |
+| POST | `/api/v1/email/integration/test` | email_integration | Admin |
+| GET | `/api/v1/employees` | employee_builder | Any signed-in user |
+| GET | `/api/v1/employees/blueprints` | employee_builder | Any signed-in user |
+| POST | `/api/v1/employees/blueprints/{proposal_id}/approve` | employee_builder | Admin |
+| POST | `/api/v1/employees/blueprints/{proposal_id}/reject` | employee_builder | Admin |
+| POST | `/api/v1/employees/build` | employee_builder | Admin |
+| POST | `/api/v1/funnel/analyze` | funnel | Any signed-in user |
+| POST | `/api/v1/funnel/campaign/{campaign_id}` | funnel | Any signed-in user |
+| GET | `/api/v1/insights` | insights | Any signed-in user |
+| POST | `/api/v1/insights/{insight_id}/dismiss` | insights | Any signed-in user |
+| DELETE | `/api/v1/integration-manager/grants/{grant_id}` | integration_manager | Admin |
+| GET | `/api/v1/integration-manager/integrations` | integration_manager | Any signed-in user |
+| POST | `/api/v1/integration-manager/integrations` | integration_manager | Admin |
+| DELETE | `/api/v1/integration-manager/integrations/{integration_id}` | integration_manager | Admin |
+| GET | `/api/v1/integration-manager/integrations/{integration_id}` | integration_manager | Any signed-in user |
+| PATCH | `/api/v1/integration-manager/integrations/{integration_id}` | integration_manager | Admin |
+| POST | `/api/v1/integration-manager/integrations/{integration_id}/discover` | integration_manager | Admin |
+| POST | `/api/v1/integration-manager/integrations/{integration_id}/execute` | integration_manager | Admin |
+| GET | `/api/v1/integration-manager/integrations/{integration_id}/grants` | integration_manager | Any signed-in user |
+| POST | `/api/v1/integration-manager/integrations/{integration_id}/grants` | integration_manager | Admin |
+| POST | `/api/v1/integration-manager/integrations/{integration_id}/test` | integration_manager | Admin |
+| GET | `/api/v1/integration-manager/providers` | integration_manager | Any signed-in user |
+| GET | `/api/v1/integration-manager/status` | integration_manager | Any signed-in user |
+| GET | `/api/v1/integration-manager/tools` | integration_manager | Any signed-in user |
+| GET | `/api/v1/integrations/connections` | integrations | Any signed-in user |
+| POST | `/api/v1/integrations/connections` | integrations | Admin |
+| DELETE | `/api/v1/integrations/connections/{conn_id}` | integrations | Admin |
+| GET | `/api/v1/integrations/connections/{conn_id}` | integrations | Any signed-in user |
+| PATCH | `/api/v1/integrations/connections/{conn_id}` | integrations | Admin |
+| POST | `/api/v1/integrations/connections/{conn_id}/discover` | integrations | Admin |
+| GET | `/api/v1/integrations/connections/{conn_id}/entities` | integrations | Any signed-in user |
+| POST | `/api/v1/integrations/connections/{conn_id}/entities/bulk-permission` | integrations | Admin |
+| POST | `/api/v1/integrations/connections/{conn_id}/test` | integrations | Admin |
+| PATCH | `/api/v1/integrations/entities/{entity_id}/permission` | integrations | Admin |
+| GET | `/api/v1/knowledge/documents` | knowledge | Any signed-in user |
+| DELETE | `/api/v1/knowledge/documents/{doc_id}` | knowledge | Admin |
+| GET | `/api/v1/knowledge/documents/{doc_id}` | knowledge | Any signed-in user |
+| POST | `/api/v1/knowledge/retrieve` | knowledge | Any signed-in user |
+| GET | `/api/v1/knowledge/status` | knowledge | Any signed-in user |
+| POST | `/api/v1/knowledge/upload` | knowledge | Admin |
+| GET | `/api/v1/llm-models` | llm_models | Any signed-in user |
+| GET | `/api/v1/llm/status` | llm_gateway | Any signed-in user |
+| POST | `/api/v1/memory` | memory | Any signed-in user |
+| GET | `/api/v1/memory/search` | memory | Any signed-in user |
+| POST | `/api/v1/monitoring/evaluate/{rule_id}` | monitoring | Admin |
+| GET | `/api/v1/monitoring/rules` | monitoring | Any signed-in user |
+| POST | `/api/v1/monitoring/rules` | monitoring | Admin |
+| DELETE | `/api/v1/monitoring/rules/{rule_id}` | monitoring | Admin |
+| GET | `/api/v1/monitoring/rules/{rule_id}` | monitoring | Any signed-in user |
+| PATCH | `/api/v1/monitoring/rules/{rule_id}` | monitoring | Admin |
+| GET | `/api/v1/monitoring/rules/{rule_id}/audit` | monitoring | Any signed-in user |
+| POST | `/api/v1/monitoring/rules/{rule_id}/disable` | monitoring | Admin |
+| POST | `/api/v1/monitoring/rules/{rule_id}/enable` | monitoring | Admin |
+| GET | `/api/v1/monitoring/status` | monitoring | Any signed-in user |
+| POST | `/api/v1/nl-integration/chat` | nl_integration | Any signed-in user |
+| POST | `/api/v1/nl-integration/parse` | nl_integration | Any signed-in user |
+| GET | `/api/v1/notifications` | notifications | Any signed-in user |
+| POST | `/api/v1/notifications/read-all` | notifications | Any signed-in user |
+| POST | `/api/v1/notifications/{notification_id}/read` | notifications | Any signed-in user |
+| GET | `/api/v1/oauth/google/analytics/authorize` | oauth_router | Admin |
+| GET | `/api/v1/oauth/google/authorize` | oauth_router | Admin |
+| POST | `/api/v1/onboarding/activate-dmm` | onboarding | Admin |
+| GET | `/api/v1/onboarding/status/{tenant_id}` | onboarding | Any signed-in user |
+| GET | `/api/v1/performance/campaigns/{campaign_id}` | performance | Any signed-in user |
+| POST | `/api/v1/performance/compare` | performance | Any signed-in user |
+| GET | `/api/v1/planning/plans` | planning | Any signed-in user |
+| GET | `/api/v1/planning/plans/{plan_id}` | planning | Any signed-in user |
+| POST | `/api/v1/planning/plans/{plan_id}/reject` | planning | Admin |
+| POST | `/api/v1/planning/plans/{plan_id}/resume` | planning | Admin |
+| GET | `/api/v1/reports/marketing-summary` | reporting | Any signed-in user |
+| GET | `/api/v1/roles/{role_key}` | role_config | Any signed-in user |
+| PATCH | `/api/v1/roles/{role_key}` | role_config | Admin |
+| PUT | `/api/v1/roles/{role_key}` | role_config | Admin |
+| GET | `/api/v1/roles/{role_key}/blueprint` | role_config | Any signed-in user |
+| POST | `/api/v1/roles/{role_key}/nl-configure` | config_interpreter | Admin |
+| GET | `/api/v1/roles/{role_key}/proposals` | config_interpreter | Any signed-in user |
+| POST | `/api/v1/roles/{role_key}/proposals/{proposal_id}/approve` | config_interpreter | Admin |
+| POST | `/api/v1/roles/{role_key}/proposals/{proposal_id}/reject` | config_interpreter | Admin |
+| POST | `/api/v1/roles/{role_key}/validate` | role_config | Any signed-in user |
+| GET | `/api/v1/schedules` | schedules | Any signed-in user |
+| POST | `/api/v1/schedules` | schedules | Admin |
+| PATCH | `/api/v1/schedules/{schedule_id}/toggle` | schedules | Admin |
+| POST | `/api/v1/strategy/analyze` | strategy | Any signed-in user |
+| GET | `/api/v1/strategy/objectives` | strategy | Any signed-in user |
+| POST | `/api/v1/strategy/objectives` | strategy | Any signed-in user |
+| GET | `/api/v1/strategy/objectives/{obj_id}` | strategy | Any signed-in user |
+| PATCH | `/api/v1/strategy/objectives/{obj_id}` | strategy | Any signed-in user |
+| GET | `/api/v1/tasks` | tasks | Any signed-in user |
+| POST | `/api/v1/tasks` | tasks | Any signed-in user |
+| GET | `/api/v1/tasks/{task_id}` | tasks | Any signed-in user |
+| PATCH | `/api/v1/tasks/{task_id}` | tasks | Any signed-in user |
+| GET | `/api/v1/users` | users | Any signed-in user |
+| POST | `/api/v1/users` | users | Admin |
+| GET | `/api/v1/workflows` | workflow | Any signed-in user |
+| POST | `/api/v1/workflows` | workflow | Admin |
+| DELETE | `/api/v1/workflows/{workflow_id}` | workflow | Admin |
+| GET | `/api/v1/workflows/{workflow_id}` | workflow | Any signed-in user |
+| PATCH | `/api/v1/workflows/{workflow_id}` | workflow | Admin |
+| POST | `/api/v1/workflows/{workflow_id}/trigger` | workflow | Admin |

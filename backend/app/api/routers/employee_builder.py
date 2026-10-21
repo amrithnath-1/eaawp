@@ -85,6 +85,7 @@ def _proposal_to_schema(row: EmployeeBlueprintProposalORM) -> EmployeeBlueprintP
     response_model=EmployeeBlueprintProposal,
     status_code=201,
     summary="Build an AI employee blueprint from a natural-language description",
+    dependencies=[Depends(require_admin)],
 )
 async def build_employee(
     body: EmployeeBlueprintRequest,

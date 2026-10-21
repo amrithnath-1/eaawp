@@ -84,6 +84,7 @@ def _row_to_proposal(row: ConfigChangeProposal) -> ConfigProposalOut:
     "/{role_key}/nl-configure",
     response_model=ConfigProposalOut,
     summary="Interpret a natural-language configuration instruction and return a proposal",
+    dependencies=[Depends(require_admin)],
 )
 async def nl_configure(
     role_key: str,

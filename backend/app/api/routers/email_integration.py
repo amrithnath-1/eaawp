@@ -29,7 +29,7 @@ import uuid
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
-from app.core.auth import get_current_tenant_id
+from app.core.auth import get_current_tenant_id, require_admin
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -104,7 +104,7 @@ async def _require_integration(
 
 # ── Create / replace ──────────────────────────────────────────────────────────
 
-@router.post("/integration", response_model=EmailIntegrationOut, status_code=201)
+@router.post("/integration", response_model=EmailIntegrationOut, status_code=201, dependencies=[Depends(require_admin)])
 async def create_email_integration(
     body: SMTPConfigCreate,
     tenant_id: str = Depends(get_current_tenant_id),
@@ -170,7 +170,7 @@ async def get_email_integration(
 
 # ── Update ────────────────────────────────────────────────────────────────────
 
-@router.patch("/integration", response_model=EmailIntegrationOut)
+@router.patch("/integration", response_model=EmailIntegrationOut, dependencies=[Depends(require_admin)])
 async def update_email_integration(
     body: SMTPConfigUpdate,
     tenant_id: str = Depends(get_current_tenant_id),
@@ -207,7 +207,7 @@ async def update_email_integration(
 
 # ── Delete ────────────────────────────────────────────────────────────────────
 
-@router.delete("/integration", response_model=None, status_code=204)
+@router.delete("/integration", response_model=None, status_code=204, dependencies=[Depends(require_admin)])
 async def delete_email_integration(
     tenant_id: str = Depends(get_current_tenant_id),
     db: AsyncSession = Depends(get_db),
@@ -221,7 +221,7 @@ async def delete_email_integration(
 
 # ── Test connection ───────────────────────────────────────────────────────────
 
-@router.post("/integration/test", response_model=ConnectionTestResultOut)
+@router.post("/integration/test", response_model=ConnectionTestResultOut, dependencies=[Depends(require_admin)])
 async def test_email_integration(
     tenant_id: str = Depends(get_current_tenant_id),
     db: AsyncSession = Depends(get_db),
@@ -268,7 +268,7 @@ async def test_email_integration(
 
 # ── Enable / disable ──────────────────────────────────────────────────────────
 
-@router.post("/integration/enable", response_model=EmailIntegrationOut)
+@router.post("/integration/enable", response_model=EmailIntegrationOut, dependencies=[Depends(require_admin)])
 async def enable_email_integration(
     tenant_id: str = Depends(get_current_tenant_id),
     db: AsyncSession = Depends(get_db),
@@ -279,7 +279,7 @@ async def enable_email_integration(
     return _integration_to_out(integration)
 
 
-@router.post("/integration/disable", response_model=EmailIntegrationOut)
+@router.post("/integration/disable", response_model=EmailIntegrationOut, dependencies=[Depends(require_admin)])
 async def disable_email_integration(
     tenant_id: str = Depends(get_current_tenant_id),
     db: AsyncSession = Depends(get_db),
