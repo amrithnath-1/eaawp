@@ -303,7 +303,7 @@ class GoogleSearchConsoleProvider(IntegrationProvider):
                 error=str(exc),
             )
         except Exception as exc:
-            logger.exception("Unexpected error executing GSC capability")
+            logger.error("Unexpected error executing GSC capability (%s)", type(exc).__name__)
             return CapabilityResult(
                 data=[],
                 error=self._sanitise_error(str(exc)),

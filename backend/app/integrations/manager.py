@@ -34,7 +34,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.integration_models import CapabilityGrant, Integration
@@ -94,6 +94,47 @@ def _integration_to_out(row: Integration) -> IntegrationOut:
         created_at=row.created_at,
         updated_at=row.updated_at,
     )
+
+
+# ── Disconnect: revoke the OAuth grant at the provider ────────────────────────
+
+_GOOGLE_OAUTH_PROVIDERS = {"google_search_console", "google_analytics"}
+_GOOGLE_REVOKE_URL = "https://oauth2.googleapis.com/revoke"
+
+
+async def _revoke_google_token(encrypted: str) -> bool:
+    """Best-effort revocation so "disconnect" really ends Google's access.
+
+    Revoking the refresh token also invalidates the access tokens derived from
+    it.  Failures (offline, already revoked) never block the local delete, and
+    nothing about the token or the response body is logged.
+    """
+    import asyncio
+
+    try:
+        creds = _decrypt_credentials(encrypted)
+        token = creds.get("refresh_token") or creds.get("access_token")
+        creds.clear()
+        if not token:
+            return False
+
+        def _post() -> int:
+            import requests
+
+            return requests.post(
+                _GOOGLE_REVOKE_URL,
+                params={"token": token},
+                headers={"Content-Type": "application/x-www-form-urlencoded"},
+                timeout=5,
+            ).status_code
+
+        status = await asyncio.get_running_loop().run_in_executor(None, _post)
+        ok = status == 200
+        logger.info("Google token revocation on disconnect: %s", "ok" if ok else f"http {status}")
+        return ok
+    except Exception as exc:  # network down, bad blob, ... — never block disconnect
+        logger.warning("Google token revocation failed (%s); credentials are still deleted locally", type(exc).__name__)
+        return False
 
 
 # ── Helper: fetch integration or raise ───────────────────────────────────────
@@ -206,6 +247,10 @@ async def update_integration(
         row.is_enabled = body.is_enabled
 
     await db.flush()
+    # ``updated_at`` is a server-side onupdate column: flush expires it, and
+    # reading it lazily in async mode raises MissingGreenlet.  This crashed the
+    # OAuth callback (token storage) and PATCH /integrations/{id}.
+    await db.refresh(row)
     return _integration_to_out(row)
 
 
@@ -216,6 +261,16 @@ async def delete_integration(
 ) -> None:
     """Delete an integration and all its capability grants (CASCADE)."""
     row = await _get_integration_or_raise(integration_id, tenant_id, db)
+    if row.encrypted_credentials and row.provider_type in _GOOGLE_OAUTH_PROVIDERS:
+        await _revoke_google_token(row.encrypted_credentials)
+    # Remove the grants explicitly: SQLite does not enforce ON DELETE CASCADE
+    # unless PRAGMA foreign_keys is on, which would leave orphaned grants.
+    await db.execute(
+        delete(CapabilityGrant).where(
+            CapabilityGrant.integration_id == integration_id,
+            CapabilityGrant.tenant_id == tenant_id,
+        )
+    )
     await db.delete(row)
     await db.flush()
     logger.info("Integration deleted: tenant=%s id=%s", tenant_id, integration_id)
@@ -261,7 +316,7 @@ async def test_integration(
     except Exception as exc:
         logger.error(
             "Integration test error: id=%s provider=%s error=%s",
-            integration_id, row.provider_type, exc,
+            integration_id, row.provider_type, provider._sanitise_error(str(exc)),
         )
         result_success = False
         result_account_info: dict = {}
@@ -578,7 +633,7 @@ async def execute_capability(
     except Exception as exc:
         logger.error(
             "Capability execution error: integration=%s capability=%s error=%s",
-            integration_id, capability_key, exc,
+            integration_id, capability_key, provider._sanitise_error(str(exc)),
         )
         return ExecuteCapabilityResponse(
             integration_id=integration_id,

@@ -143,7 +143,7 @@ async def _fetch_rag_context(tenant_id: str, query: str, db: AsyncSession) -> tu
         if doc_ids:
             result = await db.execute(
                 select(KnowledgeDocument.id, KnowledgeDocument.name)
-                .where(KnowledgeDocument.id.in_(doc_ids))
+                .where(KnowledgeDocument.id.in_(doc_ids), KnowledgeDocument.tenant_id == tenant_id)
             )
             doc_names = {r.id: r.name for r in result.fetchall()}
         sources = []
