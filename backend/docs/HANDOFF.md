@@ -100,6 +100,13 @@ Status: IMPLEMENTED, MOCK-TESTED + real local SMTP + real-browser checked on scr
 - **Windows** (docs/windows_setup.md): install, update-with-backup, troubleshooting; fresh DB path verified on Linux (unmigrated => out_of_date, `alembic upgrade head` => ok). NOT verified on a real Windows PC.
 - **Responsive**: crawl of 23 pages at 320/390/768 px found no horizontal overflow; mobile menu button enlarged from 16 px to 40 px; bell sized for touch. Dense admin screens (Customize) still have small controls.
 
+## Phase M (part 5): dependency security (branch chore/dependency-security)
+Status: IMPLEMENTED, TESTED (full suite on the new versions + final security/auth subset). See docs/dependency_security.md.
+- pip-audit/npm audit run; fixed FastAPI/Starlette, python-multipart, pypdf, python-jose, cryptography, vite/seroval (npm audit now 0).
+- Deferred with reasons: FastAPI 0.125+ (breaks route-auth inventory), LangChain 1.x migration, python-jose -> PyJWT swap, pytest 9.
+- Fixed a pre-existing flaky security test (tampered-signature test was a no-op ~5% of the time).
+- Owner action: `pip install -r requirements.txt` in the Windows venv and `npm install` after pulling.
+
 ## Phase M (part 1): audit log visibility (branch feat/phase-m-audit)
 Status: IMPLEMENTED, MOCK-TESTED + REAL-BROWSER CHECKED on a scratch DB.
 - Backend: GET /api/v1/audit and /audit/traces are admin-only (employees got the whole company log before); bounded limit; `actor_name` resolves user ids/emails to names. tests/test_audit_visibility.py (4), mutation-checked.

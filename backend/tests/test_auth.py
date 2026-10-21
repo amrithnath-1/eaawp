@@ -117,8 +117,13 @@ class TestJWTTokenCreation:
         from fastapi import HTTPException
         from app.core.auth import create_access_token, _decode_token
         token = create_access_token("user-1", "a@b.com", "t1", "Admin")
-        # Flip last character of signature
-        tampered = token[:-1] + ("A" if token[-1] != "A" else "B")
+        # Change a character in the MIDDLE of the signature. (The last base64url character of a 32-byte signature only carries
+        # 4 significant bits: replacing it with 'A'/'B' can leave the decoded signature identical, i.e. no tampering at all,
+        # which made this test fail about 1 run in 17.)
+        head, payload, sig = token.split(".")
+        mid = len(sig) // 2
+        tampered = ".".join([head, payload, sig[:mid] + ("A" if sig[mid] != "A" else "B") + sig[mid + 1:]])
+        assert tampered != token
         with pytest.raises(HTTPException) as exc_info:
             _decode_token(tampered, "access")
         assert exc_info.value.status_code == 401
