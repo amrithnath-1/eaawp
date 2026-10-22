@@ -15,7 +15,7 @@ import pytest
 
 BACKEND = pathlib.Path(__file__).resolve().parents[2]
 PREVIOUS = "u8v2w37x9y15"
-HEAD = "c2d6e7f83a19"
+HEAD = "d3e8f05a6b24"
 
 
 def alembic(db: pathlib.Path, *args: str) -> str:
@@ -244,4 +244,33 @@ def test_appointments_migration_is_additive_and_reversible(tmp_path):
     assert cols(db, "appointments") == {}
     con = sqlite3.connect(db)
     assert con.execute("SELECT name FROM companies WHERE id='t'").fetchone() == ("T",)
+    con.close()
+
+
+def test_user_workspaces_migration_defaults_existing_accounts_and_is_reversible(tmp_path):
+    """Existing active users keep the Digital Marketing Manager experience (no forced selection loop) unless their
+    company switched that module off; inactive users and new users get no row; downgrade drops only the new table."""
+    import sqlite3
+    db = tmp_path / "workspaces.db"
+    alembic(db, "upgrade", "c2d6e7f83a19")
+    con = sqlite3.connect(db)
+    for t in ("t1", "t2"):
+        con.execute("INSERT INTO companies (id, name, industry, region, employees, is_active) VALUES (?,?,'x','x',1,1)", (t, t))
+    for uid, tid, active in (("u1", "t1", 1), ("u2", "t1", 0), ("u3", "t2", 1)):
+        con.execute("INSERT INTO users (id, tenant_id, email, name, hashed_password, role, status, is_active) "
+                    "VALUES (?,?,?,?, 'h', 'Employee', 'Active', ?)", (uid, tid, f"{uid}@x.test", uid, active))
+    con.execute("INSERT INTO module_activations (id, tenant_id, module_key, active, changed_by) "
+                "VALUES ('m1','t2','DIGITAL_MARKETING_MANAGER',0,'admin')")
+    con.commit(); con.close()
+    alembic(db, "upgrade", "head")
+    con = sqlite3.connect(db)
+    assert con.execute("SELECT user_id, tenant_id, role_key, source FROM user_workspaces").fetchall() == [
+        ("u1", "t1", "DIGITAL_MARKETING_MANAGER", "migration_default")]
+    with pytest.raises(sqlite3.IntegrityError):                       # one workspace per person
+        con.execute("INSERT INTO user_workspaces (id, tenant_id, user_id, role_key) VALUES ('x','t1','u1','MEDICAL_ASSISTANT')")
+    con.close()
+    alembic(db, "downgrade", "c2d6e7f83a19")
+    assert cols(db, "user_workspaces") == {}
+    con = sqlite3.connect(db)
+    assert con.execute("SELECT count(*) FROM users").fetchone() == (3,)
     con.close()

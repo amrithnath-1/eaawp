@@ -275,6 +275,8 @@ async def retrieve_similar_chunks(
 
 VALID_ROLE_SCOPES = frozenset({
     "Global / Shared", "Sales Agent Only", "Finance Agent Only", "HR Agent Only", "Operations Agent Only", "Customer Service Agent Only",
+    # one scope per AI employee workspace, so each role can have knowledge only it retrieves
+    "Marketing Agent Only", "Clerk Agent Only", "Clinic Agent Only", "Data Analyst Only",
 })
 
 
@@ -292,7 +294,13 @@ def _accessible_scopes(role_scope: str) -> list[str]:
         "OPERATIONS_ANALYST": "Operations Agent Only",
         "CUSTOMER_SUCCESS_MANAGER": "Customer Service Agent Only",
     }
-    specific = scope_map.get(role_scope)
-    if specific:
-        base.append(specific)
+    workspace_scopes = {
+        "DIGITAL_MARKETING_MANAGER": "Marketing Agent Only",
+        "INSTITUTIONAL_CLERK": "Clerk Agent Only",
+        "MEDICAL_ASSISTANT": "Clinic Agent Only",
+        "DATA_INTELLIGENCE_ANALYST": "Data Analyst Only",
+    }
+    for specific in (scope_map.get(role_scope), workspace_scopes.get(role_scope)):
+        if specific:
+            base.append(specific)
     return base

@@ -10,7 +10,9 @@ from app.services.strategy_service import (
     build_strategic_analysis, analysis_to_dict,
 )
 
-router = APIRouter(prefix="/api/v1/strategy", tags=["strategy"])
+from app.services.modules import require_module
+
+router = APIRouter(prefix="/api/v1/strategy", tags=["strategy"], dependencies=[Depends(require_module("DIGITAL_MARKETING_MANAGER"))])
 
 
 @router.get("/objectives", response_model=list[ObjectiveOut])

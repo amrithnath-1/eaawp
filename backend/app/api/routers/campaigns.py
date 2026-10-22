@@ -33,7 +33,9 @@ from app.services.campaign_service import (
 )
 
 logger = logging.getLogger(__name__)
-router = APIRouter(prefix="/api/v1/campaigns", tags=["campaigns"])
+from app.services.modules import require_module
+
+router = APIRouter(prefix="/api/v1/campaigns", tags=["campaigns"], dependencies=[Depends(require_module("DIGITAL_MARKETING_MANAGER"))])
 
 
 @router.get("", response_model=list[CampaignOut])

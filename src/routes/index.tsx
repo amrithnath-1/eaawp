@@ -31,10 +31,10 @@ function LoginPage() {
     }
   }, []);
 
-  // Redirect already-authenticated users straight to cabin
+  // Already signed in: open the saved workspace (the shell sends people without one to role selection)
   useEffect(() => {
     if (hydrated && user?.companyId) {
-      void navigate({ to: "/cabin", replace: true });
+      void navigate({ to: "/workspace", replace: true });
     }
   }, [hydrated, user, navigate]);
 
@@ -47,7 +47,7 @@ function LoginPage() {
       signIn(sessionUser);
       // If user already has a company (real auth), skip company selector
       if (sessionUser.companyId) {
-        void navigate({ to: "/cabin", replace: true });
+        void navigate({ to: "/workspace", replace: true });
       } else {
         void navigate({ to: "/company", replace: true });
       }
@@ -65,7 +65,8 @@ function LoginPage() {
     try {
       const sessionUser = await authService.signIn(adminEmail, adminPassword, newCompanyId);
       signIn(sessionUser);
-      void navigate({ to: "/cabin", replace: true });
+      // A new company admin always chooses an AI employee first.
+      void navigate({ to: "/select-role", replace: true });
     } catch {
       setRegistering(false);
       setError(`Company created. Sign in with your registration email and password, using company ID ${newCompanyId}.`);

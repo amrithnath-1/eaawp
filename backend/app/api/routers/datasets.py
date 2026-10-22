@@ -26,7 +26,9 @@ from app.services import analysis_engine as eng
 from app.services import analysis_service as svc
 from app.services import dataset_service as ds_svc
 
-router = APIRouter(prefix="/api/v1", tags=["data-analyst"])
+from app.services.modules import require_module
+
+router = APIRouter(prefix="/api/v1", tags=["data-analyst"], dependencies=[Depends(require_module("DATA_INTELLIGENCE_ANALYST"))])
 MAX_DATASETS = 50
 MAX_REPORTS = 500
 

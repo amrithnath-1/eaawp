@@ -36,6 +36,7 @@ import app.db.medical_models  # noqa: E402, F401  ← Medical Assistant (clinic 
 import app.db.invitation_models  # noqa: E402, F401  ← Team invitations
 import app.db.module_models  # noqa: E402, F401  ← Marketplace module activation
 import app.db.message_models  # noqa: E402, F401  ← Internal messaging
+import app.db.workspace_models  # noqa: E402, F401  ← selected AI employee workspace per user
 # Phase H/I — new tables for employee builder and workflow engine
 # (These are defined in models.py so Base already knows them — no extra import needed)
 config = context.config

@@ -30,6 +30,7 @@ import { Route as MessagesRouteImport } from './routes/messages'
 import { Route as RecentsRouteImport } from './routes/recents'
 import { Route as RolesRouteImport } from './routes/roles'
 import { Route as ScheduledRouteImport } from './routes/scheduled'
+import { Route as SelectRoleRouteImport } from './routes/select-role'
 import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as TeamRouteImport } from './routes/team'
 import { Route as WorkflowsRouteImport } from './routes/workflows'
@@ -140,6 +141,11 @@ const ScheduledRoute = ScheduledRouteImport.update({
   path: '/scheduled',
   getParentRoute: () => rootRouteImport,
 } as any)
+const SelectRoleRoute = SelectRoleRouteImport.update({
+  id: '/select-role',
+  path: '/select-role',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const SettingsRoute = SettingsRouteImport.update({
   id: '/settings',
   path: '/settings',
@@ -183,6 +189,7 @@ export interface FileRoutesByFullPath {
   '/recents': typeof RecentsRoute
   '/roles': typeof RolesRoute
   '/scheduled': typeof ScheduledRoute
+  '/select-role': typeof SelectRoleRoute
   '/settings': typeof SettingsRoute
   '/team': typeof TeamRoute
   '/workflows': typeof WorkflowsRoute
@@ -210,6 +217,7 @@ export interface FileRoutesByTo {
   '/recents': typeof RecentsRoute
   '/roles': typeof RolesRoute
   '/scheduled': typeof ScheduledRoute
+  '/select-role': typeof SelectRoleRoute
   '/settings': typeof SettingsRoute
   '/team': typeof TeamRoute
   '/workflows': typeof WorkflowsRoute
@@ -238,6 +246,7 @@ export interface FileRoutesById {
   '/recents': typeof RecentsRoute
   '/roles': typeof RolesRoute
   '/scheduled': typeof ScheduledRoute
+  '/select-role': typeof SelectRoleRoute
   '/settings': typeof SettingsRoute
   '/team': typeof TeamRoute
   '/workflows': typeof WorkflowsRoute
@@ -267,6 +276,7 @@ export interface FileRouteTypes {
     | '/recents'
     | '/roles'
     | '/scheduled'
+    | '/select-role'
     | '/settings'
     | '/team'
     | '/workflows'
@@ -294,6 +304,7 @@ export interface FileRouteTypes {
     | '/recents'
     | '/roles'
     | '/scheduled'
+    | '/select-role'
     | '/settings'
     | '/team'
     | '/workflows'
@@ -321,6 +332,7 @@ export interface FileRouteTypes {
     | '/recents'
     | '/roles'
     | '/scheduled'
+    | '/select-role'
     | '/settings'
     | '/team'
     | '/workflows'
@@ -349,6 +361,7 @@ export interface RootRouteChildren {
   RecentsRoute: typeof RecentsRoute
   RolesRoute: typeof RolesRoute
   ScheduledRoute: typeof ScheduledRoute
+  SelectRoleRoute: typeof SelectRoleRoute
   SettingsRoute: typeof SettingsRoute
   TeamRoute: typeof TeamRoute
   WorkflowsRoute: typeof WorkflowsRoute
@@ -504,6 +517,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ScheduledRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/select-role': {
+      id: '/select-role'
+      path: '/select-role'
+      fullPath: '/select-role'
+      preLoaderRoute: typeof SelectRoleRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/settings': {
       id: '/settings'
       path: '/settings'
@@ -557,6 +577,7 @@ const rootRouteChildren: RootRouteChildren = {
   RecentsRoute: RecentsRoute,
   RolesRoute: RolesRoute,
   ScheduledRoute: ScheduledRoute,
+  SelectRoleRoute: SelectRoleRoute,
   SettingsRoute: SettingsRoute,
   TeamRoute: TeamRoute,
   WorkflowsRoute: WorkflowsRoute,

@@ -90,6 +90,7 @@ MEMBER_MUTATIONS: dict[tuple[str, str], str] = {
     ("POST", "/api/v1/nl-integration/parse"): "Intent classification only; takes no action.",
     ("POST", "/api/v1/nl-integration/chat"): "Conversation reply only; takes no action.",
     ("POST", "/api/v1/auth/logout/all"): "Revokes the caller's own refresh tokens.",
+    ("PUT", "/api/v1/workspace"): "The caller picks their OWN AI employee workspace; refused unless the module is active and the role not paused; grants no permission (every page and tool keeps its own server checks); audited.",
 }
 
 

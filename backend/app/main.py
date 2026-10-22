@@ -69,6 +69,7 @@ from app.api.routers.medical import router as medical_router  # Medical Assistan
 from app.api.routers.messages import router as messages_router  # internal direct messages
 from app.api.routers.team import router as team_router  # invitations + member administration
 from app.api.routers.modules import router as modules_router  # marketplace / module activation
+from app.api.routers.workspace import router as workspace_router  # selected AI employee workspace
 from app.api.routers.admin_customization import router as admin_customization_router  # Admin AI Customize
 from app.api.routers.admin_config import router as admin_config_router  # Admin Config Engine
 from app.middleware.observability import ObservabilityMiddleware  # Phase N
@@ -246,6 +247,7 @@ app.include_router(medical_router)  # clinic appointments
 app.include_router(messages_router)  # internal messaging
 app.include_router(team_router)  # team invitations / members
 app.include_router(modules_router)  # marketplace / module activation
+app.include_router(workspace_router)  # selected AI employee workspace
 app.include_router(admin_customization_router)  # Admin AI Customize — /api/v1/admin/customize/*
 app.include_router(admin_config_router)  # Admin Config Engine — /api/v1/admin/provider-config/*
 

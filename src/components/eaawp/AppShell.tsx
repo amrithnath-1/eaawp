@@ -1,108 +1,121 @@
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import { NotificationBell } from "@/components/eaawp/NotificationBell";
-import { Store,
-  BotMessageSquare,
-  CalendarClock,
-  CheckSquare,
-  Clock3,
-  Home,
-  LayoutGrid,
-  Library,
-  LogOut,
-  Mail,
-  Menu,
-  MoreHorizontal,
-  Plug,
-  ScrollText,
-  Settings,
-  ShieldCheck,
-  SlidersHorizontal,
-  Users,
-  Workflow,
-  Database,
-  ClipboardList,
-  Stethoscope,
-  UserPlus,
-  MessageSquare,
-  Cable,
-  X,
-} from "lucide-react";
+import { ArrowLeftRight, LogOut, Mail, Menu, MoreHorizontal, ShieldAlert, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useSession, useWorkspaceGuard } from "@/state/session";
 import { useAgentStatus } from "@/state/useAgentStatus";
-import { useUnreadMessages } from "@/hooks/use-api";
+import { useUnreadMessages, useWorkspace, type WorkspaceStateFE } from "@/hooks/use-api";
+import { apiErrorMessage } from "@/lib/api-client";
+import { IS_ADMIN_ROLE, PAGE_OWNER, ROLE_META, navItems, pathAllowed } from "@/lib/workspace";
 import { AmoebaButton } from "./AmoebaButton";
 import { LetterBoxDrawer } from "./LetterBoxDrawer";
 
-const NAV = [
-  { to: "/cabin",       label: "Cabin",       icon: Home },
-  { to: "/workspace",   label: "Workspace",   icon: LayoutGrid },
-  { to: "/integrations",label: "Integrations",icon: Plug },
-  { to: "/employees",   label: "Employees",   icon: Users },
-  { to: "/approvals",   label: "Approvals",   icon: CheckSquare },
-  { to: "/workflows",   label: "Workflows",   icon: Workflow },
-  { to: "/data",        label: "Data",        icon: Database },
-  { to: "/clerk",       label: "Clerk",       icon: ClipboardList },
-  { to: "/clinic",      label: "Clinic",      icon: Stethoscope },
-  { to: "/messages",    label: "Messages",    icon: MessageSquare },
-  { to: "/team",        label: "Team",        icon: UserPlus },
-  { to: "/connections", label: "Connections", icon: Cable },
-  { to: "/marketplace", label: "Marketplace", icon: Store },
-  { to: "/activity",    label: "Activity",    icon: BotMessageSquare },
-  { to: "/scheduled",   label: "Scheduled",   icon: CalendarClock },
-  { to: "/library",     label: "Library",     icon: Library },
-  { to: "/customize",   label: "Customize",   icon: SlidersHorizontal },
-  { to: "/audit",       label: "Audit",       icon: ScrollText },
-  { to: "/settings",    label: "Settings",    icon: Settings },
-] as const;
+function Centered({ children }: { children: ReactNode }) {
+  return <div className="flex min-h-screen items-center justify-center p-6">{children}</div>;
+}
 
-const MOBILE_NAV = [
-  { to: "/cabin",       label: "Cabin",       icon: Home },
-  { to: "/workspace",   label: "Workspace",   icon: LayoutGrid },
-  { to: "/integrations",label: "Integrations",icon: Plug },
-] as const;
+/** Shown instead of a page that is not part of the person's current workspace (e.g. opened by direct URL). */
+function NotInWorkspace({ pathname, ws, isAdmin }: { pathname: string; ws: WorkspaceStateFE; isAdmin: boolean }) {
+  const owner = PAGE_OWNER[pathname];
+  const card = owner ? ws.roles.find((r) => r.key === owner) : undefined;
+  return (
+    <div data-testid="not-in-workspace" className="mx-auto max-w-lg p-6">
+      <div className="border border-border bg-surface p-5">
+        <div className="flex items-center gap-2 text-sm font-semibold">
+          <ShieldAlert className="size-4 text-warning" /> Not part of your {ws.selected?.name} workspace
+        </div>
+        {card ? (
+          card.available ? (
+            <>
+              <p className="mt-2 text-[13px] text-muted-foreground">This page belongs to the {card.name} AI employee. Switch to that workspace to use it. Your data in every workspace is kept.</p>
+              <Link to="/select-role" search={{ role: card.key }} className="mt-4 inline-flex items-center gap-1.5 border border-primary bg-primary px-3 py-1.5 font-mono text-[10px] tracking-[0.14em] text-primary-foreground">
+                <ArrowLeftRight className="size-3" /> SWITCH TO {card.name.toUpperCase()}
+              </Link>
+            </>
+          ) : (
+            <p className="mt-2 text-[13px] text-muted-foreground">{card.unavailable_reason}</p>
+          )
+        ) : (
+          <p className="mt-2 text-[13px] text-muted-foreground">
+            {isAdmin ? "This page is not available in this workspace." : "This page is for company administrators."}
+          </p>
+        )}
+        <Link to="/workspace" className="mt-4 ml-2 inline-block font-mono text-[10px] tracking-[0.14em] text-muted-foreground hover:text-foreground">BACK TO DASHBOARD</Link>
+      </div>
+    </div>
+  );
+}
 
 export function AppShell({ children, contentClassName }: { children: ReactNode; contentClassName?: string }) {
   const { ready, user, company } = useWorkspaceGuard();
   const { signOut } = useSession();
   const { status, label } = useAgentStatus();
   const unread = useUnreadMessages().data?.unread ?? 0;
+  const workspace = useWorkspace(user?.id);
+  const ws = workspace.data;
   const navigate = useNavigate();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const [drawer, setDrawer] = useState(false);
   const [mail, setMail] = useState(false);
 
-  if (!ready || !user || !company) {
+  const mustSelect = !!ws?.needs_selection;
+  useEffect(() => {
+    if (mustSelect) void navigate({ to: "/select-role", replace: true });
+  }, [mustSelect, navigate]);
+
+  function doSignOut() {
+    signOut();
+    void navigate({ to: "/", replace: true });
+  }
+
+  if (!ready || !user || !company || workspace.isLoading || mustSelect) {
+    return <Centered><span className="label-xs">Establishing workspace session…</span></Centered>;
+  }
+  if (workspace.isError || !ws || !ws.selected) {
     return (
-      <div className="flex min-h-screen items-center justify-center">
-        <span className="label-xs">Establishing workspace session…</span>
-      </div>
+      <Centered>
+        <div className="max-w-sm border border-border p-4 text-[13px]">
+          <p className="font-semibold">Your workspace could not be loaded.</p>
+          <p className="mt-1 text-muted-foreground">{apiErrorMessage(workspace.error)}</p>
+          <div className="mt-3 flex gap-3 font-mono text-[10px] tracking-[0.14em]">
+            <button onClick={() => void workspace.refetch()} className="text-primary">RETRY</button>
+            <button onClick={doSignOut} className="text-muted-foreground">SIGN OUT</button>
+          </div>
+        </div>
+      </Centered>
     );
   }
+
+  const role = ws.selected.role_key;
+  const meta = ROLE_META[role];
+  const isAdmin = IS_ADMIN_ROLE(user.role);
+  const nav = navItems(ws.navigation, role);
+  const allowed = pathAllowed(pathname, ws.navigation, isAdmin);
 
   const sidebar = (
     <nav className="flex h-full w-full flex-col bg-sidebar">
       <div className="flex h-14 items-center gap-2 border-b border-sidebar-border px-3">
-        <span className="grid size-6 place-items-center border border-border-strong font-mono text-[10px] text-foreground">
-          E
+        <span className="grid size-6 place-items-center border border-border-strong text-foreground">
+          <meta.icon className="size-3.5" strokeWidth={1.5} />
         </span>
-        <div className="leading-none">
+        <div className="min-w-0 leading-none">
           <div className="font-mono text-[11px] tracking-[0.22em] text-sidebar-foreground">EAAWP</div>
-          <div className="mt-1 text-[9px] tracking-[0.14em] text-muted-foreground">AGENTIC WORKFORCE</div>
+          <div data-testid="sidebar-role" className="mt-1 truncate text-[9px] tracking-[0.14em] text-muted-foreground">{ws.selected.name.toUpperCase()}</div>
         </div>
         <button className="ml-auto md:hidden" onClick={() => setDrawer(false)} aria-label="Close navigation">
           <X className="size-4 text-muted-foreground" />
         </button>
       </div>
 
-      <ul className="flex-1 overflow-y-auto py-2">
-        {NAV.map((item) => {
+      <ul data-testid="workspace-nav" className="flex-1 overflow-y-auto py-2">
+        {nav.map((item) => {
           const active = pathname === item.to;
           return (
             <li key={item.to}>
               <Link
                 to={item.to}
+                data-nav={item.key}
                 onClick={() => setDrawer(false)}
                 className={cn(
                   "flex items-center gap-2.5 border-l-2 px-3 py-2 text-[13px] transition-colors",
@@ -113,12 +126,23 @@ export function AppShell({ children, contentClassName }: { children: ReactNode; 
               >
                 <item.icon className="size-3.5 shrink-0" strokeWidth={1.5} />
                 {item.label}
-                {item.to === "/messages" && unread > 0 && <span data-testid="nav-unread" className="ml-auto bg-primary px-1.5 font-mono text-[10px] text-primary-foreground">{unread}</span>}
+                {item.key === "messages" && unread > 0 && <span data-testid="nav-unread" className="ml-auto bg-primary px-1.5 font-mono text-[10px] text-primary-foreground">{unread}</span>}
               </Link>
             </li>
           );
         })}
       </ul>
+
+      {ws.can_switch && (
+        <Link
+          to="/select-role"
+          data-testid="switch-role"
+          onClick={() => setDrawer(false)}
+          className="mx-3 mb-3 flex items-center justify-center gap-1.5 border border-border py-2 font-mono text-[10px] tracking-[0.14em] text-muted-foreground hover:border-border-strong hover:text-foreground"
+        >
+          <ArrowLeftRight className="size-3" /> SWITCH AI EMPLOYEE
+        </Link>
+      )}
 
       <div className="border-t border-sidebar-border p-3">
         <div className="flex items-center gap-2">
@@ -137,10 +161,7 @@ export function AppShell({ children, contentClassName }: { children: ReactNode; 
           </span>
           <button
             className="flex items-center gap-1 font-mono text-[10px] text-muted-foreground hover:text-foreground"
-            onClick={() => {
-              signOut();
-              navigate({ to: "/", replace: true });
-            }}
+            onClick={doSignOut}
           >
             <LogOut className="size-3" /> SIGN OUT
           </button>
@@ -177,8 +198,8 @@ export function AppShell({ children, contentClassName }: { children: ReactNode; 
           </div>
 
           <div className="min-w-0 md:pl-2">
-            <div className="truncate font-mono text-[12px] uppercase tracking-[0.18em] text-foreground">
-              {company.agentRole}
+            <div data-testid="header-role" className="truncate font-mono text-[12px] uppercase tracking-[0.18em] text-foreground">
+              {ws.selected.name}
             </div>
             <div className="truncate font-mono text-[10px] tracking-[0.14em] text-muted-foreground">
               {company.name}
@@ -189,6 +210,16 @@ export function AppShell({ children, contentClassName }: { children: ReactNode; 
             <span className="hidden font-mono text-[10px] tracking-[0.14em] text-muted-foreground lg:inline">
               {label.toUpperCase()}
             </span>
+            {ws.can_switch && (
+              <Link
+                to="/select-role"
+                aria-label="Switch AI employee"
+                title="Switch AI employee"
+                className="hidden items-center gap-1 border border-border px-2 py-1 font-mono text-[10px] tracking-[0.12em] text-muted-foreground hover:text-foreground sm:flex"
+              >
+                <ArrowLeftRight className="size-3" /> SWITCH
+              </Link>
+            )}
             <NotificationBell />
             <Link
               to="/settings"
@@ -201,10 +232,19 @@ export function AppShell({ children, contentClassName }: { children: ReactNode; 
           </div>
         </header>
 
-        <main className={cn("min-h-0 flex-1 overflow-y-auto pb-14 md:pb-0", contentClassName)}>{children}</main>
+        {ws.selected.source === "migration_default" && (
+          <div data-testid="default-workspace-notice" className="border-b border-border bg-surface px-4 py-1.5 text-[12px] text-muted-foreground">
+            Your account was placed in the {ws.selected.name} workspace, the one EAAWP used before role selection existed.{" "}
+            <Link to="/select-role" className="text-primary hover:underline">Choose a different AI employee</Link> any time, or keep this one.
+          </div>
+        )}
+
+        <main className={cn("min-h-0 flex-1 overflow-y-auto pb-14 md:pb-0", contentClassName)}>
+          {allowed ? children : <NotInWorkspace pathname={pathname} ws={ws} isAdmin={isAdmin} />}
+        </main>
 
         <nav className="fixed inset-x-0 bottom-0 z-40 grid h-14 grid-cols-4 border-t border-border bg-surface md:hidden">
-          {MOBILE_NAV.map((item) => {
+          {nav.slice(0, 3).map((item) => {
             const active = pathname === item.to;
             return (
               <Link
@@ -216,7 +256,7 @@ export function AppShell({ children, contentClassName }: { children: ReactNode; 
                 )}
               >
                 <item.icon className="size-4" strokeWidth={1.5} />
-                {item.label}
+                <span className="max-w-full truncate px-1">{item.label}</span>
               </Link>
             );
           })}

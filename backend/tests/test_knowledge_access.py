@@ -189,3 +189,22 @@ def test_retrieve_needs_only_gemini_key_not_openai(kb, monkeypatch):
     assert "k.txt" in names(ask(kb, "a_admin", "holiday calendar"))
     monkeypatch.setattr(settings, "gemini_api_key", "")
     assert ask(kb, "a_admin", "holiday calendar").status_code == 503
+
+
+@pytest.mark.parametrize("role,own", [
+    ("DIGITAL_MARKETING_MANAGER", "Marketing Agent Only"), ("INSTITUTIONAL_CLERK", "Clerk Agent Only"),
+    ("MEDICAL_ASSISTANT", "Clinic Agent Only"), ("DATA_INTELLIGENCE_ANALYST", "Data Analyst Only"),
+])
+def test_each_workspace_role_retrieves_its_own_scope_and_never_another_roles(kb, role, own):
+    """Workspace knowledge scopes: a role sees Global + its own scope only (the agent passes its role as role_scope)."""
+    from app.services.vector_store import retrieve_similar_chunks
+    scopes = {"Marketing Agent Only": "m.txt", "Clerk Agent Only": "c.txt", "Clinic Agent Only": "k.txt", "Data Analyst Only": "d.txt"}
+    for scope, name in scopes.items():
+        upload(kb, "a_admin", name, b"office procedure handbook section", scope=scope)
+    upload(kb, "a_admin", "g.txt", b"office procedure handbook section")
+
+    async def go():
+        async with kb.maker() as s:
+            return {c.document_name for c in await retrieve_similar_chunks(
+                "office procedure handbook", kb.tenant_a, role, s, access_levels=["All staff"])}
+    assert _run(go()) == {"g.txt", scopes[own]}

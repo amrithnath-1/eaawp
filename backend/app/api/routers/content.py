@@ -15,7 +15,9 @@ from app.services.content_service import (
     generate_variants, analyze_content,
 )
 
-router = APIRouter(prefix="/api/v1/content", tags=["content"])
+from app.services.modules import require_module
+
+router = APIRouter(prefix="/api/v1/content", tags=["content"], dependencies=[Depends(require_module("DIGITAL_MARKETING_MANAGER"))])
 
 
 @router.get("", response_model=list[ContentItemOut])

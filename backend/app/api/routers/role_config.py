@@ -566,6 +566,7 @@ async def replace_role_config(
     row = await _get_or_seed(role_key, tenant_id, db)
     _apply_update(row, body)
     await db.flush()
+    await db.refresh(row)          # updated_at is server-generated; load it now, not lazily in sync code
     return _orm_to_schema(row)
 
 
@@ -593,6 +594,7 @@ async def update_role_config(
     row = await _get_or_seed(role_key, tenant_id, db)
     _apply_update(row, body)
     await db.flush()
+    await db.refresh(row)          # updated_at is server-generated; load it now, not lazily in sync code
     return _orm_to_schema(row)
 
 

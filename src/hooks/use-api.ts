@@ -457,9 +457,10 @@ const MOCK_ROLE_CONFIG: RoleConfigFull = {
  * When real API is on, calls GET /api/v1/roles/{role_key}.
  * Falls back to the mock config in mock mode.
  */
-export function useRoleConfig(roleKey: string = "DIGITAL_MARKETING_MANAGER") {
+export function useRoleConfig(roleKey: string = "DIGITAL_MARKETING_MANAGER", enabled = true) {
   return useQuery<RoleConfigFull>({
     queryKey: ["role-config", roleKey] as const,
+    enabled,
     queryFn: () =>
       USE_REAL_API
         ? apiClient.get<RoleConfigFull>(`/api/v1/roles/${roleKey}`, undefined)
@@ -524,6 +525,7 @@ export function roleConfigToBlueprint(
   return {
     agent_id: `${tenantId}-${cfg.role_key.toLowerCase()}`,
     role_name: cfg.role_name,
+    role_key: cfg.role_key,
     system_persona: cfg.system_persona,
     allowed_tools: cfg.allowed_tools,
     guarded_tools: cfg.guarded_tools,
@@ -855,6 +857,8 @@ export function useDeleteDocument() {
 export interface AgentBlueprint {
   agent_id: string;
   role_name: string;
+  /** The role to run as; the server re-checks it (module active, role configured) and loads tools/persona itself. */
+  role_key?: string;
   system_persona: string;
   allowed_tools: string[];
   guarded_tools: string[];
@@ -4276,7 +4280,87 @@ export function useSetModule() {
   const qc = useQueryClient();
   return useMutation<ModuleFE, Error, { key: string; active: boolean }>({
     mutationFn: (v) => intMgrFetch<ModuleFE>("POST", `/api/v1/modules/${v.key}/${v.active ? "activate" : "deactivate"}`),
-    onSuccess: () => { void qc.invalidateQueries({ queryKey: ["modules"] }); },
+    // module state decides which AI employee workspaces can be used
+    onSuccess: () => { void qc.invalidateQueries({ queryKey: ["modules"] }); void qc.invalidateQueries({ queryKey: ["workspace"] }); },
+  });
+}
+
+
+// ── AI employee workspace: the role the signed-in person works with ───────────────
+export type WorkspaceRoleKey = "DIGITAL_MARKETING_MANAGER" | "INSTITUTIONAL_CLERK" | "MEDICAL_ASSISTANT" | "DATA_INTELLIGENCE_ANALYST";
+export interface WorkspaceRoleCardFE {
+  key: WorkspaceRoleKey; name: string; purpose: string; capabilities: string[]; knowledge_domain: string;
+  main_tools: Array<{ name: string; requires_approval: boolean }>; available: boolean; unavailable_reason: string | null;
+}
+export interface WorkspaceAiFE {
+  role_key: WorkspaceRoleKey; role_name: string; agent_name: string; allowed_tools: string[]; guarded_tools: string[];
+  quick_prompts: string[]; knowledge_scope: string; knowledge_domain: string; safety_rules: string[];
+}
+export interface WorkspaceStateFE {
+  needs_selection: boolean; notice: string | null; can_switch: boolean; roles: WorkspaceRoleCardFE[];
+  selected: { role_key: WorkspaceRoleKey; name: string; source: "user" | "migration_default"; selected_at: string | null } | null;
+  navigation: string[]; ai: WorkspaceAiFE | null;
+}
+
+const MOCK_WORKSPACE_KEY = "eaawp.mock_workspace";
+const MOCK_ROLE_CARDS: WorkspaceRoleCardFE[] = [
+  { key: "DIGITAL_MARKETING_MANAGER", name: "Digital Marketing Manager", purpose: "Plans and analyses marketing: campaigns, SEO, content and performance reporting.",
+    capabilities: ["Campaign analysis", "SEO insights", "Content planning", "Marketing reports"], knowledge_domain: "Marketing documents and authorized Google data.",
+    main_tools: [{ name: "Query Campaign Analytics", requires_approval: false }, { name: "Send Email", requires_approval: true }], available: true, unavailable_reason: null },
+  { key: "INSTITUTIONAL_CLERK", name: "Institutional Clerk", purpose: "Processes institutional paperwork: service requests, records and official documents for approval.",
+    capabilities: ["Service requests", "Draft documents", "Document extraction", "Approvals"], knowledge_domain: "Institutional policies and templates.",
+    main_tools: [{ name: "List Service Requests", requires_approval: false }, { name: "Update Service Request", requires_approval: true }], available: true, unavailable_reason: null },
+  { key: "MEDICAL_ASSISTANT", name: "Medical Assistant", purpose: "Supports clinic administration: appointment requests, clinic information and intake organisation.",
+    capabilities: ["Appointments", "Clinic information", "Intake summaries"], knowledge_domain: "Clinic information documents.",
+    main_tools: [{ name: "List Appointments", requires_approval: false }, { name: "Update Appointment Status", requires_approval: true }], available: true, unavailable_reason: null },
+  { key: "DATA_INTELLIGENCE_ANALYST", name: "Data Analyst", purpose: "Explores company data: dataset uploads, database connections, analysis, charts and reports.",
+    capabilities: ["Dataset exploration", "Analysis", "Charts and reports"], knowledge_domain: "Uploaded datasets and authorized databases.",
+    main_tools: [{ name: "Analyse Dataset", requires_approval: false }], available: true, unavailable_reason: null },
+];
+const MOCK_ROLE_NAV: Record<WorkspaceRoleKey, string[]> = {
+  DIGITAL_MARKETING_MANAGER: ["customize", "integrations", "scheduled", "meeting"],
+  INSTITUTIONAL_CLERK: ["clerk", "scheduled"], MEDICAL_ASSISTANT: ["clinic"], DATA_INTELLIGENCE_ANALYST: ["data", "scheduled"],
+};
+
+/** Demo mode only: a local stand-in for GET /api/v1/workspace (no server, so nothing here is a permission). */
+function mockWorkspaceState(): WorkspaceStateFE {
+  let key: WorkspaceRoleKey | null = null;
+  try { key = window.localStorage.getItem(MOCK_WORKSPACE_KEY) as WorkspaceRoleKey | null; } catch { /* ignore */ }
+  const card = MOCK_ROLE_CARDS.find((c) => c.key === key);
+  if (!card) return { needs_selection: true, notice: null, can_switch: true, roles: MOCK_ROLE_CARDS, selected: null, navigation: [], ai: null };
+  return {
+    needs_selection: false, notice: null, can_switch: true, roles: MOCK_ROLE_CARDS,
+    selected: { role_key: card.key, name: card.name, source: "user", selected_at: null },
+    navigation: ["cabin", "workspace", ...MOCK_ROLE_NAV[card.key], "approvals", "messages", "library", "workflows", "activity", "settings"],
+    ai: { role_key: card.key, role_name: card.name, agent_name: card.name, allowed_tools: [], guarded_tools: [], quick_prompts: [],
+          knowledge_scope: card.key, knowledge_domain: card.knowledge_domain, safety_rules: [] },
+  };
+}
+
+/** The signed-in person's workspace. Keyed by user so one browser tab never shows another account's choice. */
+export function useWorkspace(userId: string | undefined) {
+  return useQuery<WorkspaceStateFE>({
+    queryKey: ["workspace", userId ?? "anonymous"] as const,
+    enabled: !!userId,
+    staleTime: 30_000,
+    queryFn: () => (USE_REAL_API ? apiClient.get<WorkspaceStateFE>("/api/v1/workspace") : Promise.resolve(mockWorkspaceState())),
+  });
+}
+
+export function useSelectWorkspace(userId: string | undefined) {
+  const qc = useQueryClient();
+  return useMutation<WorkspaceStateFE, Error, WorkspaceRoleKey>({
+    mutationFn: (roleKey) => {
+      if (USE_REAL_API) return apiClient.put<WorkspaceStateFE>("/api/v1/workspace", { role_key: roleKey });
+      try { window.localStorage.setItem(MOCK_WORKSPACE_KEY, roleKey); } catch { /* ignore */ }
+      return Promise.resolve(mockWorkspaceState());
+    },
+    onSuccess: (state) => {
+      qc.setQueryData(["workspace", userId ?? "anonymous"], state);
+      // the role context changed: role-scoped queries (config, prompts) must be re-read
+      void qc.invalidateQueries({ queryKey: ["role-config"] });
+      void qc.invalidateQueries({ queryKey: ["role-blueprint"] });
+    },
   });
 }
 

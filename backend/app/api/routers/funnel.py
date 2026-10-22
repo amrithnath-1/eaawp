@@ -9,7 +9,9 @@ from app.services.funnel_service import (
     fetch_funnel_from_external, calculate_funnel, funnel_to_dict,
 )
 
-router = APIRouter(prefix="/api/v1/funnel", tags=["funnel"])
+from app.services.modules import require_module
+
+router = APIRouter(prefix="/api/v1/funnel", tags=["funnel"], dependencies=[Depends(require_module("DIGITAL_MARKETING_MANAGER"))])
 
 
 @router.post("/analyze", response_model=dict)

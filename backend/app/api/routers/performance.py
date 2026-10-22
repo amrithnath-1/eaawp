@@ -8,7 +8,9 @@ from app.services.performance_analysis import (
     analyse_campaign_performance, compare_campaigns, insight_to_dict
 )
 
-router = APIRouter(prefix="/api/v1/performance", tags=["performance"])
+from app.services.modules import require_module
+
+router = APIRouter(prefix="/api/v1/performance", tags=["performance"], dependencies=[Depends(require_module("DIGITAL_MARKETING_MANAGER"))])
 
 @router.get("/campaigns/{campaign_id}", response_model=dict)
 async def get_campaign_performance(

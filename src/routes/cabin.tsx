@@ -8,6 +8,7 @@ import { AmoebaButton } from "@/components/eaawp/AmoebaButton";
 import { useAgentStatus } from "@/state/useAgentStatus";
 import { ContextPanel } from "@/components/eaawp/ContextPanel";
 import { useSession } from "@/state/session";
+import { useCurrentWorkspace } from "@/state/workspace";
 import { EmailDraftPreview, parseDraftPreview } from "@/components/eaawp/EmailDraftPreview";
 import { AdminProviderConfigPanel } from "@/components/eaawp/AdminProviderConfigPanel";
 import { PendingTaskPanel } from "@/components/eaawp/PendingTaskPanel";
@@ -267,10 +268,15 @@ function PlanProgress({
 }
 
 function CabinPage() {
-  const { user, company } = useSession();
+  const { user } = useSession();
   const { status } = useAgentStatus();
   const agentExecute = useAgentExecute();
-  const { data: roleConfig } = useRoleConfig("DIGITAL_MARKETING_MANAGER");
+  // The AI runs as the person's selected workspace role; the server re-loads that role's tools, persona and
+  // knowledge scope itself, so nothing here can widen what the agent may do.
+  const ai = useCurrentWorkspace().data?.ai ?? null;
+  const roleKey = ai?.role_key ?? "DIGITAL_MARKETING_MANAGER";
+  const { data: roleConfig } = useRoleConfig(roleKey, !!ai);
+  const agentLabel = ai?.role_name ?? "AI employee";
   const resumePlan = useResumePlan();
   const rejectPlan = useRejectPlan();
 
@@ -281,7 +287,7 @@ function CabinPage() {
   const endRef = useRef<HTMLDivElement>(null);
 
   // Use quick prompts from the live role config when available, fall back to local map
-  const quickPrompts = roleConfig?.quick_prompts ?? getRoleQuickPrompts(company?.agentRole);
+  const quickPrompts = (ai?.quick_prompts.length ? ai.quick_prompts : roleConfig?.quick_prompts) ?? getRoleQuickPrompts(agentLabel);
 
   function syncPlanResult(plan: ExecutionPlanFE) {
     setTurns((current) => current.map((turn) => turn.planId === plan.id
@@ -347,9 +353,9 @@ function CabinPage() {
         user?.companyId ??
         "default-tenant";
 
-      const blueprint = roleConfig
+      const blueprint = roleConfig && roleConfig.role_key === roleKey
         ? { ...roleConfigToBlueprint(roleConfig, realTenantId), tenant_id: realTenantId }
-        : { ...DEFAULT_BLUEPRINT, tenant_id: realTenantId };
+        : { ...DEFAULT_BLUEPRINT, role_name: ai?.role_name ?? DEFAULT_BLUEPRINT.role_name, role_key: roleKey, tenant_id: realTenantId };
 
       const result = await agentExecute.mutateAsync({
         blueprint,
@@ -405,13 +411,18 @@ function CabinPage() {
             className="absolute right-4 top-3 z-10 hidden xl:block"
           />
           <div className="shrink-0 border-b border-border px-4 py-2">
-            <p className="text-[13px] font-semibold tracking-tight">
-              Agent Control Center — Autonomous Operations &amp; Approval Gateways
+            <p data-testid="cabin-title" className="text-[13px] font-semibold tracking-tight">
+              {ai?.agent_name ?? "AI employee"} — {agentLabel} workspace
             </p>
             <div className="flex items-center gap-2">
               <p className="label-xs mt-0.5">
                 Direct interaction with your company AI employee · all actions are audited
               </p>
+              {ai && (
+                <span data-testid="cabin-ai-context" className="mt-0.5 hidden font-mono text-[9px] tracking-[0.08em] text-muted-foreground md:inline">
+                  · {ai.allowed_tools.length} TOOLS · {ai.guarded_tools.length} NEED APPROVAL · KNOWLEDGE: {ai.knowledge_scope.replace(/_/g, " ")}
+                </span>
+              )}
               {!USE_REAL_API && (
                 <span className="mt-0.5 font-mono text-[9px] tracking-[0.1em] text-warning">
                   · MOCK MODE
@@ -431,7 +442,7 @@ function CabinPage() {
                   How can I help you today?
                 </p>
                 <p className="mt-3 text-[13px] text-muted-foreground">
-                  Your {company?.agentRole} is ready to assist. It works continuously in the background.
+                  Your {agentLabel} is ready to assist. It works continuously in the background.
                 </p>
                 <div className="mt-6 flex flex-wrap justify-center gap-1.5">
                   {quickPrompts.map((q) => (
@@ -460,7 +471,7 @@ function CabinPage() {
                     <div className="flex items-baseline gap-2 font-mono text-[10px] tracking-[0.14em] text-muted-foreground">
                       <span className="text-foreground">
                         {t.from === "ai"
-                          ? (company?.agentRole ?? "AGENT").toUpperCase()
+                          ? agentLabel.toUpperCase()
                           : "YOU"}
                       </span>
                       <span>{t.time}</span>

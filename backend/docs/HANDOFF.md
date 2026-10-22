@@ -3,6 +3,27 @@
 Base branch: `master`. Never push/deploy without explicit approval. Nothing here claims live verification
 unless stated.
 
+## CURRENT STATE (2026-10-22, after Phase N)
+- Migration head: `d3e8f05a6b24` (user_workspaces). Owner: back up `eaawp.db`, then `alembic upgrade head`.
+- Known test-infra issue (pre-existing, also on master): on Windows + Python 3.14 a single `pytest` run of the whole
+  suite reports ~380 false failures after `tests/test_e2e_flows.py` (an async test leaves the loop state so that
+  Starlette's TestClient fails with `'NoneType' object has no attribute 'set_name'` in anyio). Every file passes
+  in its own process; run per file on that setup. Not seen on Linux / Python 3.13.
+
+## Phase N: post-registration AI role selection + role workspaces (branch feat/workspace-selection)
+Status: IMPLEMENTED AND VERIFIED (backend tests incl. mutation checks; real-browser run with system Chrome on a
+scratch DB; no live LLM: the Cabin check uses the deterministic greeting path). See `docs/workspaces.md`.
+- New: `GET/PUT /api/v1/workspace` (app/services/workspaces.py, app/api/routers/workspace.py, app/db/workspace_models.py),
+  migration `d3e8f05a6b24` (existing active users default to Digital Marketing Manager unless their company disabled it).
+- Frontend: `/select-role` page (4 role cards, Continue), shell navigation from the server, "not part of your
+  workspace" gate for direct URLs, Switch AI Employee in sidebar + header, role dashboards on `/workspace`,
+  Cabin runs as the selected role (server still loads tools/persona). Registration -> `/select-role`; sign-in -> `/workspace`.
+- Enforcement added: `require_module` on datasets/analysis reports (Data Analyst) and campaigns/content/strategy/funnel/
+  performance (Digital Marketing Manager); per-workspace knowledge scopes (`Marketing/Clerk/Clinic Agent Only`, `Data Analyst Only`).
+- Fixed (pre-existing): `PUT/PATCH /api/v1/roles/{key}` returned 500 (MissingGreenlet) once the row existed.
+- Not done: per-member workspace restrictions (any active member may pick any active, unpaused role; access to each
+  role's data is still governed by that role's own rules), custom builder roles as workspaces.
+
 ## Phase M (part 3): Agent memory fix (branch feat/agent-memory)
 - Root cause: `search_memory` returned dicts but `execution.py` read them as objects; the error was swallowed at debug level, so memory never reached any prompt (and planning mode never used it). Fixed and wired into both execution modes.
 - Privacy model: company-wide notes (admin-curated, `user_id` NULL) reach every user of the role; automatic conversation history is stored per user and only ever retrieved for that user; legacy ownerless history is never retrieved; `INSTITUTIONAL_CLERK`/`MEDICAL_ASSISTANT` neither store nor read memory. Retrieved text is sanitized and framed as information only.

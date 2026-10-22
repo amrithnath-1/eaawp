@@ -60,9 +60,10 @@ Open **http://localhost:5173**. Use `localhost` (not `127.0.0.1`) unless you add
 
 ## 5. First use
 1. On the sign-in screen choose **New Company**, enter the company name and the first administrator. **Write down the company ID** shown afterwards; it is part of every sign-in.
-2. Sign in, open **Library**, upload a document you are allowed to use, wait for it to finish indexing, then ask the **Cabin** about it.
-3. Add colleagues in **Team** (invitation links; the link can be copied if email is not set up). Turn modules on or off in **Marketplace**.
-4. Optional: set up the company's email connection in **Integrations**, then **Settings > Notifications** to authorize notification emails (off by default; each person must also opt in).
+2. Choose your **AI employee** (Digital Marketing Manager, Institutional Clerk, Medical Assistant or Data Analyst) and press **Continue**. The workspace (pages, dashboard, tools) follows that choice; **Switch AI employee** in the sidebar changes it later. Existing accounts keep the Digital Marketing Manager workspace after the update. See `docs/workspaces.md`.
+3. Open the **Knowledge Library**, upload a document you are allowed to use, wait for it to finish indexing, then ask the **AI Employee** page about it.
+4. Add colleagues in **Team** (invitation links; the link can be copied if email is not set up); each chooses their own AI employee on first sign-in. Turn modules on or off in **Marketplace**.
+5. Optional: set up the company's email connection in **Integrations**, then **Settings > Notifications** to authorize notification emails (off by default; each person must also opt in).
 
 ## 6. Updating an existing install (keeps your data)
 Always **back up first**. Close both servers, then:
