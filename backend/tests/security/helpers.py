@@ -4,7 +4,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from jose import jwt
+import jwt
 
 TEST_SECRET = "security-test-secret-key-0123456789abcdef"
 

@@ -22,7 +22,7 @@ Verified by: full backend suite on the new versions (2210 of 2211 passed; the on
 ## Deliberately NOT changed (and why)
 - **FastAPI 0.125+ / Starlette 1.x.** Newer FastAPI wraps each included router in a private object, which made our route-authentication inventory (and therefore the RBAC and "every route is protected" tests) see only 1 of 251 routes. Chasing private framework internals in a security guard is not worth it right now; Starlette is already clean at 0.50.0. Revisit by rewriting `app/core/route_inventory.py` against a public API.
 - **LangChain family (langchain 0.3.30, langchain-core 0.3.86, langchain-openai 0.3.24; fixes need 1.x).** The advisories are in features this app does not use: loading prompts from files, image-URL token counting (SSRF) and `EverNoteLoader`. Moving to 1.x is a migration project; do it deliberately with the LLM gateway tests, not as a drive-by.
-- **python-jose 3.5.0 (open advisory, no fix) and its dependency ecdsa (no fix).** The advisory concerns HMAC verification with asymmetric public-key material; EAAWP signs and verifies HS256 tokens with its own `SECRET_KEY` only. Lowest-risk long-term fix: replace python-jose with PyJWT in `app/core/auth.py` (the only user); the auth and security suites would validate it. Not done in this step.
+- **python-jose / ecdsa: removed.** Sign-in tokens now use PyJWT 2.10.1 (`app/core/auth.py`; required claims `exp`, `sub`, plus `iss`/`aud` when configured). Covered by the auth and JWT security suites, including new tests for missing `exp`, missing `sub` and `alg: none`.
 - **pytest 8.3.4** (dev-only advisory): not shipped; pytest 9 needs a pytest-asyncio upgrade.
 
 ## A security test that was flaky (fixed)

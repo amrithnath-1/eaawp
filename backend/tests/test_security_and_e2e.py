@@ -406,7 +406,7 @@ class TestE2EFlows:
         monkeypatch.setattr(config.settings, "secret_key", "test-secret")
         monkeypatch.setattr(config.settings, "algorithm", "HS256")
         from app.core.auth import create_access_token
-        from jose import jwt
+        import jwt
 
         token = create_access_token("uid", "user@co.com", "company-123", "Admin")
         payload = jwt.decode(token, "test-secret", algorithms=["HS256"])

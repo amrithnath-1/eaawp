@@ -9,6 +9,9 @@ unless stated.
 - API: POST/GET/DELETE `/api/v1/memory` are admin-only and audited (previously any employee could write company-wide memory); `GET /memory/search` returns only what the caller may see.
 - Migration `c2d6e7f83a19` (`agent_memories.user_id`, new head). Tests: `tests/test_agent_memory.py` (28), mutation-checked (user filter, history filter, admin gate). See `docs/agent_memory.md`. Status: IMPLEMENTED, MOCK-TESTED ONLY (fake model; no live LLM).
 
+## Phase M (part 4): python-jose replaced by PyJWT (branch chore/pyjwt)
+- `app/core/auth.py` and tests now use PyJWT 2.10.1 (removes the unfixed python-jose/ecdsa advisories). New tests: token without exp/sub, `alg: none`; required-claim mutation caught. Status: IMPLEMENTED AND VERIFIED by suite (see commit). After pulling run `pip install -r requirements.txt`.
+
 ## Phase J (part 3): Authorized invitation email (branch feat/phase-j-invite-email)
 - Optional emailing of an invitation link on explicit admin action via the company's SMTP integration (invitee address only, fixed template, allowed-origin link, 20/hour cap, safe audit). Fixed pre-existing 500 when re-saving an SMTP config. See `docs/team_invitations.md`. No migration. Status: IMPLEMENTED, MOCK-TESTED + exercised against a local SMTP server; NOT verified with a real mail provider.
 
@@ -109,7 +112,7 @@ Status: IMPLEMENTED, MOCK-TESTED + real local SMTP + real-browser checked on scr
 ## Phase M (part 5): dependency security (branch chore/dependency-security)
 Status: IMPLEMENTED, TESTED (full suite on the new versions + final security/auth subset). See docs/dependency_security.md.
 - pip-audit/npm audit run; fixed FastAPI/Starlette, python-multipart, pypdf, python-jose, cryptography, vite/seroval (npm audit now 0).
-- Deferred with reasons: FastAPI 0.125+ (breaks route-auth inventory), LangChain 1.x migration, python-jose -> PyJWT swap, pytest 9.
+- Deferred with reasons: FastAPI 0.125+ (breaks route-auth inventory), LangChain 1.x migration, pytest 9.
 - Fixed a pre-existing flaky security test (tampered-signature test was a no-op ~5% of the time).
 - Owner action: `pip install -r requirements.txt` in the Windows venv and `npm install` after pulling.
 

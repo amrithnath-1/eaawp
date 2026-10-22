@@ -5,7 +5,7 @@ import asyncio
 import time
 
 import pytest
-from jose import jwt
+import jwt
 from sqlalchemy import update
 
 from app.config import settings
@@ -39,7 +39,7 @@ class TestIssuerAudience:
         monkeypatch.setattr(settings, "jwt_issuer", "https://api.eaawp.example")
         monkeypatch.setattr(settings, "jwt_audience", "eaawp-web")
         good = _login(world)["access_token"]
-        claims = jwt.get_unverified_claims(good)
+        claims = jwt.decode(good, options={"verify_signature": False})
         assert claims["iss"] == "https://api.eaawp.example" and claims["aud"] == "eaawp-web"
         assert world.client.get(ME, headers=_bearer(good)).status_code == 200
 
@@ -64,6 +64,18 @@ class TestClaimsAndTimes:
     def test_not_yet_valid_token_is_rejected(self, world):
         u = world.users["a_admin"]
         t = forge_token({"sub": u["id"], "nbf": int(time.time()) + 3600})
+        assert world.client.get(ME, headers=_bearer(t)).status_code == 401
+
+    def test_token_without_expiry_is_rejected(self, world):
+        t = forge_token({"sub": world.users["a_admin"]["id"]}, drop=("exp",))
+        assert world.client.get(ME, headers=_bearer(t)).status_code == 401
+
+    def test_token_without_subject_is_rejected(self, world):
+        assert world.client.get(ME, headers=_bearer(forge_token(drop=("sub",)))).status_code == 401
+
+    def test_unsigned_alg_none_token_is_rejected(self, world):
+        u = world.users["a_admin"]
+        t = jwt.encode({"sub": u["id"], "type": "access", "exp": int(time.time()) + 600}, None, algorithm="none")
         assert world.client.get(ME, headers=_bearer(t)).status_code == 401
 
     def test_wrong_signing_algorithm_is_rejected(self, world):
@@ -135,7 +147,7 @@ class TestRefreshTokens:
     def test_signed_subject_must_match_the_stored_record(self, world):
         """A refresh JWT that reuses a real jti but names ANOTHER user is refused."""
         tokens = _login(world, "a_employee")
-        real = jwt.get_unverified_claims(tokens["refresh_token"])
+        real = jwt.decode(tokens["refresh_token"], options={"verify_signature": False})
         forged = jwt.encode({**real, "sub": world.users["b_admin"]["id"], "tid": world.tenant_b},
                             TEST_SECRET, algorithm="HS256")
         r = world.client.post("/api/v1/auth/refresh", json={"refresh_token": forged})

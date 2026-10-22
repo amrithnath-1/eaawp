@@ -32,7 +32,7 @@ greenlet==3.5.5            # required by SQLAlchemy async
 
 # ── Security / auth ───────────────────────────────────────────────────────────
 passlib[bcrypt]==1.7.4
-python-jose[cryptography]==3.5.0
+PyJWT[crypto]==2.10.1
 cryptography==50.0.2
 
 # ── Google API (Phase 4 — Google Search Console + Analytics) ──────────────────

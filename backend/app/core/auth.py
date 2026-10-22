@@ -41,7 +41,8 @@ from typing import Any
 
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
-from jose import JWTError, jwt
+import jwt
+from jwt import PyJWTError as JWTError
 import bcrypt as _bcrypt_lib
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -255,20 +256,20 @@ def _decode_token(token: str, expected_type: str) -> dict[str, Any]:
     )
     # Tokens without an expiry or subject are never valid.  When an issuer or
     # audience is configured it is REQUIRED and must match.
-    options: dict[str, Any] = {"require_exp": True, "require_sub": True}
+    required = ["exp", "sub"]
     decode_kwargs: dict[str, Any] = {}
     if settings.jwt_issuer:
-        options["require_iss"] = True
+        required.append("iss")
         decode_kwargs["issuer"] = settings.jwt_issuer
     if settings.jwt_audience:
-        options["require_aud"] = True
+        required.append("aud")
         decode_kwargs["audience"] = settings.jwt_audience
     try:
         payload = jwt.decode(
             token,
             settings.secret_key,
             algorithms=[settings.algorithm],
-            options=options,
+            options={"require": required},
             **decode_kwargs,
         )
     except JWTError:

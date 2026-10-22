@@ -371,7 +371,7 @@ class TestRefreshTokenRevocation:
         monkeypatch.setattr("app.config.settings.algorithm", "HS256")
         monkeypatch.setattr("app.config.settings.refresh_token_expire_days", 30)
         from app.core.auth import create_refresh_token
-        from jose import jwt
+        import jwt
         token = create_refresh_token("u1", "t1")
         payload = jwt.decode(token, "test-secret", algorithms=["HS256"])
         assert "jti" in payload
