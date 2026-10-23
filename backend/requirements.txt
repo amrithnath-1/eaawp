@@ -28,7 +28,7 @@ sqlalchemy==2.0.41
 alembic==1.14.1
 aiosqlite==0.21.0          # async SQLite (development)
 greenlet==3.5.5            # required by SQLAlchemy async
-# asyncpg                  # async PostgreSQL (production — add when deploying)
+asyncpg==0.32.0            # async PostgreSQL (production / Vercel)
 
 # ── Security / auth ───────────────────────────────────────────────────────────
 passlib[bcrypt]==1.7.4

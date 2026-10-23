@@ -40,9 +40,15 @@ from app.services.vector_store import embed_text
 
 logger = logging.getLogger(__name__)
 
-# Upload directory — stored relative to backend root
-UPLOAD_DIR = Path(__file__).parent.parent.parent / "uploads"
-UPLOAD_DIR.mkdir(exist_ok=True)
+# Upload directory — stored relative to backend root. UPLOAD_DIR overrides it.
+# On Vercel the deployed code is read-only and only /tmp is writable; files
+# there do not survive the function instance.
+_DEFAULT_UPLOAD_DIR = (
+    Path("/tmp/eaawp-uploads") if os.environ.get("VERCEL")
+    else Path(__file__).parent.parent.parent / "uploads"
+)
+UPLOAD_DIR = Path(os.environ.get("UPLOAD_DIR") or _DEFAULT_UPLOAD_DIR)
+UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 # Chunking parameters
 CHUNK_SIZE = 800

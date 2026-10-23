@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import async_engine_from_config
 # Make sure `app` package is importable
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
+from app.config import normalize_database_url  # noqa: E402
 from app.db.models import Base  # noqa: E402
 import app.db.monitoring_models  # noqa: E402, F401
 import app.db.email_models  # noqa: E402, F401
@@ -45,7 +46,7 @@ if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
 # Override sqlalchemy.url with DATABASE_URL env var if set
-db_url = os.getenv("DATABASE_URL") or config.get_main_option("sqlalchemy.url")
+db_url = normalize_database_url(os.getenv("DATABASE_URL") or config.get_main_option("sqlalchemy.url"))
 config.set_main_option("sqlalchemy.url", db_url)
 
 target_metadata = Base.metadata

@@ -7,7 +7,32 @@ Never hardcode credentials here.
 
 from __future__ import annotations
 
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+def normalize_database_url(url: str) -> str:
+    """
+    Accept the plain ``postgres://`` URLs that hosted databases hand out
+    (Neon, Supabase, Vercel's Postgres integrations) by switching them to the
+    async driver, and translate the libpq-only query options asyncpg rejects.
+    """
+    for prefix in ("postgres://", "postgresql://"):
+        if url.startswith(prefix):
+            url = "postgresql+asyncpg://" + url[len(prefix):]
+            break
+    if not url.startswith("postgresql+asyncpg://"):
+        return url
+    parts = urlsplit(url)
+    query = []
+    for key, value in parse_qsl(parts.query, keep_blank_values=True):
+        if key == "sslmode":
+            query.append(("ssl", value))  # asyncpg's name for the same option
+        elif key != "channel_binding":  # libpq-only; asyncpg refuses it
+            query.append((key, value))
+    return urlunsplit(parts._replace(query=urlencode(query)))
 
 
 class Settings(BaseSettings):
@@ -27,6 +52,11 @@ class Settings(BaseSettings):
     database_url: str = "sqlite+aiosqlite:///./eaawp.db"
     # Log every SQL statement (parameters stay hidden). Debugging aid only.
     sql_echo: bool = False
+
+    @field_validator("database_url")
+    @classmethod
+    def _normalize_database_url(cls, value: str) -> str:
+        return normalize_database_url(value)
 
     # ── Security ──────────────────────────────────────────────────────────────
     secret_key: str = "dev-insecure-key-replace-in-production"

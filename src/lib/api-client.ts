@@ -9,7 +9,10 @@
  * to mock data so the UI keeps working without a backend running.
  */
 
-export const API_BASE_URL = import.meta.env["VITE_API_BASE_URL"] ?? "http://localhost:8000";
+// Production builds call the API on their own origin: on Vercel the "/api/*"
+// rewrite in vercel.json routes those paths to the backend service.
+export const API_BASE_URL =
+  import.meta.env["VITE_API_BASE_URL"] ?? (import.meta.env.DEV ? "http://localhost:8000" : "");
 export const USE_REAL_API = import.meta.env["VITE_USE_REAL_API"] === "true";
 
 export class ApiError extends Error {

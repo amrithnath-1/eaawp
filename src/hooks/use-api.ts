@@ -919,7 +919,7 @@ export function useAgentExecute() {
             resolve({
               message:
                 `[MOCK — backend not connected] Received prompt: "${req.user_prompt}". ` +
-                `In production this calls the FastAPI backend at ${import.meta.env["VITE_API_BASE_URL"] ?? "http://localhost:8000"}/api/v1/agent/execute. ` +
+                `In production this calls the FastAPI backend at ${API_BASE_URL || window.location.origin}/api/v1/agent/execute. ` +
                 `Connect the backend and set VITE_USE_REAL_API=true to enable real AI responses.`,
               sources: [],
               requires_approval: false,
