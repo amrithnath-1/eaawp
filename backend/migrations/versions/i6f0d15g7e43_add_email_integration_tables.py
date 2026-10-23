@@ -43,7 +43,7 @@ def upgrade() -> None:
         sa.Column("sender_email", sa.String(length=255), nullable=False, server_default=""),
         sa.Column("sender_display_name", sa.String(length=255), nullable=False, server_default=""),
         sa.Column("status", sa.String(length=20), nullable=False, server_default="not_tested"),
-        sa.Column("is_enabled", sa.Boolean(), nullable=False, server_default=sa.text("1")),
+        sa.Column("is_enabled", sa.Boolean(), nullable=False, server_default=sa.true()),
         sa.Column("last_tested_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("error_message", sa.Text(), nullable=True),
         sa.Column("created_by", sa.String(length=128), nullable=False, server_default="admin"),
@@ -80,7 +80,7 @@ def upgrade() -> None:
         sa.Column("recipient_domains", sa.String(length=512), nullable=False, server_default=""),
         sa.Column("subject_length", sa.Integer(), nullable=False, server_default="0"),
         sa.Column("body_length", sa.Integer(), nullable=False, server_default="0"),
-        sa.Column("success", sa.Boolean(), nullable=False, server_default=sa.text("0")),
+        sa.Column("success", sa.Boolean(), nullable=False, server_default=sa.false()),
         sa.Column("provider_message_id", sa.String(length=255), nullable=True),
         sa.Column("error_message", sa.Text(), nullable=True),
         sa.Column(

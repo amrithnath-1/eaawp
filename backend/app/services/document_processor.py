@@ -40,9 +40,10 @@ from app.services.vector_store import embed_text
 
 logger = logging.getLogger(__name__)
 
-# Upload directory — stored relative to backend root
-UPLOAD_DIR = Path(__file__).parent.parent.parent / "uploads"
-UPLOAD_DIR.mkdir(exist_ok=True)
+# Upload directory — stored relative to backend root. UPLOAD_DIR overrides it
+# (for example a mounted persistent disk on a hosting provider).
+UPLOAD_DIR = Path(os.environ.get("UPLOAD_DIR") or Path(__file__).parent.parent.parent / "uploads")
+UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 # Chunking parameters
 CHUNK_SIZE = 800

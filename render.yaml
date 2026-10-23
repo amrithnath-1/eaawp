@@ -1,0 +1,48 @@
+# Render Blueprint — EAAWP backend (FastAPI) + PostgreSQL.
+# The frontend is deployed separately on Vercel (see vercel.json).
+# Render dashboard → New → Blueprint → pick this repository.
+
+databases:
+  - name: eaawp-db
+    plan: free
+    databaseName: eaawp
+    user: eaawp
+
+services:
+  - type: web
+    name: eaawp-backend
+    runtime: python
+    plan: free
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    # Bring the database schema up to date, then serve the API.
+    startCommand: alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.14.3
+      - key: ENVIRONMENT
+        value: production
+      - key: DATABASE_URL
+        fromDatabase:
+          name: eaawp-db
+          property: connectionString
+      - key: SECRET_KEY
+        generateValue: true
+      # The Vercel site address(es), comma separated, no trailing slash.
+      - key: CORS_ORIGINS
+        value: https://eaawp-henna.vercel.app
+      # Render's load balancer appends the caller's address to X-Forwarded-For.
+      - key: TRUSTED_PROXY_COUNT
+        value: "1"
+      - key: LLM_DEFAULT_PROVIDER
+        value: google
+      - key: GEMINI_DEFAULT_MODEL
+        value: gemini-3.5-flash-lite
+      - key: GEMINI_EMBEDDING_MODEL
+        value: models/gemini-embedding-2
+      # Secrets: Render asks for these when the Blueprint is created.
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
