@@ -796,6 +796,8 @@ export function useKnowledgeStatusReal() {
             last_indexed_at: null,
           }),
     staleTime: 15_000,
+    // Keep the counts live while documents are indexing (large files take minutes)
+    refetchInterval: (query) => ((query.state.data?.documents_processing ?? 0) > 0 ? 4000 : false),
   });
 }
 

@@ -91,9 +91,16 @@ function RealDocumentRow({
   const isIndexed = doc.status === "indexed";
   return (
     <div className="grid grid-cols-[2fr_1fr_0.7fr_0.7fr_1.4fr_1fr_auto] items-center gap-2 border-b border-border px-3 py-2 last:border-0 hover:bg-surface">
-      <div className="flex items-center gap-2">
-        <span className={cn("size-1.5 shrink-0", isIndexed ? "bg-success" : doc.status === "processing" || doc.status === "uploading" ? "bg-warning animate-pulse" : "bg-destructive")} />
-        <span className="truncate text-[13px]">{doc.name}</span>
+      <div className="min-w-0">
+        <div className="flex items-center gap-2">
+          <span className={cn("size-1.5 shrink-0", isIndexed ? "bg-success" : doc.status === "processing" || doc.status === "uploading" ? "bg-warning animate-pulse" : "bg-destructive")} />
+          <span className="truncate text-[13px]">{doc.name}</span>
+        </div>
+        {doc.status === "failed" && doc.error_message && (
+          <p className="mt-0.5 pl-3.5 text-[11px] leading-snug text-destructive" title={doc.error_message}>
+            {doc.error_message}
+          </p>
+        )}
       </div>
       <span className="font-mono text-[10px] text-muted-foreground">{doc.doc_type.toUpperCase()}</span>
       <span className="font-mono text-[11px] text-muted-foreground">{formatBytes(doc.size_bytes)}</span>
