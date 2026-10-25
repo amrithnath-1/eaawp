@@ -5,7 +5,7 @@ Pipeline:
     raw file bytes
         ↓ extract_text()   — format-aware text extraction
         ↓ chunk_text()     — RecursiveCharacterTextSplitter (no tiktoken)
-        ↓ embed_chunks()   — OpenAI text-embedding-3-small
+        ↓ embed_texts_for_indexing() — Gemini embeddings, paced under the per-minute quota
         ↓ store_chunks()   — persist to document_chunks table
         ↓ mark_indexed()   — update knowledge_documents.status = "indexed"
 
@@ -36,7 +36,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import DocumentChunk, KnowledgeDocument
-from app.services.vector_store import embed_text
+from app.services.vector_store import embed_texts_for_indexing
 
 logger = logging.getLogger(__name__)
 
@@ -48,6 +48,9 @@ _DEFAULT_UPLOAD_DIR = (
     else Path(__file__).parent.parent.parent / "uploads"
 )
 UPLOAD_DIR = Path(os.environ.get("UPLOAD_DIR") or _DEFAULT_UPLOAD_DIR)
+# Upload directory — stored relative to backend root. UPLOAD_DIR overrides it
+# (for example a mounted persistent disk on a hosting provider).
+UPLOAD_DIR = Path(os.environ.get("UPLOAD_DIR") or Path(__file__).parent.parent.parent / "uploads")
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 # Chunking parameters
@@ -171,13 +174,8 @@ async def process_document(
         if not chunks:
             raise ValueError("Text could not be split into chunks.")
 
-        # Embed using Gemini (batch in groups of 50 to stay within rate limits)
-        all_embeddings: list[list[float]] = []
-        batch_size = 50
-        for i in range(0, len(chunks), batch_size):
-            batch = chunks[i : i + batch_size]
-            vecs = await embed_text(batch)  # uses Gemini — no client arg needed
-            all_embeddings.extend(vecs)
+        # Embed using Gemini, paced under the per-minute quota with retries on 429
+        all_embeddings = await embed_texts_for_indexing(chunks)
 
         # Delete any existing chunks for this document (re-processing)
         existing = await db.execute(
