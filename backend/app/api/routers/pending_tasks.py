@@ -183,7 +183,7 @@ async def resume_pending_task(
 
     request = AgentExecutionRequest(
         blueprint=AgentBlueprint(
-            agent_id=f"resume-{task.id}", role_name=task.role_name,
+            agent_id=f"resume-{task.id}", role_name=task.role_name, role_key=task.role_key,
             system_persona="Resumed request.", tenant_id=task.tenant_id,
         ),
         user_prompt=task.prompt,
@@ -197,6 +197,15 @@ async def resume_pending_task(
         task.status = "completed"
     task.resumed_plan_id = result.plan_id
     await db.flush()
+    # The answer joins the conversation the request was asked in (the owner's own History).
+    from app.db.conversation_models import Conversation
+    from app.services import conversations as cs
+    conv = (await db.execute(select(Conversation).where(
+        Conversation.id == (task.session_id or ""), Conversation.tenant_id == task.tenant_id,
+        Conversation.user_id == task.user_id))).scalar_one_or_none()
+    if conv is not None:
+        await cs.add_message(db, conv, "assistant", result.message, cs.display_meta(result), plan_id=result.plan_id)
+        result = result.model_copy(update={"conversation_id": conv.id})
     return result
 
 

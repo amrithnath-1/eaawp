@@ -62,6 +62,10 @@ class AgentExecutionRequest(BaseModel):
     session_id: str | None = Field(
         default=None, description="Optional session ID for conversation continuity"
     )
+    conversation_id: str | None = Field(
+        default=None, max_length=36,
+        description="Continue this saved conversation (the caller's own, same AI employee); omit to start a new one",
+    )
 
 
 class ToolCallDetail(BaseModel):
@@ -100,4 +104,7 @@ class AgentExecutionResponse(BaseModel):
     pending_task_id: str | None = Field(
         default=None,
         description="Set when the request is saved waiting for an integration to be set up",
+    )
+    conversation_id: str | None = Field(
+        default=None, description="The saved conversation this exchange was stored in (History)",
     )

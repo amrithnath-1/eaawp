@@ -77,8 +77,10 @@ async def process_action_request(
             message=f"Action tool '{tool_name}' is not registered.",
         )
 
-    # ── 2. Check tool is in blueprint.allowed_tools ──────────────────────────
-    if tool_name not in blueprint_allowed_tools:
+    # ── 2. Check the role may use the tool at all ────────────────────────────
+    # A role's tools are either allowed (enabled) or guarded (requires_approval). Guarded tools are permitted too:
+    # they always go through approval below, which is the whole point of guarding them.
+    if tool_name not in blueprint_allowed_tools and tool_name not in blueprint_guarded_tools:
         audit = _make_audit(tenant_id, role_key, tool_name, request.arguments,
                             action_tool.meta.risk_level, "rejected", "pending",
                             error_message="Tool not in blueprint allowed_tools.")
@@ -410,8 +412,8 @@ def _sanitise_arguments(args: dict) -> dict:
     Remove any potentially sensitive keys from stored arguments.
     Credentials must never reach the audit table.
     """
-    sensitive = {"password", "secret", "token", "api_key", "credential", "dsn"}
-    return {k: v for k, v in args.items() if k.lower() not in sensitive}
+    sensitive = ("password", "secret", "token", "api_key", "apikey", "credential", "dsn", "authorization", "cookie")
+    return {k: v for k, v in args.items() if not any(s in k.lower() for s in sensitive)}
 
 
 def _format_action_detail(tool_name: str, args: dict) -> str:

@@ -253,6 +253,18 @@ class ApprovalRequestOut(BaseModel):
     review_note: str | None
     created_at: datetime
     resolved_at: datetime | None
+    # Linked action, from the action audit / plan (absent for approvals without a governed action).
+    ai_employee: str | None = None
+    tool_name: str | None = None
+    risk_level: str | None = None
+    parameters: dict[str, Any] = Field(default_factory=dict)   # sensitive keys removed
+    reason: str | None = None
+    execution_status: str | None = None
+    execution_error: str | None = None
+    plan_id: str | None = None
+    plan_status: str | None = None
+    requested_for: str | None = None    # the person whose conversation produced the request
+    reviewer_name: str | None = None
 
     model_config = {"from_attributes": True}
 

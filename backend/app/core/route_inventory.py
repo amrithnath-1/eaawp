@@ -91,6 +91,8 @@ MEMBER_MUTATIONS: dict[tuple[str, str], str] = {
     ("POST", "/api/v1/nl-integration/chat"): "Conversation reply only; takes no action.",
     ("POST", "/api/v1/auth/logout/all"): "Revokes the caller's own refresh tokens.",
     ("PUT", "/api/v1/workspace"): "The caller picks their OWN AI employee workspace; refused unless the module is active and the role not paused; grants no permission (every page and tool keeps its own server checks); audited.",
+    ("PATCH", "/api/v1/conversations/{conversation_id}"): "Renames the caller's OWN saved conversation; anyone else's (admins included) is a 404.",
+    ("DELETE", "/api/v1/conversations/{conversation_id}"): "Deletes the caller's OWN saved conversation; anyone else's (admins included) is a 404.",
 }
 
 

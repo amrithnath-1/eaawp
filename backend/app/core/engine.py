@@ -120,6 +120,9 @@ class DynamicAgentEngine:
             full_prompt = f"{context_block}\n\nUser question: {user_prompt}"
         else:
             full_prompt = user_prompt
+        from app.services.conversations import turn_history
+        if turn_history.get():
+            full_prompt = f"{turn_history.get()}\n\n{full_prompt}"
 
         messages: list[Any] = [
             SystemMessage(content=system_content),

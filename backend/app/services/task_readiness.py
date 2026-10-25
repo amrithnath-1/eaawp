@@ -82,6 +82,39 @@ _GA_TRAFFIC = re.compile(
 )
 
 
+# GitHub data requests.  Repositories only exist in GitHub among the supported providers, so "list repositories"
+# is a GitHub request even when GitHub is not named.  Each noun maps to the read capability that answers it.
+_GITHUB_NAMED = re.compile(r"\bgit ?hub\b", re.I)
+_GITHUB_DATA = (
+    (re.compile(r"\bpull requests?\b|\bprs\b", re.I), "list_pull_requests"),
+    (re.compile(r"\bcommits?\b", re.I), "list_commits"),
+    (re.compile(r"\bbranch(es)?\b", re.I), "list_branches"),
+    (re.compile(r"\bissues\b", re.I), "list_issues"),
+    (re.compile(r"\brepo(s|sitor(y|ies))?\b", re.I), "list_repositories"),
+)
+# Managing the connection itself is handled before the gate; asking how to do something is a knowledge question.
+_GITHUB_NOT_DATA = re.compile(r"\bhow (do|can|to)\b|\b(connect|disconnect|integrat\w*|set ?up)\b", re.I)
+
+
+def _github_requirement(text: str) -> "Requirement | None":
+    if _GITHUB_NOT_DATA.search(text):
+        return None
+    caps = [cap for rx, cap in _GITHUB_DATA if rx.search(text)]
+    # Without the word GitHub, only a mention of repositories makes it a GitHub request:
+    # "issues", "branches" or "commits" alone could be about anything.
+    if not caps or not (_GITHUB_NAMED.search(text) or "list_repositories" in caps):
+        return None
+    return Requirement(
+        provider_type="github",
+        capabilities=tuple(caps),
+        purpose="read repositories, issues, pull requests and commits from GitHub",
+    )
+
+
+# Providers connected with a per-connection token entered in Integrations (no Google sign-in step).
+TOKEN_PROVIDERS = frozenset({"github"})
+
+
 @dataclass
 class Assessment:
     state: State
@@ -116,6 +149,9 @@ async def detect_requirements(
         found.append(GA4_TRAFFIC)
     elif _GA_TRAFFIC.search(text) and not found and not await _has_company_data_mappings(tenant_id, db):
         found.append(GA4_TRAFFIC)
+    gh = _github_requirement(text)
+    if gh is not None:
+        found.append(gh)
     return [r for r in found if not r.roles or role_key in r.roles]
 
 
@@ -174,6 +210,8 @@ async def assess(req: Requirement, tenant_id: str, role_key: str, db: AsyncSessi
     if best:
         return best
 
+    if req.provider_type in TOKEN_PROVIDERS:
+        return Assessment("needs_authorization", req)
     cfg = await get_provider_configuration_status(req.provider_type, tenant_id, db)
     if cfg.state != "CONFIGURED":
         return Assessment(
@@ -228,6 +266,18 @@ def setup_message(a: Assessment, *, is_admin: bool) -> tuple[str, str, dict]:
         return (
             f"{saved}{name} is not set up for your company yet. An administrator needs to add the "
             "Google OAuth credentials and connect it. I’ll be ready to run this once they have.",
+            "ADMIN_REQUIRED", data,
+        )
+    if a.state == "needs_authorization" and a.requirement.provider_type in TOKEN_PROVIDERS:
+        if is_admin:
+            return (
+                f"{saved}{name} is not connected yet. Connect it in Integrations → {name} with a read-only access "
+                "token (it is stored encrypted), then grant this AI employee read access and I’ll run the request.",
+                "OPEN_INTEGRATIONS", data,
+            )
+        return (
+            f"{saved}{name} is not connected yet. An administrator needs to connect it in Integrations. "
+            "I’ll be ready to run this once they have.",
             "ADMIN_REQUIRED", data,
         )
     if a.state == "needs_authorization":

@@ -7,15 +7,56 @@ import { PageHeader, Panel } from "@/components/eaawp/Panel";
 import { McpToolsPanel } from "@/components/eaawp/McpToolsPanel";
 import { NLIntegrationPanel } from "@/components/eaawp/NLIntegrationPanel";
 import { GoogleSearchConsolePanel } from "@/components/eaawp/GoogleSearchConsolePanel";
+import { ConnectedAccountsPanel, connectionState } from "@/components/eaawp/ConnectedAccountsPanel";
 import { cn } from "@/lib/utils";
 import { apiErrorMessage } from "@/lib/api-client";
-import { useCreateIntegration, useGaAuthorize, useTestIntegration } from "@/hooks/use-api";
+import { useCapabilityGrants, useCreateIntegration, useGaAuthorize, useIntegrations, useTestIntegration, type IntegrationOut } from "@/hooks/use-api";
+
+type Tab = "setup" | "gsc" | "analytics" | "github" | "mcp";
+const TAB_FOR_PROVIDER: Record<string, Tab> = {
+  google_search_console: "gsc", gsc: "gsc", google_analytics: "analytics", analytics: "analytics",
+  github: "github", mcp: "mcp", setup: "setup",
+};
 
 export const Route = createFileRoute("/integrations")({
+  validateSearch: (s: Record<string, unknown>): { tab?: Tab } => {
+    const t = typeof s["tab"] === "string" ? TAB_FOR_PROVIDER[s["tab"]] : undefined;
+    return t ? { tab: t } : {};
+  },
   component: IntegrationsPage,
 });
 
-type Tab = "setup" | "gsc" | "analytics" | "github" | "mcp";
+const PROVIDER_LABEL: Record<string, string> = {
+  google_search_console: "Google Search Console", google_analytics: "Google Analytics", github: "GitHub",
+  mcp: "MCP server", facebook: "Meta / Facebook", postgresql: "PostgreSQL", mysql: "MySQL",
+};
+
+function OverviewRow({ i, onOpen }: { i: IntegrationOut; onOpen: (t: Tab) => void }) {
+  const { data: grants = [] } = useCapabilityGrants(i.id);
+  const st = connectionState(i, grants.filter((g) => g.is_granted).length);
+  const tab = TAB_FOR_PROVIDER[i.provider_type];
+  return (
+    <li className="flex flex-wrap items-center justify-between gap-2 border-b border-border py-1.5 last:border-0">
+      <span className="text-[12px]">{i.display_name} <span className="text-muted-foreground">· {PROVIDER_LABEL[i.provider_type] ?? i.provider_type}</span></span>
+      <span className="flex items-center gap-2">
+        <span className={cn("border px-1.5 py-0.5 font-mono text-[9px]", st.tone)}>{st.label}</span>
+        {tab && <button onClick={() => onOpen(tab)} className="font-mono text-[9px] underline">OPEN</button>}
+      </span>
+    </li>
+  );
+}
+
+function ConnectionsOverview({ onOpen }: { onOpen: (t: Tab) => void }) {
+  const { data, isLoading } = useIntegrations();
+  return (
+    <section aria-label="Connected services" className="mb-4 border border-border p-3">
+      <p className="font-mono text-[10px] tracking-[0.14em] text-muted-foreground">CONNECTED SERVICES</p>
+      {isLoading ? <p className="mt-1 text-[12px] text-muted-foreground">Loading…</p>
+        : !data?.length ? <p className="mt-1 text-[12px] text-muted-foreground">No service is connected yet.</p>
+        : <ul className="mt-1">{data.map((i) => <OverviewRow key={i.id} i={i} onOpen={onOpen} />)}</ul>}
+    </section>
+  );
+}
 
 const TABS: { id: Tab; label: string; icon: React.ElementType }[] = [
   { id: "setup",     label: "Setup Assistant",          icon: Plug },
@@ -26,7 +67,9 @@ const TABS: { id: Tab; label: string; icon: React.ElementType }[] = [
 ];
 
 function IntegrationsPage() {
-  const [activeTab, setActiveTab] = useState<Tab>("setup");
+  const { tab: initialTab } = Route.useSearch();
+  const [activeTab, setActiveTab] = useState<Tab>(initialTab ?? "setup");
+  useEffect(() => { if (initialTab) setActiveTab(initialTab); }, [initialTab]);
   // The authorize endpoint needs the Bearer token, so it must be called with the
   // API client (which sends it) - never by navigating the browser to its URL.
   const gaAuth = useGaAuthorize();
@@ -79,8 +122,18 @@ function IntegrationsPage() {
 
         {/* Tab content */}
         <Panel>
-          {activeTab === "setup" && <NLIntegrationPanel onOpenTab={(tab) => setActiveTab(tab)} />}
-          {activeTab === "gsc" && <GoogleSearchConsolePanel />}
+          {activeTab === "setup" && (
+            <>
+              <ConnectionsOverview onOpen={setActiveTab} />
+              <NLIntegrationPanel onOpenTab={(tab) => setActiveTab(tab)} />
+            </>
+          )}
+          {activeTab === "gsc" && (
+            <div className="space-y-4">
+              <ConnectedAccountsPanel providerType="google_search_console" title="Search Console connections" />
+              <GoogleSearchConsolePanel />
+            </div>
+          )}
           {activeTab === "analytics" && (
             <div className="space-y-3">
               <p className="font-mono text-[10px] tracking-[0.14em] text-muted-foreground">
@@ -106,6 +159,7 @@ function IntegrationsPage() {
               >
                 <BarChart2 className="size-3.5" /> {gaAuth.isPending ? "OPENING…" : "CONNECT GOOGLE ANALYTICS"}
               </button>
+              <ConnectedAccountsPanel providerType="google_analytics" title="Google Analytics connections" />
             </div>
           )}
           {activeTab === "github" && (
@@ -118,9 +172,11 @@ function IntegrationsPage() {
                 Supports read access to repositories, issues, and pull requests.
               </p>
               <p className="text-[12px] text-muted-foreground">
-                Write capabilities (create issue, create PR) require human approval.
+                Write capabilities (create issue, create pull request) are high risk: an AI employee never runs them, even
+                when granted. Grant only the read capabilities an AI employee needs.
               </p>
-              <ProviderConnectionForm providerType="github" title="Connect GitHub" tokenLabel="GitHub personal access token" />
+              <ConnectedAccountsPanel providerType="github" title="GitHub connections" />
+              <ProviderConnectionForm providerType="github" title="Connect another GitHub account" tokenLabel="GitHub personal access token (fine-grained, read-only recommended)" />
             </div>
           )}
           {activeTab === "mcp" && (
@@ -136,6 +192,7 @@ function IntegrationsPage() {
                 All discovered tools require an explicit capability grant before any
                 AI employee can use them. Each tool is granted separately, per AI employee role. Risk is classified from every word of the tool name, and high-risk tools never run automatically.
               </p>
+              <ConnectedAccountsPanel providerType="mcp" title="MCP connections" />
               <ProviderConnectionForm providerType="mcp" title="Connect MCP server" />
               <McpToolsPanel />
               <p className="border border-border p-3 text-[11px] text-muted-foreground">

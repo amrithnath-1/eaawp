@@ -3,12 +3,15 @@ import { Link } from "@tanstack/react-router";
 import { ActivityStream } from "./ActivityStream";
 import { ActiveTasks } from "./ActiveTasks";
 import { ProactiveInsights } from "./ProactiveInsights";
+import { HistoryPanel } from "./HistoryPanel";
 import { cn } from "@/lib/utils";
 
-const TABS = ["Activity", "Tasks", "Insights"] as const;
-type Tab = (typeof TABS)[number];
+const TABS = ["History", "Activity", "Tasks", "Insights"] as const;
+export type ContextTab = (typeof TABS)[number];
+type Tab = ContextTab;
 
-const FOOTER: Record<Tab, { label: string; to: string }> = {
+const FOOTER: Record<Tab, { label: string; to: string } | null> = {
+  History: null,
   Activity: { label: "View full activity", to: "/recents" },
   Tasks: { label: "View all tasks", to: "/workspace" },
   Insights: { label: "View all insights", to: "/workspace" },
@@ -17,8 +20,8 @@ const FOOTER: Record<Tab, { label: string; to: string }> = {
 /**
  * Contextual panel. Strictly ONE tab's content is rendered at a time.
  */
-export function ContextPanel({ className }: { className?: string }) {
-  const [tab, setTab] = useState<Tab>("Activity");
+export function ContextPanel({ className, defaultTab = "Activity" }: { className?: string; defaultTab?: Tab }) {
+  const [tab, setTab] = useState<Tab>(defaultTab);
   const footer = FOOTER[tab];
 
   return (
@@ -42,19 +45,22 @@ export function ContextPanel({ className }: { className?: string }) {
       </div>
 
       <div className="min-h-0 flex-1 overflow-hidden">
+        {tab === "History" && <HistoryPanel />}
         {tab === "Activity" && <ActivityStream />}
         {tab === "Tasks" && <ActiveTasks />}
         {tab === "Insights" && <ProactiveInsights />}
       </div>
 
-      <div className="shrink-0 border-t border-border px-3 py-2">
-        <Link
-          to={footer.to}
-          className="font-mono text-[10px] tracking-[0.14em] text-muted-foreground hover:text-foreground"
-        >
-          {footer.label.toUpperCase()} →
-        </Link>
-      </div>
+      {footer && (
+        <div className="shrink-0 border-t border-border px-3 py-2">
+          <Link
+            to={footer.to}
+            className="font-mono text-[10px] tracking-[0.14em] text-muted-foreground hover:text-foreground"
+          >
+            {footer.label.toUpperCase()} →
+          </Link>
+        </div>
+      )}
     </section>
   );
 }

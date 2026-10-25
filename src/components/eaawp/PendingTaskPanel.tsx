@@ -24,6 +24,8 @@ import { apiErrorMessage } from "@/lib/api-client";
 const PROVIDER_NAMES: Record<string, string> = {
   google_analytics: "Google Analytics",
   google_search_console: "Google Search Console",
+  github: "GitHub",
+  mcp: "MCP server",
 };
 
 function TaskRow({ task, onResult }: { task: PendingTaskFE; onResult: (prompt: string, r: AgentExecutionResponse) => void }) {
@@ -107,6 +109,14 @@ function TaskRow({ task, onResult }: { task: PendingTaskFE; onResult: (prompt: s
               USE THIS PROPERTY
             </button>
           </div>
+        )}
+        {task.next_action === "OPEN_INTEGRATIONS" && (
+          <a
+            href={`/integrations?tab=${encodeURIComponent(provider)}`}
+            className={`${btn} border-border hover:bg-foreground/5`}
+          >
+            <ExternalLink className="mr-1 inline size-3" />OPEN INTEGRATIONS · {providerName.toUpperCase()}
+          </a>
         )}
         {task.next_action === "GRANT_REQUIRED" && (
           <button

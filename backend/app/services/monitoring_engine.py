@@ -51,6 +51,7 @@ from app.db.models import RoleConfiguration
 from app.schemas.blueprint import AgentBlueprint
 from app.schemas.monitoring import MonitoringCondition
 from app.services.monitoring_evaluator import EvaluationResult, evaluate_condition
+from app.services.role_charter import role_system_prompt
 
 logger = logging.getLogger(__name__)
 
@@ -171,7 +172,8 @@ async def _do_evaluate(
     blueprint = AgentBlueprint(
         agent_id=f"{tenant_id}-{rule.role_key.lower()}",
         role_name=role_config.role_name,
-        system_persona=role_config.system_persona,
+        role_key=rule.role_key,
+        system_persona=await role_system_prompt(db, tenant_id, rule.role_key),
         allowed_tools=allowed_tools,
         guarded_tools=guarded_tools,
         tenant_id=tenant_id,

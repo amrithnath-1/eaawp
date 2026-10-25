@@ -7,6 +7,8 @@ import { useTheme } from "@/state/theme";
 import { cn } from "@/lib/utils";
 import { USE_REAL_API } from "@/lib/api-client";
 import { NotificationSettingsPanel } from "@/components/eaawp/NotificationSettingsPanel";
+import { CompanyProfilePanel } from "@/components/eaawp/CompanyProfilePanel";
+import { IS_ADMIN_ROLE } from "@/lib/workspace";
 
 export const Route = createFileRoute("/settings")({
   component: SettingsPage,
@@ -51,6 +53,7 @@ function SettingsPage() {
               <Panel title="Departments / endpoints">
                 <p className="text-xs text-muted-foreground">No real company systems are listed here until an administrator connects and tests them in Integrations.</p>
               </Panel>
+              {USE_REAL_API && <CompanyProfilePanel canEdit={IS_ADMIN_ROLE(user?.role)} />}
             </>
           )}
 

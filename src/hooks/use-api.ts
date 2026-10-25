@@ -871,6 +871,8 @@ export interface AgentExecutionRequest {
   blueprint: AgentBlueprint;
   user_prompt: string;
   session_id?: string;
+  /** Continue this saved conversation (own, same AI employee); omit to start a new one. */
+  conversation_id?: string;
 }
 
 export interface AgentExecutionResponse {
@@ -884,6 +886,8 @@ export interface AgentExecutionResponse {
   step_summaries?: string[];
   /** Set when the request is saved waiting for an integration to be set up. */
   pending_task_id?: string | null;
+  /** The saved conversation (History) this exchange was stored in. */
+  conversation_id?: string | null;
 }
 
 /**
@@ -909,10 +913,10 @@ export const DEFAULT_BLUEPRINT: AgentBlueprint = {
 export function useAgentExecute() {
   const queryClient = useQueryClient();
 
-  return useMutation<AgentExecutionResponse, Error, AgentExecutionRequest>({
-    mutationFn: (req) => {
+  return useMutation<AgentExecutionResponse, Error, AgentExecutionRequest & { signal?: AbortSignal }>({
+    mutationFn: ({ signal, ...req }) => {
       if (USE_REAL_API) {
-        return apiClient.post<AgentExecutionResponse>("/api/v1/agent/execute", req);
+        return apiClient.post<AgentExecutionResponse>("/api/v1/agent/execute", req, signal);
       }
       // Mock path — clearly labelled, never pretends to be real AI
       return new Promise((resolve) =>
@@ -935,6 +939,9 @@ export function useAgentExecute() {
       // Invalidate activity and tasks after an agent execution
       void queryClient.invalidateQueries({ queryKey: queryKeys.activity });
       void queryClient.invalidateQueries({ queryKey: queryKeys.tasks });
+      void queryClient.invalidateQueries({ queryKey: ["conversations", "list"] });
+      void queryClient.invalidateQueries({ queryKey: ["workspace-tools"] });
+      void queryClient.invalidateQueries({ queryKey: ["pending-tasks"] });
     },
   });
 }
@@ -3767,6 +3774,18 @@ export interface ApprovalRequestOut {
   review_note: string | null;
   created_at: string;
   resolved_at: string | null;
+  // What the approval is about (from the linked governed action; absent when there is none)
+  ai_employee?: string | null;
+  tool_name?: string | null;
+  risk_level?: string | null;
+  parameters?: Record<string, unknown>;
+  reason?: string | null;
+  execution_status?: string | null;
+  execution_error?: string | null;
+  plan_id?: string | null;
+  plan_status?: string | null;
+  requested_for?: string | null;
+  reviewer_name?: string | null;
 }
 
 export function useApprovalRequests(status?: string) {

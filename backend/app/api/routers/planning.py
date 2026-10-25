@@ -154,7 +154,17 @@ async def resume_plan_endpoint(
     steps_result = await db.execute(
         select(PlanStep).where(PlanStep.plan_id == plan_id)
     )
-    return _plan_out(plan, list(steps_result.scalars().all()))
+    steps = list(steps_result.scalars().all())
+    await _sync_conversation(plan, steps, db)
+    return _plan_out(plan, steps)
+
+
+async def _sync_conversation(plan: ExecutionPlan, steps: list[PlanStep], db: AsyncSession) -> None:
+    """The saved chat answer for this plan shows its real outcome after the approval decision (History)."""
+    from app.services.conversations import sync_plan
+    ordered = sorted(steps, key=lambda st: st.step_index)
+    await sync_plan(db, plan.tenant_id, plan.id, plan.final_message or "", plan.status,
+                    [f"[{st.step_type.upper()}] {st.description} → {st.status}" for st in ordered])
 
 
 @router.post("/plans/{plan_id}/reject", response_model=ExecutionPlanOut)
@@ -188,4 +198,6 @@ async def reject_plan_endpoint(
             PlanStep.tenant_id == tenant_id,
         )
     )
-    return _plan_out(plan, list(steps_result.scalars().all()))
+    steps = list(steps_result.scalars().all())
+    await _sync_conversation(plan, steps, db)
+    return _plan_out(plan, steps)
