@@ -436,6 +436,7 @@ function CabinPage() {
     );
     void qc.invalidateQueries({ queryKey: conversationKeys.all });
     void qc.invalidateQueries({ queryKey: ["workspace-tools"] });
+    void qc.invalidateQueries({ queryKey: ["workspace-feed"] });
   }
 
   /** A saved request was run after setup: show the original question and the real answer. */

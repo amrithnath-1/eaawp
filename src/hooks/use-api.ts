@@ -941,6 +941,7 @@ export function useAgentExecute() {
       void queryClient.invalidateQueries({ queryKey: queryKeys.tasks });
       void queryClient.invalidateQueries({ queryKey: ["conversations", "list"] });
       void queryClient.invalidateQueries({ queryKey: ["workspace-tools"] });
+      void queryClient.invalidateQueries({ queryKey: ["workspace-feed"] });
       void queryClient.invalidateQueries({ queryKey: ["pending-tasks"] });
     },
   });

@@ -47,6 +47,26 @@ function NotInWorkspace({ pathname, ws, isAdmin }: { pathname: string; ws: Works
   );
 }
 
+/** Loading state that says why it is slow instead of looking frozen (e.g. a sleeping free-tier server waking up). */
+function EstablishingSession() {
+  const [slow, setSlow] = useState(false);
+  useEffect(() => {
+    const t = window.setTimeout(() => setSlow(true), 5000);
+    return () => window.clearTimeout(t);
+  }, []);
+  return (
+    <div role="status" className="max-w-sm text-center">
+      <span className="label-xs">Establishing workspace session…</span>
+      {slow && (
+        <p className="mt-3 text-[12px] text-muted-foreground">
+          The server is taking longer than usual to answer. On free hosting plans the server sleeps when nobody has used
+          it for a while and needs up to a minute to wake up. This page continues by itself as soon as it responds.
+        </p>
+      )}
+    </div>
+  );
+}
+
 export function AppShell({ children, contentClassName }: { children: ReactNode; contentClassName?: string }) {
   const { ready, user, company } = useWorkspaceGuard();
   const { signOut } = useSession();
@@ -70,7 +90,7 @@ export function AppShell({ children, contentClassName }: { children: ReactNode; 
   }
 
   if (!ready || !user || !company || workspace.isLoading || mustSelect) {
-    return <Centered><span className="label-xs">Establishing workspace session…</span></Centered>;
+    return <Centered><EstablishingSession /></Centered>;
   }
   if (workspace.isError || !ws || !ws.selected) {
     return (

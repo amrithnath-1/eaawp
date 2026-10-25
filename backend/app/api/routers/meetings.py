@@ -116,13 +116,20 @@ async def list_meetings(user: User = Depends(get_current_user), db: AsyncSession
     if not is_admin_user(user):
         q = q.where(Meeting.created_by == user.id)
     rows = (await db.execute(q.order_by(Meeting.created_at.desc()).limit(50))).scalars().all()
-    out = []
-    for m in rows:
-        tasks = (await db.execute(select(MeetingTask).where(MeetingTask.meeting_id == m.id, MeetingTask.tenant_id == m.tenant_id))).scalars().all()
-        out.append(MeetingOut(id=m.id, title=m.title, objective=m.objective, status=m.status, summary=m.summary,
-                              created_by=m.created_by, created_at=m.created_at, finished_at=m.finished_at,
-                              task_count=len(tasks), completed_count=sum(1 for t in tasks if t.status == "completed")))
-    return out
+    # One grouped query for every meeting's task counts (was one query per meeting).
+    counts: dict[str, list[int]] = {}
+    if rows:
+        from sqlalchemy import case, func
+        grouped = (select(MeetingTask.meeting_id, func.count(),
+                          func.sum(case((MeetingTask.status == "completed", 1), else_=0)))
+                   .where(MeetingTask.tenant_id == user.tenant_id, MeetingTask.meeting_id.in_([m.id for m in rows]))
+                   .group_by(MeetingTask.meeting_id))
+        for mid, total, done in (await db.execute(grouped)).all():
+            counts[mid] = [int(total), int(done or 0)]
+    return [MeetingOut(id=m.id, title=m.title, objective=m.objective, status=m.status, summary=m.summary,
+                       created_by=m.created_by, created_at=m.created_at, finished_at=m.finished_at,
+                       task_count=counts.get(m.id, [0, 0])[0], completed_count=counts.get(m.id, [0, 0])[1])
+            for m in rows]
 
 
 @router.post("", response_model=MeetingDetail, status_code=201)

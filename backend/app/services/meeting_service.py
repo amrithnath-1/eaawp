@@ -45,9 +45,14 @@ BUILT_IN_ROLES = [
 ]
 UPSTREAM_CHARS = 1500
 RESULT_CHARS = 4000
-STALE_MINUTES = 30
+# A running meeting is touched at least once a minute by the process running it (heartbeat). One that has not been
+# touched for STALE_MINUTES lost its worker (crash, restart, deploy) and is recovered by the scheduler's sweep.
+STALE_MINUTES = 5
+# A meeting left "queued" this long never got a worker (e.g. the process stopped right after creating it).
+QUEUED_STALE_MINUTES = 2
 TERMINAL_TASK = {"completed", "failed", "skipped", "cancelled"}
 _background: set[asyncio.Task] = set()
+_active: set[str] = set()          # meetings this process is running right now
 
 
 def _now() -> datetime:
@@ -264,55 +269,62 @@ async def run_meeting(meeting_id: str) -> str:
             return "missing"
         if claimed.rowcount != 1:
             return m.status                                    # someone else is running it, or it is paused/finished
+        _active.add(meeting_id)
+        try:
+            return await _run_claimed(db, m)
+        finally:
+            _active.discard(meeting_id)
 
-        while True:
-            await db.refresh(m)
-            if m.status != "running":                          # cancelled (or recovered) while we worked
-                return m.status
-            tasks = (await db.execute(select(MeetingTask).where(MeetingTask.meeting_id == m.id, MeetingTask.tenant_id == m.tenant_id).order_by(MeetingTask.position))).scalars().all()
-            by_key = {t.key: t for t in tasks}
-            progressed = False
-            for t in tasks:                                    # a task whose dependency did not complete never runs
-                if t.status == "pending" and any(by_key.get(d) is None or by_key[d].status in ("failed", "skipped", "cancelled") for d in _deps(t)):
-                    t.status, t.finished_at = "skipped", _now()
-                    t.result = "Skipped because a task it depends on did not complete."
-                    await add_message(db, m, "system", "System", f"{t.role_name}: '{t.title}' skipped - a dependency did not complete.",
-                                      kind="status", task_id=t.id)
-                    progressed = True
-            nxt = next((t for t in tasks if t.status == "pending" and all(by_key[d].status == "completed" for d in _deps(t))), None)
-            if nxt is None:
-                await db.commit()
-                if progressed:
-                    continue
-                break
-            user = await db.get(User, m.created_by)
-            if user is None or not user.is_active or user.tenant_id != m.tenant_id:
-                for t in tasks:
-                    if t.status == "pending":
-                        t.status, t.finished_at, t.result = "skipped", _now(), "The meeting's owner is no longer an active member."
-                await add_message(db, m, "system", "System", "Stopped: the person who started this meeting is no longer an active member.", kind="status")
-                await db.commit()
-                break
-            nxt.status, nxt.started_at = "running", _now()
-            await db.commit()
-            upstream = [by_key[d] for d in _deps(nxt)]
-            status, text, plan_id, pending_id = await _call_role(db, m, nxt, user, build_prompt(m, nxt, upstream))
-            await db.refresh(m)
-            if m.status != "running":                          # cancelled during execution: record, do not continue
-                nxt.status = "cancelled" if status != "completed" else "completed"
-                nxt.result, nxt.finished_at, nxt.plan_id = text[:RESULT_CHARS], _now(), plan_id
-                await db.commit()
-                return m.status
-            nxt.status, nxt.result, nxt.plan_id, nxt.pending_task_id = status, text[:RESULT_CHARS], plan_id, pending_id
-            if status in TERMINAL_TASK:
-                nxt.finished_at = _now()
-            await add_message(db, m, "agent", nxt.role_name, text, kind="result" if status == "completed" else "status", task_id=nxt.id)
-            await db.commit()
-            if status in ("awaiting_approval", "waiting_setup"):
-                await _set_meeting_status(db, m, status)
-                return status
 
-        return await _finalize(db, m)
+async def _run_claimed(db: AsyncSession, m: Meeting) -> str:
+    while True:
+        await db.refresh(m)
+        if m.status != "running":                          # cancelled (or recovered) while we worked
+            return m.status
+        tasks = (await db.execute(select(MeetingTask).where(MeetingTask.meeting_id == m.id, MeetingTask.tenant_id == m.tenant_id).order_by(MeetingTask.position))).scalars().all()
+        by_key = {t.key: t for t in tasks}
+        progressed = False
+        for t in tasks:                                    # a task whose dependency did not complete never runs
+            if t.status == "pending" and any(by_key.get(d) is None or by_key[d].status in ("failed", "skipped", "cancelled") for d in _deps(t)):
+                t.status, t.finished_at = "skipped", _now()
+                t.result = "Skipped because a task it depends on did not complete."
+                await add_message(db, m, "system", "System", f"{t.role_name}: '{t.title}' skipped - a dependency did not complete.",
+                                  kind="status", task_id=t.id)
+                progressed = True
+        nxt = next((t for t in tasks if t.status == "pending" and all(by_key[d].status == "completed" for d in _deps(t))), None)
+        if nxt is None:
+            await db.commit()
+            if progressed:
+                continue
+            break
+        user = await db.get(User, m.created_by)
+        if user is None or not user.is_active or user.tenant_id != m.tenant_id:
+            for t in tasks:
+                if t.status == "pending":
+                    t.status, t.finished_at, t.result = "skipped", _now(), "The meeting's owner is no longer an active member."
+            await add_message(db, m, "system", "System", "Stopped: the person who started this meeting is no longer an active member.", kind="status")
+            await db.commit()
+            break
+        nxt.status, nxt.started_at = "running", _now()
+        await db.commit()
+        upstream = [by_key[d] for d in _deps(nxt)]
+        status, text, plan_id, pending_id = await _call_role(db, m, nxt, user, build_prompt(m, nxt, upstream))
+        await db.refresh(m)
+        if m.status != "running":                          # cancelled during execution: record, do not continue
+            nxt.status = "cancelled" if status != "completed" else "completed"
+            nxt.result, nxt.finished_at, nxt.plan_id = text[:RESULT_CHARS], _now(), plan_id
+            await db.commit()
+            return m.status
+        nxt.status, nxt.result, nxt.plan_id, nxt.pending_task_id = status, text[:RESULT_CHARS], plan_id, pending_id
+        if status in TERMINAL_TASK:
+            nxt.finished_at = _now()
+        await add_message(db, m, "agent", nxt.role_name, text, kind="result" if status == "completed" else "status", task_id=nxt.id)
+        await db.commit()
+        if status in ("awaiting_approval", "waiting_setup"):
+            await _set_meeting_status(db, m, status)
+            return status
+
+    return await _finalize(db, m)
 
 
 async def _finalize(db: AsyncSession, m: Meeting) -> str:
@@ -409,13 +421,42 @@ async def resume_meeting(db: AsyncSession, m: Meeting) -> str:
     return "queued"
 
 
+async def heartbeat() -> int:
+    """Touch every meeting this process is running, so other processes' sweeps leave it alone."""
+    if not _active:
+        return 0
+    async with _maker()() as db:
+        res = await db.execute(update(Meeting).where(Meeting.id.in_(list(_active)), Meeting.status == "running")
+                               .values(updated_at=_now()))
+        await db.commit()
+        return res.rowcount or 0
+
+
+async def requeue_orphans() -> int:
+    """Start meetings that were created but never picked up by a worker (nothing in them has run yet)."""
+    cutoff = _now() - timedelta(minutes=QUEUED_STALE_MINUTES)
+    async with _maker()() as db:
+        ids = [mid for mid, upd in (await db.execute(select(Meeting.id, Meeting.updated_at).where(
+            Meeting.status == "queued"))).all()
+            if (upd if upd.tzinfo else upd.replace(tzinfo=timezone.utc)) <= cutoff and mid not in _active]
+    for mid in ids:
+        spawn(mid)
+    return len(ids)
+
+
 async def recover_interrupted() -> int:
-    """Startup: a meeting still 'running' long after its last update lost its worker."""
+    """
+    A meeting still 'running' whose heartbeat stopped lost its worker. Runs at startup and on every scheduler tick.
+    The task that was running may have partly happened, so it is recorded as interrupted (never silently re-run);
+    tasks that had not started are skipped. The person can start a new meeting to retry.
+    """
     cutoff = _now() - timedelta(minutes=STALE_MINUTES)
     n = 0
     async with _maker()() as db:
         stuck = (await db.execute(select(Meeting).where(Meeting.status == "running"))).scalars().all()
         for m in stuck:
+            if m.id in _active:
+                continue
             upd = m.updated_at if m.updated_at.tzinfo else m.updated_at.replace(tzinfo=timezone.utc)
             if upd > cutoff:
                 continue

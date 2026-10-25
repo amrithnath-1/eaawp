@@ -193,6 +193,18 @@ async def _tick() -> None:
     except Exception as exc:
         logger.error("Workflow scheduler tick error: %s", exc)
 
+    # ── Meeting Room: heartbeat our own runs, recover orphaned ones ───────────
+    try:
+        from app.services import meeting_service
+        await meeting_service.heartbeat()
+        recovered = await meeting_service.recover_interrupted()
+        started = await meeting_service.requeue_orphans()
+        if recovered or started:
+            logger.warning("Meeting sweep: %d interrupted meeting(s) recorded, %d queued meeting(s) started",
+                           recovered, started)
+    except Exception as exc:
+        logger.error("Meeting sweep error: %s", exc)
+
     # ── Notification email outbox (consent re-checked per message) ────────────
     try:
         from app.services.notification_service import deliver_pending_emails

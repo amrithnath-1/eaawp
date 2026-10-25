@@ -218,3 +218,31 @@ export function useSaveCompanyProfile() {
     onSuccess: (data) => qc.setQueryData(["company-profile"], data),
   });
 }
+
+// ── Activity / Tasks / Insights of the selected AI employee ──────────────────
+
+export interface FeedItem {
+  id: string;
+  at: string | null;
+  kind: string;
+  status: string;
+  title: string;
+  detail: string;
+  sources?: string[];
+}
+
+export interface Feed {
+  role_key: string | null;
+  scope?: "company" | "mine";
+  items: FeedItem[];
+}
+
+export function useWorkspaceFeed(kind: "activity" | "tasks" | "insights") {
+  return useQuery({
+    queryKey: ["workspace-feed", kind] as const,
+    enabled: USE_REAL_API,
+    queryFn: ({ signal }) => apiClient.get<Feed>(`/api/v1/workspace/feed/${kind}`, signal),
+    staleTime: 10_000,
+    refetchInterval: 30_000,
+  });
+}

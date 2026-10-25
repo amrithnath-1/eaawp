@@ -259,7 +259,7 @@ async def create_and_execute_plan(
         tenant_id=tenant_id,
         role_key=role_key,
         session_id=session_id,
-        objective=plan.objective[:500],
+        objective=user_prompt[:500],          # what the person asked (shown in Activity); the model's own summary stays in memory
         status="running",
         total_steps=len(plan.steps),
         blueprint_json=json.dumps({

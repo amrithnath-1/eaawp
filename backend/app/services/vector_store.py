@@ -36,12 +36,12 @@ import json
 import logging
 import re
 import time
-from collections import deque
+from collections import OrderedDict, deque
 from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import DocumentChunk, KnowledgeDocument
@@ -308,59 +308,93 @@ async def retrieve_similar_chunks(
     """
     levels = list(access_levels) if access_levels is not None else ["All staff"]
     query_vec_list = await embed_query_gemini(query)
-
-    query_vec = np.array(query_vec_list, dtype=np.float32)
     accessible_scopes = _accessible_scopes(role_scope)
 
-    result = await db.execute(
-        select(
-            DocumentChunk.id,
-            DocumentChunk.document_id,
-            DocumentChunk.text,
-            DocumentChunk.embedding_json,
-            DocumentChunk.role_scope,
-            KnowledgeDocument.name.label("doc_name"),
-            KnowledgeDocument.doc_type.label("doc_type"),
-        ).join(KnowledgeDocument, KnowledgeDocument.id == DocumentChunk.document_id).where(
-            DocumentChunk.tenant_id == tenant_id,
-            KnowledgeDocument.tenant_id == tenant_id,
-            KnowledgeDocument.status == "indexed",
-            KnowledgeDocument.access_level.in_(levels),
-            DocumentChunk.role_scope.in_(accessible_scopes),
-        )
-    )
-    rows = result.fetchall()
-
-    if not rows:
+    index = await _chunk_index(db, tenant_id, levels, accessible_scopes, len(query_vec_list))
+    if index is None:
         return []
+    matrix, meta = index
+    q = np.asarray(query_vec_list, dtype=np.float32)
+    q_norm = float(np.linalg.norm(q))
+    if q_norm == 0.0:
+        return []
+    scores = matrix @ (q / q_norm)                      # rows are already unit length -> cosine similarity
+    order = np.argsort(-scores)[:top_k]
+    return [
+        ScoredChunk(chunk_id=meta[i][0], document_id=meta[i][1], document_name=meta[i][2], doc_type=meta[i][3],
+                    role_scope=meta[i][4], text=meta[i][5], score=float(scores[i]))
+        for i in order
+    ]
 
-    scored: list[tuple[float, ScoredChunk]] = []
+
+# ── Per-process cache of parsed embeddings ────────────────────────────────────
+# Parsing every chunk's JSON embedding on every chat message cost about 1-1.6 s per 1,000 chunks. The parsed,
+# normalised matrix is cached per (tenant, access levels, role scopes, dimension) - so one company's or one access
+# level's chunks can never be served for another - and is rebuilt whenever a cheap signature of exactly that set of
+# chunks changes (chunk count, newest chunk, and which documents are in the set: upload, re-index, delete, a change of
+# a document's access level or scope, or a document leaving "indexed" all change it).
+_INDEX_CACHE: "OrderedDict[tuple, tuple[tuple, np.ndarray, list[tuple]]]" = OrderedDict()
+_INDEX_CACHE_MAX = 16
+
+
+def _filtered(stmt, tenant_id: str, levels: list[str], scopes: list[str]):
+    return stmt.join(KnowledgeDocument, KnowledgeDocument.id == DocumentChunk.document_id).where(
+        DocumentChunk.tenant_id == tenant_id,
+        KnowledgeDocument.tenant_id == tenant_id,
+        KnowledgeDocument.status == "indexed",
+        KnowledgeDocument.access_level.in_(levels),
+        DocumentChunk.role_scope.in_(scopes),
+    )
+
+
+async def _chunk_index(db: AsyncSession, tenant_id: str, levels: list[str], scopes: list[str],
+                       dim: int) -> "tuple[np.ndarray, list[tuple]] | None":
+    key = (tenant_id, tuple(sorted(levels)), tuple(sorted(scopes)), dim)
+    count, newest = (await db.execute(_filtered(
+        select(func.count(DocumentChunk.id), func.max(DocumentChunk.created_at)), tenant_id, levels, scopes))).one()
+    if not count:
+        _INDEX_CACHE.pop(key, None)
+        return None
+    doc_ids = (await db.execute(_filtered(
+        select(DocumentChunk.document_id).distinct(), tenant_id, levels, scopes))).scalars().all()
+    signature = (int(count), str(newest), tuple(sorted(doc_ids)))
+    cached = _INDEX_CACHE.get(key)
+    if cached is not None and cached[0] == signature:
+        _INDEX_CACHE.move_to_end(key)
+        return cached[1], cached[2]
+
+    rows = (await db.execute(_filtered(select(
+        DocumentChunk.id, DocumentChunk.document_id, DocumentChunk.text, DocumentChunk.embedding_json,
+        DocumentChunk.role_scope, KnowledgeDocument.name.label("doc_name"),
+        KnowledgeDocument.doc_type.label("doc_type"),
+    ), tenant_id, levels, scopes))).fetchall()
+    vectors: list[list[float]] = []
+    meta: list[tuple] = []
     for row in rows:
         embedding = json.loads(row.embedding_json or "[]")
         if not embedding:
             continue
         # Dimension mismatch guard — skip stale OpenAI chunks rather than crashing
-        if len(embedding) != len(query_vec_list):
+        if len(embedding) != dim:
             logger.warning(
                 "Skipping chunk %s: stored dim=%d, query dim=%d. "
                 "Re-index documents after changing the embedding model.",
-                row.id, len(embedding), len(query_vec_list),
+                row.id, len(embedding), dim,
             )
             continue
-        chunk_vec = np.array(embedding, dtype=np.float32)
-        score = _cosine_similarity(query_vec, chunk_vec)
-        scored.append((score, ScoredChunk(
-            chunk_id=row.id,
-            document_id=row.document_id,
-            document_name=row.doc_name,
-            doc_type=row.doc_type,
-            role_scope=row.role_scope,
-            text=row.text,
-            score=score,
-        )))
-
-    scored.sort(key=lambda x: x[0], reverse=True)
-    return [sc for _, sc in scored[:top_k]]
+        vectors.append(embedding)
+        meta.append((row.id, row.document_id, row.doc_name, row.doc_type, row.role_scope, row.text))
+    if not vectors:
+        return None
+    matrix = np.asarray(vectors, dtype=np.float32)
+    norms = np.linalg.norm(matrix, axis=1, keepdims=True)
+    norms[norms == 0.0] = 1.0                          # an all-zero vector scores 0 instead of dividing by zero
+    matrix = matrix / norms
+    _INDEX_CACHE[key] = (signature, matrix, meta)
+    _INDEX_CACHE.move_to_end(key)
+    while len(_INDEX_CACHE) > _INDEX_CACHE_MAX:
+        _INDEX_CACHE.popitem(last=False)
+    return matrix, meta
 
 
 VALID_ROLE_SCOPES = frozenset({

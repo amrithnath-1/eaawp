@@ -3,7 +3,43 @@
 Base branch: `master`. Never push/deploy without explicit approval. Nothing here claims live verification
 unless stated.
 
-## CURRENT STATE (2026-10-22, after Phase N)
+## CURRENT STATE (2026-10-25, after Phase O) — supersedes the 2026-10-22 block below
+- Branch `claude/charming-fermi-hfw8uh` (pushed to origin; NOT merged into master — needs the owner's approval).
+  It contains master up to `bc5a66e` (Render backend + Vercel SPA). Its `vercel.json`, `requirements.txt` and
+  `document_processor.py` equal master's (a GitHub web merge on 2026-10-25 had left vercel.json as invalid JSON).
+- Migration head: `e4f9a16b7c35` (conversations, conversation_messages, company_profiles). Owner: back up `eaawp.db`,
+  then `alembic upgrade head`; then `pip install -r requirements.txt` and `npm install` (react-markdown, remark-gfm).
+- Testing guide for the owner: `docs/testing/EAAWP_GEC_DMM_Complete_Testing_Guide.pdf` (+ `.md`, `build_guide_pdf.py`).
+
+## Phase O: role intelligence, history, real status, connections, background work (2026-10-25)
+Status: IMPLEMENTED AND VERIFIED with automated tests + a real-browser journey (27 checks) against a real server with a
+SCRIPTED model, on SQLite and on PostgreSQL 16; background work after logout and crash recovery verified on a real
+process. NOT verified: real Gemini answers, real Google/GitHub/MCP/Meta accounts, Windows, the hosted deployment.
+- Roles (`docs/roles_and_responsibilities.md`): interactive requests run as the person's selected workspace (409 for a
+  different built-in role); server-built role charter (`services/role_charter.py`) on every model call (engine, planner,
+  analysis, synthesis, resumed plans, monitoring); planner prompt no longer hard-codes the DMM; client persona ignored.
+- Approval bugs fixed: guarded tools were refused before an approval could exist; resume re-checked only the snapshot
+  allowed list and built `AgentBlueprint(system_persona="")` (pydantic error). Resume now re-checks the role's CURRENT
+  config, module and pause state. Approvals carry AI employee, tool, real risk, redacted params, reason, outcome, people.
+- Integrations: data requests are no longer intercepted as "capabilities"; intent LLM call only when a provider is
+  named; GitHub has a readiness gate (connect / grant / run). Integrations page lists existing connections with real
+  state, safe account details, test / switch off / disconnect, per-role grant matrix (`ConnectedAccountsPanel`).
+- History: `services/conversations.py`, `/api/v1/conversations` (owner-only, admins included), one role per
+  conversation, earlier turns sent as content, failures recorded, approval outcomes synced, Cabin `?c=` + History tab.
+- Company profile: `/api/v1/company-profile` (admin edit, audited) appended to every role prompt as reference data.
+  GEC facts not reachable from the build environment: `docs/gec/GEC_Services_Marketing_Knowledge_TEMPLATE.md`.
+- Status: `GET /api/v1/workspace/tools` (tools per status, pending approvals, operations); `/workspace/feed/{activity,
+  tasks,insights}` replace the never-written ActivityEvent/Task/Insight tables in the right panel.
+- Background: meetings now heartbeat; the 60 s scheduler tick recovers meetings whose worker stopped (5 min) and starts
+  never-picked-up queued meetings (startup-only recovery with a 30-min window left them "running" forever).
+- Performance: retrieval caches parsed embeddings per (tenant, levels, scopes, dim) with a change signature
+  (1,000 chunks: 1.0-1.6 s -> ~45 ms per message after the first); meetings list N+1 removed; slow-start explanation.
+- Tests: `test_role_intelligence`, `test_conversation_history`, `test_tool_status`, `test_workspace_feed`,
+  `test_retrieval_cache`, meeting recovery tests.
+- Known gaps: no streaming; Meta has no connection UI; medium-risk MCP writes still run when granted (existing policy);
+  role refusals depend on the model's wording; no "Technical/Operations/Department manager" account roles (Manager only).
+
+## PREVIOUS STATE (2026-10-22, after Phase N)
 - Migration head: `d3e8f05a6b24` (user_workspaces). Owner: back up `eaawp.db`, then `alembic upgrade head`.
 - Known test-infra issue (pre-existing, also on master): on Windows + Python 3.14 a single `pytest` run of the whole
   suite reports ~380 false failures after `tests/test_e2e_flows.py` (an async test leaves the loop state so that
