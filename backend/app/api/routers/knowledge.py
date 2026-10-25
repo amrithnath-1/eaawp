@@ -52,6 +52,9 @@ router = APIRouter(prefix="/api/v1/knowledge", tags=["knowledge"])
 
 MAX_FILE_SIZE = 50 * 1024 * 1024  # 50 MB
 
+# Strong references to in-flight indexing tasks (asyncio keeps only weak ones).
+_background_tasks: set[asyncio.Task[None]] = set()
+
 
 def _get_openai_client():  # type: ignore[return]
     """Create an AsyncOpenAI client from config. Imported lazily to avoid startup cost."""
@@ -135,15 +138,18 @@ async def upload_document(
         uploaded_by=uploaded_by,
     )
     db.add(doc)
-    await db.flush()
+    # Commit before starting the background task: it opens its own session and
+    # must be able to see this row. (get_db would only commit after the handler
+    # returns, by which time the task may already have looked and found nothing,
+    # leaving the document stuck in "processing".)
+    await db.commit()
     doc_id = doc.id
 
-    # Kick off processing as a background task
-    # We pass a separate DB session for the background task to avoid
-    # sharing the request-scoped session across async boundaries.
-    asyncio.create_task(
-        _process_in_background(doc_id, tenant_id)
-    )
+    # Kick off processing as a background task in its own DB session. Keep a
+    # reference until it finishes so the event loop cannot garbage-collect it.
+    task = asyncio.create_task(_process_in_background(doc_id, tenant_id))
+    _background_tasks.add(task)
+    task.add_done_callback(_background_tasks.discard)
 
     return KnowledgeDocumentOut(
         id=doc.id,

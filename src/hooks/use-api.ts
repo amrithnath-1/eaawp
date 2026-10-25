@@ -796,6 +796,8 @@ export function useKnowledgeStatusReal() {
             last_indexed_at: null,
           }),
     staleTime: 15_000,
+    // Keep the counts live while documents are indexing (large files take minutes)
+    refetchInterval: (query) => ((query.state.data?.documents_processing ?? 0) > 0 ? 4000 : false),
   });
 }
 
@@ -919,7 +921,7 @@ export function useAgentExecute() {
             resolve({
               message:
                 `[MOCK — backend not connected] Received prompt: "${req.user_prompt}". ` +
-                `In production this calls the FastAPI backend at ${API_BASE_URL || window.location.origin}/api/v1/agent/execute. ` +
+                `In production this calls the FastAPI backend at ${import.meta.env["VITE_API_BASE_URL"] ?? "http://localhost:8000"}/api/v1/agent/execute. ` +
                 `Connect the backend and set VITE_USE_REAL_API=true to enable real AI responses.`,
               sources: [],
               requires_approval: false,

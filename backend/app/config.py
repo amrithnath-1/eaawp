@@ -105,6 +105,11 @@ class Settings(BaseSettings):
     gemini_embedding_model: str = "models/gemini-embedding-2"
     # Legacy alias — kept so any code that reads embedding_model doesn't crash.
     embedding_model: str = "models/gemini-embedding-2"
+    # Gemini counts every embedded text as one request; the free tier allows
+    # 100 per minute. Document indexing paces itself under this budget and
+    # retries on 429. Raise it if the API key is on a paid plan.
+    gemini_embedding_rpm: int = 90
+    gemini_embedding_max_retries: int = 6
 
     # ── Google Gemini API ─────────────────────────────────────────────────────
     # Get from https://aistudio.google.com/app/apikey

@@ -31,8 +31,12 @@ This prevents crashes when re-indexing is in progress.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
+import re
+import time
+from collections import deque
 from dataclasses import dataclass
 from typing import Any
 
@@ -153,6 +157,92 @@ async def embed_text(texts: list[str], client: Any = None) -> list[list[float]]:
             "embed_text: client argument ignored — using Gemini embeddings."
         )
     return await embed_texts_gemini(texts)
+
+
+# ── Paced embedding for document indexing ─────────────────────────────────────
+# Gemini counts every text as one embed request and the free tier allows 100
+# per minute. Embedding a long document in one burst exceeds that and the
+# whole document used to fail, so indexing reserves capacity from a shared
+# per-minute budget and retries when Gemini still answers 429.
+
+EMBED_BATCH_SIZE = 50
+_RATE_WINDOW_SECONDS = 60.0
+_MAX_RETRY_DELAY_SECONDS = 120.0
+_sleep = asyncio.sleep   # replaced in tests
+_now = time.monotonic    # replaced in tests
+_recent_embeds: deque[tuple[float, int]] = deque()   # (reserved_at, request_count)
+
+
+class EmbeddingQuotaError(RuntimeError):
+    """Gemini kept rejecting embedding requests for quota reasons."""
+
+
+async def _reserve_embed_budget(count: int, per_minute: int) -> None:
+    """Wait until `count` more embed requests fit in the last-minute budget, then reserve them.
+
+    The check and the reservation happen without an await in between, so
+    concurrent indexing tasks in this process never overspend the budget.
+    """
+    while True:
+        now = _now()
+        while _recent_embeds and now - _recent_embeds[0][0] >= _RATE_WINDOW_SECONDS:
+            _recent_embeds.popleft()
+        if sum(n for _, n in _recent_embeds) + count <= per_minute:
+            _recent_embeds.append((now, count))
+            return
+        await _sleep(max(_recent_embeds[0][0] + _RATE_WINDOW_SECONDS - now, 0.5))
+
+
+def _quota_error_kind(exc: Exception) -> str | None:
+    """Return "day" or "minute" when exc is a Gemini quota/rate-limit error, else None."""
+    msg = str(exc).lower()
+    if "resource_exhausted" not in msg and not ("429" in msg and ("quota" in msg or "rate" in msg)):
+        return None
+    return "day" if "per day" in msg or "perday" in msg else "minute"
+
+
+def _retry_after_seconds(message: str) -> float | None:
+    """Read the retry delay Gemini suggests ("Please retry in 37.2s" / "seconds: 37")."""
+    m = re.search(r"retry in (\d+(?:\.\d+)?)\s*s", message, re.I) or re.search(r"seconds:\s*(\d+)", message)
+    return float(m.group(1)) if m else None
+
+
+async def embed_texts_for_indexing(texts: list[str]) -> list[list[float]]:
+    """Embed document chunks in batches, paced under the per-minute quota, retrying on 429."""
+    per_minute = max(1, _settings.gemini_embedding_rpm)
+    max_retries = max(0, _settings.gemini_embedding_max_retries)
+    batch_size = min(EMBED_BATCH_SIZE, per_minute)
+    vectors: list[list[float]] = []
+    for start in range(0, len(texts), batch_size):
+        batch = texts[start:start + batch_size]
+        attempt = 0
+        while True:
+            await _reserve_embed_budget(len(batch), per_minute)
+            try:
+                vectors.extend(await embed_texts_gemini(batch))
+                break
+            except Exception as exc:  # noqa: BLE001
+                kind = _quota_error_kind(exc)
+                if kind is None:
+                    raise
+                if kind == "day":
+                    raise EmbeddingQuotaError(
+                        "Gemini's daily embedding quota is used up. Try again tomorrow "
+                        "or enable billing on the Gemini API key."
+                    ) from exc
+                if attempt >= max_retries:
+                    raise EmbeddingQuotaError(
+                        f"Gemini kept rate-limiting embedding requests after {max_retries} retries. "
+                        "Try again in a few minutes or raise the Gemini API plan limits."
+                    ) from exc
+                attempt += 1
+                delay = min(_retry_after_seconds(str(exc)) or 30.0 * attempt, _MAX_RETRY_DELAY_SECONDS)
+                logger.warning(
+                    "Gemini embedding rate-limited (chunks %d-%d); retry %d/%d in %.0fs",
+                    start, start + len(batch) - 1, attempt, max_retries, delay,
+                )
+                await _sleep(delay)
+    return vectors
 
 
 # ── Cosine similarity ─────────────────────────────────────────────────────────
