@@ -414,6 +414,37 @@ class TestRecovery:
         mutate(world, Meeting, mid, status="running")
         assert run(ms.recover_interrupted()) == 0 and detail(world, mid)["status"] == "running"
 
+    def test_meeting_whose_worker_stopped_minutes_ago_is_recovered_by_the_sweep(self, world, coord):
+        """Regression: recovery ran only at startup with a 30-minute window, so a meeting interrupted by a quick
+        restart stayed 'running' forever."""
+        from datetime import datetime, timedelta, timezone
+        mid = create(world)["id"]
+        mutate(world, Meeting, mid, status="running",
+               updated_at=datetime.now(timezone.utc) - timedelta(minutes=ms.STALE_MINUTES + 1))
+        assert run(ms.recover_interrupted()) == 1 and detail(world, mid)["status"] == "failed"
+
+    def test_a_meeting_this_process_is_running_is_heartbeated_and_never_recovered(self, world, coord):
+        from datetime import datetime, timedelta, timezone
+        mid = create(world)["id"]
+        old = datetime.now(timezone.utc) - timedelta(minutes=ms.STALE_MINUTES + 10)
+        mutate(world, Meeting, mid, status="running", updated_at=old)
+        ms._active.add(mid)
+        try:
+            assert run(ms.recover_interrupted()) == 0
+            assert run(ms.heartbeat()) == 1
+        finally:
+            ms._active.discard(mid)
+        assert run(ms.recover_interrupted()) == 0 and detail(world, mid)["status"] == "running"   # fresh now
+
+    def test_a_meeting_never_picked_up_is_started_by_the_sweep(self, world, coord, monkeypatch):
+        from datetime import datetime, timedelta, timezone
+        mid = create(world)["id"]
+        mutate(world, Meeting, mid, status="queued",
+               updated_at=datetime.now(timezone.utc) - timedelta(minutes=ms.QUEUED_STALE_MINUTES + 1))
+        spawned = []
+        monkeypatch.setattr(ms, "spawn", spawned.append)
+        assert run(ms.requeue_orphans()) == 1 and spawned == [mid]
+
 
 # ═════════════════════════════════════════════════════════════════════════════
 class TestRealPipeline:

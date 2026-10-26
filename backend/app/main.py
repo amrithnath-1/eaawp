@@ -72,6 +72,8 @@ from app.api.routers.modules import router as modules_router  # marketplace / mo
 from app.api.routers.workspace import router as workspace_router  # selected AI employee workspace
 from app.api.routers.admin_customization import router as admin_customization_router  # Admin AI Customize
 from app.api.routers.admin_config import router as admin_config_router  # Admin Config Engine
+from app.api.routers.conversations import router as conversations_router  # History: own AI conversations
+from app.api.routers.company_profile import router as company_profile_router  # approved company profile
 from app.middleware.observability import ObservabilityMiddleware  # Phase N
 from app.middleware.docs_guard import ProductionDocsGuard, is_production
 from app.core.startup_checks import secret_key_problem
@@ -250,6 +252,8 @@ app.include_router(modules_router)  # marketplace / module activation
 app.include_router(workspace_router)  # selected AI employee workspace
 app.include_router(admin_customization_router)  # Admin AI Customize — /api/v1/admin/customize/*
 app.include_router(admin_config_router)  # Admin Config Engine — /api/v1/admin/provider-config/*
+app.include_router(conversations_router)  # /api/v1/conversations/*
+app.include_router(company_profile_router)  # /api/v1/company-profile
 
 
 # ── Health check ──────────────────────────────────────────────────────────────

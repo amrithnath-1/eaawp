@@ -72,3 +72,21 @@ async def get_workspace(user: User = Depends(get_current_user), db: AsyncSession
 @router.put("", response_model=WorkspaceStateOut)
 async def select_workspace(body: SelectBody, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)) -> dict:
     return await ws.select_workspace(db, user, body.role_key)
+
+
+@router.get("/tools")
+async def workspace_tools(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)) -> dict:
+    """The selected AI employee's tools with their real status, pending approvals and recent operations."""
+    from app.services.tool_status import tool_status
+    return await tool_status(db, user)
+
+
+@router.get("/feed/{kind}")
+async def workspace_feed(kind: str, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)) -> dict:
+    """Activity, tasks or insights of the selected AI employee (admins: company; others: their own)."""
+    from fastapi import HTTPException
+    from app.services import workspace_feed as wf
+    fn = {"activity": wf.activity, "tasks": wf.tasks, "insights": wf.insights}.get(kind)
+    if fn is None:
+        raise HTTPException(status_code=404, detail="Unknown feed.")
+    return await fn(db, user)

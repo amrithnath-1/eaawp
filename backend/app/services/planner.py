@@ -71,6 +71,7 @@ from app.schemas.planning import (
     PlannedStep,
 )
 from app.services.action_governance import process_action_request
+from app.services.role_charter import build_role_charter, role_system_prompt
 from app.tools.dynamic_tool import is_tool_failure
 from app.tools.registry import MASTER_TOOL_REGISTRY
 
@@ -79,8 +80,10 @@ logger = logging.getLogger(__name__)
 # ── Planner system prompt ─────────────────────────────────────────────────────
 
 _PLANNER_SYSTEM = f"""
-You are a planning assistant for the EAAWP Digital Marketing Manager.
+You are the planning assistant for an EAAWP AI employee. The system message after these rules says which AI employee
+you plan for, what it is responsible for and what it must not do; plan only work that belongs to that role.
 Your job is to create a structured execution plan to fulfil the user's request.
+If the request belongs to another AI employee's job, plan a single "response" step that says so.
 
 Rules:
 1. Create a plan with at most {MAX_PLAN_STEPS} steps.
@@ -256,7 +259,7 @@ async def create_and_execute_plan(
         tenant_id=tenant_id,
         role_key=role_key,
         session_id=session_id,
-        objective=plan.objective[:500],
+        objective=user_prompt[:500],          # what the person asked (shown in Activity); the model's own summary stays in memory
         status="running",
         total_steps=len(plan.steps),
         blueprint_json=json.dumps({
@@ -465,10 +468,7 @@ async def create_and_execute_plan(
                     "Please analyse the request and provide your best response."
                 )
             try:
-                _sys = system_persona or (
-                    "You are the Marketing Intelligence Agent. "
-                    "Provide a clear, concise, and helpful response."
-                )
+                _sys = system_persona or await role_system_prompt(db, tenant_id, role_key)
                 _model = get_llm_gateway().get_chat_model(temperature=0)
                 _resp = await _model.ainvoke([
                     SystemMessage(content=_sys),
@@ -665,7 +665,21 @@ async def resume_plan(
     guarded_tools: list[str] = bp_data.get("guarded_tools", [])
     tool_name = pending_step.tool_name or ""
 
-    if tool_name not in allowed_tools:
+    # Re-check against the role's CURRENT configuration, not only the snapshot: an administrator may have disabled
+    # the tool, deactivated the module or paused the AI employee while the action waited for approval.
+    still_permitted = tool_name in allowed_tools or tool_name in guarded_tools
+    if still_permitted and db_plan.role_key:
+        from app.services.employee_lifecycle import employee_is_blocked
+        from app.services.modules import is_module_active, module_for_role
+        from app.services.workspaces import _role_tools
+        _, cur_allowed, cur_guarded, *_ = await _role_tools(db, tenant_id, db_plan.role_key)
+        mod = module_for_role(db_plan.role_key)
+        still_permitted = (
+            (tool_name in cur_allowed or tool_name in cur_guarded)
+            and not (mod and not await is_module_active(db, tenant_id, mod))
+            and not await employee_is_blocked(db, tenant_id, db_plan.role_key)
+        )
+    if not still_permitted:
         pending_step.status = "rejected"
         pending_step.result_summary = "Permission re-validation failed: tool no longer allowed."
         db_plan.status = "rejected"
@@ -733,10 +747,13 @@ async def resume_plan(
             await db.flush()
 
             if db_step.step_type == "response":
+                _resume_role = db_plan.role_key or _role_key(bp_data.get("role_name", ""))
+                _resume_persona = await role_system_prompt(db, tenant_id, _resume_role)
                 blueprint_snapshot = AgentBlueprint(
                     agent_id=bp_data.get("agent_id", "agent"),
-                    role_name=bp_data.get("role_name", "Digital Marketing Manager"),
-                    system_persona="",
+                    role_name=bp_data.get("role_name") or _resume_role.replace("_", " ").title(),
+                    role_key=_resume_role,
+                    system_persona=_resume_persona,
                     allowed_tools=allowed_tools,
                     guarded_tools=guarded_tools,
                     tenant_id=tenant_id,
@@ -746,6 +763,7 @@ async def resume_plan(
                         objective=db_plan.objective,
                         step_results=step_results,
                         blueprint=blueprint_snapshot,
+                        system_persona=_resume_persona,
                     )
                 except Exception as exc:
                     logger.error("Resumed response generation failed (%s)", type(exc).__name__, exc_info=True)
@@ -808,6 +826,9 @@ async def _generate_plan(
     _dyn_map: dict = _dynamic_tools_ctx.get() or {}
 
     tool_lines = []
+    guarded = [t for t in blueprint.guarded_tools if t not in available_tools]
+    for t in guarded:
+        tool_lines.append(f"  - {t}  [requires human approval before it runs; propose it only when the user asks for it]")
     for t in available_tools:
         if is_dynamic_tool_key(t) and t in _dyn_map:
             adapter = _dyn_map[t]
@@ -828,6 +849,9 @@ async def _generate_plan(
         context_parts.append(data_context_block[:800])
 
     from datetime import datetime as _dt, timezone as _tz
+    from app.services.conversations import turn_history
+    if turn_history.get():
+        context_parts.append(turn_history.get())
     user_msg = (
         f"Today (UTC): {_dt.now(_tz.utc).date().isoformat()}\n"
         f"Available tools: {tools_str}\n\n"
@@ -837,8 +861,9 @@ async def _generate_plan(
 
     try:
         model = get_llm_gateway().get_chat_model(temperature=0)
+        planner_system = _PLANNER_SYSTEM + ("\n\n" + system_persona if system_persona else "")
         response = await model.ainvoke([
-            SystemMessage(content=_PLANNER_SYSTEM),
+            SystemMessage(content=planner_system),
             HumanMessage(content=user_msg),
         ])
         raw = response.content if isinstance(response.content, str) else ""
@@ -920,10 +945,7 @@ async def _synthesise_response(
         if result and result != f"Analysed results from {len(step_results)} prior steps."
     )
 
-    system = system_persona or (
-        "You are the Marketing Intelligence Agent. "
-        "Provide a clear, helpful, and concise answer to the user's question."
-    )
+    system = system_persona or build_role_charter(blueprint.role_key or _role_key(blueprint.role_name), blueprint.role_name)
 
     # Ensure system prompt explicitly forbids fake audit log prefixes
     _no_audit_suffix = (
@@ -933,8 +955,10 @@ async def _synthesise_response(
     if "[AUDIT" not in system and "AUDIT LOG" not in system:
         system = system + _no_audit_suffix
 
+    from app.services.conversations import turn_history
+    earlier = (turn_history.get() + "\n\n") if turn_history.get() else ""
     if results_text:
-        user_msg = (
+        user_msg = earlier + (
             f"User's question / objective: {objective}\n\n"
             f"Information gathered:\n{results_text}\n\n"
             "Using the information above, provide a clear and concise answer "
@@ -943,7 +967,7 @@ async def _synthesise_response(
         )
     else:
         # No tool data — answer the question directly from knowledge.
-        user_msg = (
+        user_msg = earlier + (
             f"User's question: {objective}\n\n"
             "Please answer this question directly and concisely."
         )

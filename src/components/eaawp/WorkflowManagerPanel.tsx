@@ -21,6 +21,7 @@ import {
   Calendar, Zap, RefreshCw,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useCurrentWorkspace } from "@/state/workspace";
 import {
   useWorkflows,
   useCreateWorkflow,
@@ -213,6 +214,8 @@ function WorkflowCard({
 // ── Create form ───────────────────────────────────────────────────────────────
 function CreateWorkflowForm({ onDone }: { onDone: () => void }) {
   const createMutation = useCreateWorkflow();
+  // A workflow runs as the AI employee the administrator is working with when they create it.
+  const roleName = useCurrentWorkspace().data?.selected?.name ?? null;
   const [form, setForm] = useState<WorkflowCreate>({
     name: "",
     description: "",
@@ -224,7 +227,7 @@ function CreateWorkflowForm({ onDone }: { onDone: () => void }) {
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!form.name.trim()) { toast.error("Name is required."); return; }
-    createMutation.mutate(form, {
+    createMutation.mutate({ ...form, role_name: roleName }, {
       onSuccess: () => { toast.success("Workflow created."); onDone(); },
       onError: (e) => toast.error(e.message),
     });
@@ -235,6 +238,10 @@ function CreateWorkflowForm({ onDone }: { onDone: () => void }) {
   return (
     <form onSubmit={(e) => { e.preventDefault(); void handleSubmit(e); }} className="border border-border bg-surface p-3 space-y-3">
       <p className="font-mono text-[10px] tracking-[0.14em] text-muted-foreground">NEW WORKFLOW</p>
+      <p className="text-[11px] text-muted-foreground">
+        Runs as the {roleName ?? "selected AI employee"}, with that AI employee's tools and approvals. It keeps running
+        on the server when you sign out.
+      </p>
       <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
         <div>
           <label className="label-xs">Name</label>

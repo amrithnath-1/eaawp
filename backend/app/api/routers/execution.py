@@ -20,6 +20,7 @@ For simple mode the existing DynamicAgentEngine loop is used unchanged.
 from __future__ import annotations
 
 import logging
+import re
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -42,7 +43,27 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/agent", tags=["agent"])
 
 
-def _simple_conversation_reply(prompt: str, role_name: str) -> str | None:
+_CONNECT_RE = re.compile(
+    r"\b(connect|connecting|integrate|link|set ?up|authori[sz]e|enable|disconnect|unlink|remove integration|reconnect)\b"
+)
+_STATUS_RE = re.compile(
+    r"\b(connected|connection|status|capabilit(y|ies)|permissions?|grants?|revoke|integrations?)\b"
+    r"|what (all )?(can|could) (i|you|we) do with"
+)
+_PROVIDER_RE = re.compile(
+    r"\b(google search console|search console|gsc|google analytics|analytics|ga4|git ?hub|facebook|meta ads|meta"
+    r"|instagram ads|mcp|model context protocol|postgres(ql)?|mysql|mariadb|database)\b"
+)
+# Asking for data FROM a service, as opposed to managing the connection itself.
+_DATA_REQUEST_RE = re.compile(
+    r"\b(list|show|get|fetch|give|find|which|what are|how many|review|analy[sz]e|summari[sz]e|report|compare|open)\b"
+    r".{0,60}\b(repo(s|sitor(y|ies))?|issues?|pull requests?|prs?|commits?|branch(es)?|quer(y|ies)|keywords?|pages?"
+    r"|clicks|impressions|traffic|sessions|visitors|users|campaigns?|performance|rows|tables?|data)\b"
+)
+_READ_ONLY_INTENTS = frozenset({"LIST_INTEGRATIONS", "LIST_CAPABILITIES", "CHECK_STATUS", "TEST_CONNECTION"})
+
+
+def _simple_conversation_reply(prompt: str, role_name: str, role_key: str | None = None) -> str | None:
     """Answer greetings and basic chat without invoking company data tools."""
     normalized = " ".join(prompt.lower().split()).strip(" .!?,")
     if normalized in {
@@ -57,6 +78,15 @@ def _simple_conversation_reply(prompt: str, role_name: str) -> str | None:
     if normalized in {"thanks", "thank you", "thanks a lot"}:
         return "You’re welcome. What would you like help with next?"
     if normalized in {"what can you do", "what can you help me with", "help"}:
+        from app.services.workspaces import get_workspace
+        w = get_workspace(role_key) if role_key else None
+        if w is not None:
+            items = "\n".join(f"- {c}" for c in w.capabilities)
+            return (
+                f"As your {w.name} I can help with:\n\n{items}\n\n"
+                "I answer from your company Library and the data sources an administrator connected, "
+                "and anything that changes or sends something waits for human approval. What would you like to start with?"
+            )
         return (
             "I can help with questions grounded in your company's uploaded documents "
             "and connected data sources. Tell me what you need to find out."
@@ -65,17 +95,103 @@ def _simple_conversation_reply(prompt: str, role_name: str) -> str | None:
 
 
 
+async def _enforce_workspace_role(request: AgentExecutionRequest, db: AsyncSession, user: User) -> None:
+    """
+    An interactive request runs as the AI employee the person selected, never as whichever built-in role the client
+    names. A request for a different built-in role is refused (the person must switch workspace first, which is
+    audited); custom AI employees built by the company keep working by their own role key.
+    """
+    from app.services.workspaces import WORKSPACE_KEYS, _selection, get_workspace
+
+    bp = request.blueprint
+    requested = bp.role_key if bp.role_key else _blueprint_role_key(bp.role_name)
+    if requested not in WORKSPACE_KEYS:
+        return
+    row = await _selection(db, user)
+    if row is None:
+        return
+    if row.role_key != requested:
+        current = get_workspace(row.role_key)
+        wanted = get_workspace(requested)
+        raise HTTPException(
+            status_code=409,
+            detail=(f"You are working with the {current.name if current else row.role_key} AI employee. "
+                    f"Switch AI employee to {wanted.name if wanted else requested} before asking it."),
+        )
+    request.blueprint = bp.model_copy(update={"role_key": row.role_key})
+
+
+async def _resolve_role_key(request: AgentExecutionRequest, tenant_id: str, db: AsyncSession) -> str:
+    """The role a request runs as: the named built-in role, or a custom role key only if the company has it."""
+    role_key = _blueprint_role_key(request.blueprint.role_name)
+    if request.blueprint.role_key and request.blueprint.role_key != role_key:
+        from sqlalchemy import select
+        from app.db.models import RoleConfiguration as _RC
+        _known = (await db.execute(
+            select(_RC.role_key).where(_RC.tenant_id == tenant_id, _RC.role_key == request.blueprint.role_key)
+        )).scalar_one_or_none()
+        if _known:
+            role_key = _known
+        elif request.blueprint.role_key in _BUILT_IN_ROLE_KEYS:
+            role_key = request.blueprint.role_key
+    return role_key
+
+
+_BUILT_IN_ROLE_KEYS = frozenset({"DIGITAL_MARKETING_MANAGER", "DATA_INTELLIGENCE_ANALYST", "INSTITUTIONAL_CLERK",
+                                 "MEDICAL_ASSISTANT"})
+
+
 @router.post(
     "/execute",
     response_model=AgentExecutionResponse,
     summary="Execute an agent prompt — simple or multi-step planned",
 )
-async def execute_agent(
+async def execute_agent_endpoint(
     request: AgentExecutionRequest,
     tenant_id: str = Depends(get_current_tenant_id),
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> AgentExecutionResponse:
+    """
+    Interactive request from the Cabin: runs as the person's selected AI employee, inside one of the person's own
+    saved conversations (a new one unless `conversation_id` continues an existing one of the same AI employee).
+    The person's message is stored before the run and the answer after it; a failed run is stored as a failure
+    notice, so History never shows an exchange that did not happen or hides one that did.
+    """
+    from app.services import conversations as cs
+
+    await _enforce_workspace_role(request, db, user)
+    role_key = await _resolve_role_key(request, tenant_id, db)
+    conv = await cs.open_for_turn(db, user, role_key, request.conversation_id, request.user_prompt)
+    history = await cs.context_block(db, conv)
+    await cs.add_message(db, conv, "user", request.user_prompt)
+    # One conversation = one session: pending setup tasks and plans created by this turn point back to it.
+    request = request.model_copy(update={"session_id": conv.id, "conversation_id": conv.id})
+
+    token = cs.turn_history.set(history)
+    try:
+        async with db.begin_nested():
+            resp = await execute_agent(request=request, tenant_id=tenant_id, db=db, user=user)
+    except HTTPException as exc:
+        notice = exc.detail if isinstance(exc.detail, str) and exc.status_code < 500 else \
+            "The request failed before an answer was produced. Nothing was executed. Please try again."
+        await cs.add_message(db, conv, "assistant", notice, {"error": True})
+        await db.commit()   # keep the record of the attempt; the error still reaches the caller
+        raise
+    finally:
+        cs.turn_history.reset(token)
+
+    await cs.add_message(db, conv, "assistant", resp.message, cs.display_meta(resp), plan_id=resp.plan_id)
+    return resp.model_copy(update={"conversation_id": conv.id, "session_id": conv.id})
+
+
+async def execute_agent(
+    request: AgentExecutionRequest,
+    tenant_id: str,
+    db: AsyncSession,
+    user: User,
+) -> AgentExecutionResponse:
+    """Run a request as `request.blueprint`'s role. Also used by workflows, meetings and resumed pending tasks."""
 
     # Determine if any action tools are in the blueprint
     has_action_tools = any(
@@ -86,15 +202,7 @@ async def execute_agent(
     validate_user_prompt(request.user_prompt)
 
     resolved_session_id = request.session_id or str(uuid.uuid4())
-    role_key = _blueprint_role_key(request.blueprint.role_name)
-    if request.blueprint.role_key and request.blueprint.role_key != role_key:
-        from sqlalchemy import select
-        from app.db.models import RoleConfiguration as _RC
-        _known = (await db.execute(
-            select(_RC.role_key).where(_RC.tenant_id == tenant_id, _RC.role_key == request.blueprint.role_key)
-        )).scalar_one_or_none()
-        if _known:
-            role_key = _known
+    role_key = await _resolve_role_key(request, tenant_id, db)
 
     from app.services.modules import is_module_active, module_for_role, get_module
     _mod = module_for_role(role_key)
@@ -116,7 +224,10 @@ async def execute_agent(
         server_config = _orm_to_schema(role_row)
         server_allowed: list[str] = server_config.allowed_tools
         server_guarded: list[str] = server_config.guarded_tools
-        server_persona: str = server_config.system_persona or request.blueprint.system_persona
+        # Role charter (identity, duties, limits, honesty, staying in role) + the company's saved persona.
+        # The client-supplied persona is never used: it could otherwise rewrite who the AI employee is.
+        from app.services.role_charter import role_system_prompt
+        server_persona: str = await role_system_prompt(db, tenant_id, role_key)
         server_llm: str | None = server_config.llm_model or request.blueprint.llm_model
     except Exception as exc:  # noqa: BLE001
         logger.warning(
@@ -124,9 +235,10 @@ async def execute_agent(
             "falling back to empty tool list for safety",
             tenant_id, role_key, exc,
         )
+        from app.services.role_charter import build_role_charter
         server_allowed = []
         server_guarded = []
-        server_persona = request.blueprint.system_persona
+        server_persona = build_role_charter(role_key, request.blueprint.role_name)
         server_llm = request.blueprint.llm_model
 
     # Replace the client-supplied blueprint fields with verified server values.
@@ -153,7 +265,7 @@ async def execute_agent(
             )
 
     conversational_reply = _simple_conversation_reply(
-        request.user_prompt, authoritative_blueprint.role_name
+        request.user_prompt, authoritative_blueprint.role_name, role_key
     )
     if conversational_reply:
         return AgentExecutionResponse(
@@ -187,24 +299,19 @@ async def execute_agent(
         "TEST_CONNECTION",
     })
 
-    # Tier 1: keyword-based fast detection — no LLM call needed
-    _CONNECT_KEYWORDS = {
-        "connect", "integrate", "link", "setup", "set up", "authorize", "authorise",
-        "enable", "add integration", "connect with", "connect my", "need to connect",
-        "want to connect", "disconnect", "unlink", "remove integration",
-    }
-    _PROVIDER_KEYWORDS = {
-        "google search console", "search console", "gsc",
-        "google analytics", "analytics", "ga4", "ga ",
-        "github", "git hub",
-        "facebook", "meta", "instagram ads",
-        "mcp", "model context protocol",
-        "postgresql", "postgres", "mysql", "mariadb", "database", "db",
-    }
+    # Tier 1: keyword-based detection - no LLM call needed.  Only requests that MANAGE a connection (connect,
+    # disconnect, status, capabilities, grants) are intercepted here; requests for DATA from a connected service
+    # ("list my GitHub repositories", "review Google Analytics traffic") must reach the readiness gate and the
+    # planner, which run the granted integration tools.  The LLM intent parser runs only when a provider is named,
+    # so ordinary questions are not slowed by an extra model call.
     _prompt_lower = request.user_prompt.lower()
-    _has_connect_kw = any(kw in _prompt_lower for kw in _CONNECT_KEYWORDS)
-    _has_provider_kw = any(kw in _prompt_lower for kw in _PROVIDER_KEYWORDS)
-    _fast_is_integration_action = _has_connect_kw and _has_provider_kw
+    _has_connect_kw = bool(_CONNECT_RE.search(_prompt_lower))
+    _has_status_kw = bool(_STATUS_RE.search(_prompt_lower))
+    _has_provider_kw = bool(_PROVIDER_RE.search(_prompt_lower))
+    _is_data_request = bool(_DATA_REQUEST_RE.search(_prompt_lower))
+    _fast_is_integration_action = _has_provider_kw and (
+        _has_connect_kw or (_has_status_kw and not _is_data_request)
+    )
 
     try:
         from app.services.nl_integration_service import (
@@ -213,18 +320,18 @@ async def execute_agent(
         )
         from app.integrations import manager as _int_mgr
 
-        # Run LLM intent parse only if keyword match already suggests an action,
-        # OR always (it's cheap). Fall back to keyword result if LLM fails.
         _intent = None
         _use_integration_path = _fast_is_integration_action  # default from keywords
 
-        try:
-            _intent = await parse_integration_intent(request.user_prompt)
-            if _intent.intent_type in _INTEGRATION_ACTION_INTENTS and _intent.confidence >= 0.65:
-                _use_integration_path = True
-        except Exception as _llm_exc:
-            logger.debug("Intent parse LLM call failed (using keyword fallback): %s", _llm_exc)
-            # keyword detection already set _use_integration_path
+        if _has_provider_kw or "integration" in _prompt_lower:
+            try:
+                _intent = await parse_integration_intent(request.user_prompt)
+                if _intent.intent_type in _INTEGRATION_ACTION_INTENTS and _intent.confidence >= 0.65:
+                    # A data request is never answered with a capability list or status card.
+                    if not (_is_data_request and _intent.intent_type in _READ_ONLY_INTENTS):
+                        _use_integration_path = True
+            except Exception as _llm_exc:
+                logger.debug("Intent parse LLM call failed (using keyword fallback): %s", _llm_exc)
 
         if _use_integration_path:
             # If LLM parse failed, synthesise a minimal intent from keywords
@@ -455,8 +562,6 @@ async def execute_agent(
                     data_context_block=data_context_block + memory_context_block,
                     rag_context=rag_text,
                 )
-                await _remember(db, authoritative_blueprint.tenant_id, role_key, user.id, request.user_prompt, final_message)
-
                 # Fetch plan status for response
                 plan_status = None
                 step_summaries: list[str] = []
@@ -481,6 +586,11 @@ async def execute_agent(
                         f"[{s.step_type.upper()}] {s.description} → {s.status}"
                         for s in sr.scalars().all()
                     ]
+
+                if plan_status != "failed":   # a failure notice is not an answer worth remembering
+                    await _remember(db, authoritative_blueprint.tenant_id, role_key, user.id, request.user_prompt, final_message)
+                if plan_status == "completed":
+                    await _close_answered_pending_tasks(db, tenant_id, user.id, role_key, request.user_prompt, plan_id)
 
                 guarded_set = set(augmented_blueprint.guarded_tools)
                 requires_approval = (
@@ -552,6 +662,20 @@ async def execute_agent(
 
     finally:
         clear_tool_context()
+
+
+async def _close_answered_pending_tasks(db, tenant_id: str, user_id: str, role_key: str, prompt: str,
+                                       plan_id: str | None) -> None:
+    """The same request, saved earlier while setup was missing, has now run to completion: it is no longer waiting."""
+    from sqlalchemy import select as _select
+    from app.db.pending_task_models import PendingTask
+    rows = (await db.execute(_select(PendingTask).where(
+        PendingTask.tenant_id == tenant_id, PendingTask.user_id == user_id, PendingTask.role_key == role_key,
+        PendingTask.prompt == prompt[:4000], PendingTask.status == "waiting_setup"))).scalars().all()
+    for t in rows:
+        t.status, t.resumed_plan_id = "completed", plan_id
+    if rows:
+        await db.flush()
 
 
 # Roles that work with individual people's records. Their conversations must never be written to, or read from, the

@@ -17,6 +17,8 @@ import {
   ShieldCheck, ShieldOff, ChevronDown, ChevronRight,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useSession } from "@/state/session";
+import { IS_ADMIN_ROLE } from "@/lib/workspace";
 import {
   useApprovalRequests,
   useActionAudits,
@@ -30,20 +32,24 @@ import {
 
 type FilterStatus = "all" | "pending" | "approved" | "rejected";
 
-function RiskBadge({ action }: { action: string }) {
-  const isHigh = /send.*email|publish|deploy|delete|remove|budget/i.test(action);
-  const isMedium = /create|update|campaign/i.test(action);
-  const cfg = isHigh
-    ? { cls: "text-destructive border-destructive/40", label: "HIGH" }
-    : isMedium
-    ? { cls: "text-warning border-warning/40", label: "MEDIUM" }
-    : { cls: "text-success border-success/40", label: "LOW" };
+function RiskBadge({ risk }: { risk: string | null | undefined }) {
+  if (!risk) return null;   // no linked governed action: no risk is claimed
+  const cls = risk === "high" ? "text-destructive border-destructive/40"
+    : risk === "medium" ? "text-warning border-warning/40" : "text-success border-success/40";
   return (
-    <span className={cn("border px-1 py-0.5 font-mono text-[9px] tracking-[0.06em]", cfg.cls)}>
-      {cfg.label}
+    <span className={cn("border px-1 py-0.5 font-mono text-[9px] tracking-[0.06em]", cls)}>
+      {risk.toUpperCase()} RISK
     </span>
   );
 }
+
+const EXECUTION_TEXT: Record<string, string> = {
+  pending: "Not executed yet",
+  executed: "Executed",
+  failed: "Execution failed",
+  skipped: "Not executed (rejected)",
+  rejected: "Not executed (rejected)",
+};
 
 function StatusIcon({ status }: { status: string }) {
   if (status === "approved") return <CheckCircle className="size-3.5 text-success" />;
@@ -55,10 +61,12 @@ function ApprovalCard({
   request,
   onDecide,
   deciding,
+  canDecide,
 }: {
   request: ApprovalRequestOut;
   onDecide: (id: string, decision: "approved" | "rejected") => void;
   deciding: boolean;
+  canDecide: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
   const isPending = request.status === "pending";
@@ -75,14 +83,21 @@ function ApprovalCard({
         <StatusIcon status={request.status} />
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
-            <span className="font-mono text-[11px] tracking-[0.06em]">{request.action}</span>
-            <RiskBadge action={request.action} />
+            <span className="font-mono text-[11px] tracking-[0.06em]">{request.tool_name ? request.tool_name.replace(/_/g, " ") : request.action}</span>
+            <RiskBadge risk={request.risk_level} />
+            {request.execution_status && (
+              <span className="font-mono text-[9px] tracking-[0.06em] text-muted-foreground">
+                · {EXECUTION_TEXT[request.execution_status] ?? request.execution_status}
+              </span>
+            )}
           </div>
           <p className="text-[11px] text-muted-foreground mt-0.5">
-            Requested by <span className="text-foreground">{request.requested_by}</span>
+            Requested by <span className="text-foreground">{request.ai_employee ?? request.requested_by}</span>
+            {request.requested_for && <> in a conversation with <span className="text-foreground">{request.requested_for}</span></>}
             {" · "}
-            {new Date(request.created_at).toLocaleString()}
+            {new Date(request.created_at.endsWith("Z") || request.created_at.includes("+") ? request.created_at : `${request.created_at}Z`).toLocaleString()}
           </p>
+          {request.reason && <p className="mt-0.5 text-[11px] text-muted-foreground">Why approval is needed: {request.reason}</p>}
         </div>
         <button
           onClick={() => setExpanded((e) => !e)}
@@ -94,12 +109,29 @@ function ApprovalCard({
 
       {expanded && (
         <div className="border-t border-border/40 pt-2 space-y-1.5">
-          <div className="rounded-none border border-border/30 bg-muted/20 p-2 font-mono text-[10px] text-muted-foreground whitespace-pre-wrap break-all">
-            {safeDetail}
-          </div>
+          {request.parameters && Object.keys(request.parameters).length > 0 ? (
+            <dl className="border border-border/30 bg-muted/20 p-2 text-[11px]">
+              {Object.entries(request.parameters).map(([k, v]) => (
+                <div key={k} className="flex gap-2">
+                  <dt className="font-mono text-[10px] text-muted-foreground">{k}:</dt>
+                  <dd className="min-w-0 break-words">{typeof v === "string" ? v : JSON.stringify(v)}</dd>
+                </div>
+              ))}
+            </dl>
+          ) : (
+            <div className="rounded-none border border-border/30 bg-muted/20 p-2 font-mono text-[10px] text-muted-foreground whitespace-pre-wrap break-all">
+              {safeDetail}
+            </div>
+          )}
+          {request.execution_error && (
+            <p className="text-[11px] text-destructive">Execution result: {request.execution_error}</p>
+          )}
+          {request.plan_status && (
+            <p className="text-[11px] text-muted-foreground">Plan status: {request.plan_status.replace(/_/g, " ")}</p>
+          )}
           {request.reviewed_by && (
             <p className="text-[11px] text-muted-foreground">
-              Reviewed by <span className="text-foreground">{request.reviewed_by}</span>
+              Reviewed by <span className="text-foreground">{request.reviewer_name ?? request.reviewed_by}</span>
               {request.review_note && ` — "${request.review_note}"`}
             </p>
           )}
@@ -111,7 +143,10 @@ function ApprovalCard({
         </div>
       )}
 
-      {isPending && (
+      {isPending && !canDecide && (
+        <p className="pt-1 text-[11px] text-muted-foreground">Waiting for a company administrator to decide. Nothing has been executed.</p>
+      )}
+      {isPending && canDecide && (
         <div className="flex gap-2 pt-1">
           <button
             onClick={() => onDecide(request.id, "approved")}
@@ -136,6 +171,8 @@ function ApprovalCard({
 }
 
 export function ApprovalCenterPanel() {
+  const { user } = useSession();
+  const canDecide = IS_ADMIN_ROLE(user?.role);
   const [filter, setFilter] = useState<FilterStatus>("all");
   const [decidingId, setDecidingId] = useState<string | null>(null);
 
@@ -258,6 +295,7 @@ export function ApprovalCenterPanel() {
               request={a}
               onDecide={handleDecide}
               deciding={decidingId === a.id || (a.status === "pending" && (plansLoading || auditsLoading))}
+              canDecide={canDecide}
             />
           ))}
         </div>
