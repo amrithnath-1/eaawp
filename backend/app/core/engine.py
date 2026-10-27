@@ -74,11 +74,8 @@ class DynamicAgentEngine:
         _dyn_map: dict[str, Any] = _dynamic_tools_ctx.get() or {}
         self._tools = resolve_tools(blueprint.allowed_tools, dynamic_tool_map=_dyn_map)
         # ── LLM via Gateway ───────────────────────────────────────────────────
-        _gateway = get_llm_gateway()
-        base_model = _gateway.get_chat_model_for_role(
-            role_llm_model=blueprint.llm_model,
-            temperature=0,
-        )
+        from app.services.chat_agent import _chat_model
+        base_model = _chat_model(blueprint.llm_model)      # a role model of another provider falls back to the default
         self._model = base_model.bind_tools(self._tools) if self._tools else base_model
         # Build lookup of tool callables by name for the execution loop.
         # Includes both static registry entries and dynamic tool adapters.

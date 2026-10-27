@@ -204,3 +204,36 @@ def test_unattended_runs_still_use_the_planner(world, agent):
             return await execute_agent(request=req, tenant_id=world.tenant_a, db=s, user=admin)
     _run(go())
     assert ["planner"] in agent["m"].calls
+
+
+def test_a_role_model_of_another_provider_does_not_break_the_chat(world, agent, monkeypatch):
+    """Seen live: roles still name "gpt-4o-mini" on a Gemini-only server, and every chat failed with HTTP 500."""
+    from app.llm.gateway import LLMGateway
+
+    def unsupported(self, *a, **k):
+        raise RuntimeError("model 'gpt-4o-mini' is not supported by the configured provider")
+    monkeypatch.setattr(LLMGateway, "get_chat_model_for_role", unsupported)
+    agent["m"] = Script("Your company is GEC Services.")
+    pick(world, "a_admin", DMM)
+    body = send(world, "a_admin", "what is my company name")
+    assert body["message"] == "Your company is GEC Services." and body["plan_status"] == "completed"
+
+
+def test_an_unexpected_agent_error_falls_back_to_the_planner(world, agent, monkeypatch):
+    import app.services.chat_agent as ca
+
+    async def broken(*a, **k):
+        raise KeyError("unexpected")
+    monkeypatch.setattr(ca, "run_chat_agent", broken)
+
+    class PlannerOnly(Script):
+        async def ainvoke(self, messages, *a, **k):
+            if "planning assistant" in str(messages[0].content):
+                return AIMessage(content=json.dumps({"objective": "x", "steps": [
+                    {"step_index": 0, "step_type": "response", "description": "Answer", "tool_name": None,
+                     "arguments": {}, "depends_on": []}]}))
+            return AIMessage(content="Answer from the planner.")
+    agent["m"] = PlannerOnly()
+    pick(world, "a_admin", DMM)
+    body = send(world, "a_admin", "What is my CTR")
+    assert body["message"] == "Answer from the planner." and body["plan_status"] == "completed"
