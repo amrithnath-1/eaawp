@@ -593,18 +593,26 @@ async def execute_agent(
                 rag_text = _build_rag_context(rag_chunks)
 
             try:
+                agent_done = False
                 if use_agent:
                     from app.services.chat_agent import run_chat_agent
-                    final_message, plan_id, all_tool_calls = await run_chat_agent(
-                        user_prompt=request.user_prompt,
-                        blueprint=augmented_blueprint,
-                        session_id=resolved_session_id,
-                        db=db,
-                        system_persona=augmented_blueprint.system_persona,
-                        data_context_block=data_context_block + memory_context_block,
-                        rag_context=rag_text,
-                    )
-                else:
+                    try:
+                        # Own savepoint: if the agent breaks unexpectedly, everything it wrote is undone and the
+                        # planner answers instead, so a bug or provider quirk never leaves the person with no answer.
+                        async with db.begin_nested():
+                            final_message, plan_id, all_tool_calls = await run_chat_agent(
+                                user_prompt=request.user_prompt,
+                                blueprint=augmented_blueprint,
+                                session_id=resolved_session_id,
+                                db=db,
+                                system_persona=augmented_blueprint.system_persona,
+                                data_context_block=data_context_block + memory_context_block,
+                                rag_context=rag_text,
+                            )
+                        agent_done = True
+                    except Exception:  # noqa: BLE001
+                        logger.exception("Chat agent failed unexpectedly; answering with the planner instead")
+                if not agent_done:
                     final_message, plan_id, all_tool_calls = await create_and_execute_plan(
                         user_prompt=request.user_prompt,
                         blueprint=augmented_blueprint,

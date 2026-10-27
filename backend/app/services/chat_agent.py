@@ -135,6 +135,21 @@ def _label(name: str, dyn_map: dict) -> str:
     return name.replace("_", " ").capitalize()
 
 
+def _chat_model(role_model: str | None):
+    """The role's own model when it is usable with the configured provider, else the default model.
+
+    Roles created earlier still name models of another provider (e.g. "gpt-4o-mini" on a Gemini-only server);
+    such a setting must never stop the chat from working.
+    """
+    gateway = get_llm_gateway()
+    if role_model:
+        try:
+            return gateway.get_chat_model_for_role(role_llm_model=role_model, temperature=0)
+        except Exception as exc:  # noqa: BLE001
+            logger.info("Role model %r is not usable here (%s); using the default model", role_model, type(exc).__name__)
+    return gateway.get_chat_model(temperature=0)
+
+
 async def run_chat_agent(
     user_prompt: str,
     blueprint: AgentBlueprint,
@@ -172,7 +187,7 @@ async def run_chat_agent(
         t for t in [*blueprint.allowed_tools, *blueprint.guarded_tools] if is_action_tool(t)))
     declarations = [*read_tools.values(), *[d for d in map(_action_declaration, action_names) if d is not None]]
 
-    model = get_llm_gateway().get_chat_model_for_role(role_llm_model=blueprint.llm_model, temperature=0)
+    model = _chat_model(blueprint.llm_model)
     bound = model.bind_tools(declarations) if declarations else model
 
     system = "\n\n".join(p for p in (
