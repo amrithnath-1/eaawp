@@ -71,6 +71,7 @@ from app.schemas.planning import (
     PlannedStep,
 )
 from app.services.action_governance import process_action_request
+from app.actions.registry import is_action_tool
 from app.services.role_charter import build_role_charter, role_system_prompt
 from app.tools.dynamic_tool import is_tool_failure
 from app.tools.registry import MASTER_TOOL_REGISTRY
@@ -414,12 +415,13 @@ async def create_and_execute_plan(
                 db_plan.status = "awaiting_approval"
                 await db.flush()
                 # Return partial message
+                proposed = await _proposed_changes(db, tenant_id, action_result.approval_request_id)
                 partial = (
-                    f"I have proposed the following action and it is awaiting your approval:\n"
+                    f"I have proposed the following action and it is awaiting approval:\n"
                     f"**{ps.tool_name}**: {ps.description}\n\n"
-                    f"Approval request ID: {action_result.approval_request_id}\n"
-                    f"Plan ID: {plan_id}\n\n"
-                    "Once approved, I will continue executing the remaining steps."
+                    + (f"**Proposed changes (nothing has been saved yet):**\n{proposed}\n\n" if proposed else "")
+                    + "An administrator can approve or reject it here or in Approvals. "
+                    "Once approved, I will continue and report what was actually saved."
                 )
                 db_plan.final_message = partial
                 await db.flush()
@@ -538,6 +540,21 @@ async def create_and_execute_plan(
         if s.tool_name and s.status in ("completed", "awaiting_approval")
     ]
     return db_plan.final_message, plan_id, all_tool_calls
+
+
+async def _proposed_changes(db: AsyncSession, tenant_id: str, approval_request_id: str | None) -> str:
+    """The exact changes stored for approval (the 'changes' summary of a prepared action), if there is one."""
+    if not approval_request_id:
+        return ""
+    from app.db.models import ActionAudit
+    audit = (await db.execute(select(ActionAudit).where(
+        ActionAudit.approval_request_id == approval_request_id, ActionAudit.tenant_id == tenant_id))).scalar_one_or_none()
+    if audit is None:
+        return ""
+    try:
+        return str(json.loads(audit.arguments_json or "{}").get("changes") or "")[:3000]
+    except ValueError:
+        return ""
 
 
 async def reject_plan(
@@ -674,8 +691,10 @@ async def resume_plan(
         from app.services.workspaces import _role_tools
         _, cur_allowed, cur_guarded, *_ = await _role_tools(db, tenant_id, db_plan.role_key)
         mod = module_for_role(db_plan.role_key)
+        from app.actions.registry import PLATFORM_ADMIN_TOOLS
         still_permitted = (
-            (tool_name in cur_allowed or tool_name in cur_guarded)
+            # platform tools are offered only to administrators and only an administrator can resume a plan
+            (tool_name in cur_allowed or tool_name in cur_guarded or tool_name in PLATFORM_ADMIN_TOOLS)
             and not (mod and not await is_module_active(db, tenant_id, mod))
             and not await employee_is_blocked(db, tenant_id, db_plan.role_key)
         )
@@ -827,8 +846,11 @@ async def _generate_plan(
 
     tool_lines = []
     guarded = [t for t in blueprint.guarded_tools if t not in available_tools]
+    from app.actions.registry import get_action_tool
     for t in guarded:
-        tool_lines.append(f"  - {t}  [requires human approval before it runs; propose it only when the user asks for it]")
+        meta = get_action_tool(t)
+        what = f"{meta.meta.description} " if meta is not None else ""
+        tool_lines.append(f"  - {t}  [{what}Requires human approval before it runs; propose it only when the user asks for it]")
     for t in available_tools:
         if is_dynamic_tool_key(t) and t in _dyn_map:
             adapter = _dyn_map[t]
@@ -873,9 +895,12 @@ async def _generate_plan(
 
         steps = []
         for s in data.get("steps", [])[:MAX_PLAN_STEPS]:
+            _tool = s.get("tool_name") or None
             steps.append(PlannedStep(
                 step_index=int(s.get("step_index", len(steps))),
-                step_type=s.get("step_type", "read"),
+                # A step that uses an action tool is an action, whatever the model labelled it: it must go through
+                # governance (and approval), never the read-tool path.
+                step_type="action" if _tool and is_action_tool(_tool) else s.get("step_type", "read"),
                 description=str(s.get("description", ""))[:300],
                 tool_name=s.get("tool_name") or None,
                 arguments=s.get("arguments", {}),

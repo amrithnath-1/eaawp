@@ -122,7 +122,7 @@ export type ToolState =
 export interface ToolEntry {
   key: string;
   name: string;
-  source: "built_in" | "integration";
+  source: "built_in" | "integration" | "platform";
   kind: "read" | "action";
   description: string;
   status: ToolState;

@@ -24,6 +24,7 @@ the *Managers* access level.
 | **Approve or reject** an action; approve-and-resume a paused plan | no (403) | no (403) | yes |
 | Connect / test / switch off / disconnect integrations; grant capabilities to AI employees | no | no | yes |
 | Approved company profile | read | read | read and edit (audited) |
+| Change EAAWP by asking any AI employee in chat (profile, AI employee settings, grants, workflows, approval rules) | no | no | yes — the exact changes are shown for approval first; nothing is saved before approval |
 | Workflows (scheduled work): create, edit, run, see run history | no | no | yes |
 | Meeting Room: start a meeting | yes, sees own meetings | yes, sees own meetings | yes, sees all meetings |
 | Internal messages | 1:1 with any active member; private to the two people | same | same (admins cannot read others' messages) |

@@ -17,6 +17,7 @@ from app.actions.medical_actions import UpdateAppointmentStatusAction
 from app.actions.clerk_actions import DraftServiceDocumentAction, UpdateServiceRequestAction
 from app.actions.campaign_actions import CreateCampaignAction, UpdateCampaignAction
 from app.actions.create_internal_task import CreateInternalTaskAction
+from app.actions.customize_actions import CustomizeEaawpAction
 from app.actions.draft_email import DraftEmailAction
 from app.actions.send_email import SendEmailAction
 from app.actions.strategy_actions import CreateMarketingObjectiveAction, UpdateMarketingObjectiveAction
@@ -33,7 +34,12 @@ ACTION_REGISTRY: dict[str, BaseActionTool] = {
     "draft_service_document": DraftServiceDocumentAction(),
     "update_service_request": UpdateServiceRequestAction(),
     "update_appointment_status": UpdateAppointmentStatusAction(),
+    "customize_eaawp": CustomizeEaawpAction(),
 }
+
+
+# Offered to company administrators in every AI employee (not part of any role's own tool configuration).
+PLATFORM_ADMIN_TOOLS = frozenset({"customize_eaawp"})
 
 
 def get_action_tool(tool_name: str) -> BaseActionTool | None:

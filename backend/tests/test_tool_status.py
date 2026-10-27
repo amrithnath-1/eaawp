@@ -50,7 +50,7 @@ def test_turning_a_tool_off_in_the_role_configuration_changes_the_count(world):
     assert r.status_code == 200, r.text
     body = tools(world, "a_admin")
     send = next(t for t in body["tools"] if t["key"] == "send_email")
-    assert send["status"] == "disabled" and body["counts"]["requires_approval"] == 4 and body["counts"]["blocked"] == 1
+    assert send["status"] == "disabled" and body["counts"]["requires_approval"] == 5  # 4 role tools + customize_eaawp (admin) and body["counts"]["blocked"] == 1
 
 
 def test_integration_tools_follow_live_connection_state_and_risk(world):

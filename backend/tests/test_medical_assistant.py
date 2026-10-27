@@ -312,7 +312,7 @@ class TestAgent:
                 row.tool_scopes_json = json.dumps([{"name": "L", "tool_key": "list_appointments", "governance": "enabled", "description": ""}])
                 await s.commit()
         run(read_only_tools())
-        r = ask(world, "a_admin", "Show appointments")
+        r = ask(world, "a_employee", "Show appointments")   # employee: no admin-only platform tool, so the read-only simple path
         assert r.status_code == 200 and r.json()["plan_id"] is None
 
         async def n():
