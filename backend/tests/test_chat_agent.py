@@ -1,0 +1,206 @@
+"""
+The chat agent (interactive chat works like ChatGPT/Claude: the model calls tools itself and decides the next step).
+
+FAKED: the language model only (a script of replies, including native tool calls) and GitHub's HTTP API.
+Real: auth, workspaces, role configuration, tools, action governance, approvals, plans, conversations, database.
+"""
+from __future__ import annotations
+
+import json
+
+import pytest
+from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+
+from tests.conftest import _run
+from tests.test_role_intelligence import _connect_github, ask, pick
+
+DMM = "DIGITAL_MARKETING_MANAGER"
+
+
+def call(name, args, cid="c1"):
+    return AIMessage(content="", tool_calls=[{"name": name, "args": args, "id": cid}])
+
+
+class Script:
+    """Replies in order; every call's messages and the bound tool names are recorded."""
+
+    def __init__(self, *replies):
+        self.replies = list(replies)
+        self.calls: list[list] = []
+        self.tools: list[str] = []
+        self.customization = None
+
+    def bind_tools(self, tools, *a, **k):
+        self.tools = [getattr(t, "name", "") for t in tools]
+        return self
+
+    async def ainvoke(self, messages, *a, **k):
+        system = str(messages[0].content)
+        if "Admin AI Customization Planner" in system:
+            return AIMessage(content=json.dumps(self.customization))
+        self.calls.append(list(messages))
+        if not self.replies:
+            return AIMessage(content="Done.")
+        nxt = self.replies.pop(0)
+        if isinstance(nxt, Exception):
+            raise nxt
+        return nxt if isinstance(nxt, AIMessage) else AIMessage(content=nxt)
+
+
+@pytest.fixture()
+def agent(monkeypatch):
+    from types import SimpleNamespace
+    import app.config as cfg
+    from app.llm.gateway import LLMGateway
+    cfg.settings.__dict__["chat_engine"] = "agent"
+    holder = {"m": Script("Hello! How can I help?")}
+    monkeypatch.setattr(LLMGateway, "get_chat_model", lambda self, *a, **k: holder["m"])
+    monkeypatch.setattr(LLMGateway, "get_chat_model_for_role", lambda self, *a, **k: holder["m"])
+    monkeypatch.setattr(LLMGateway, "health", lambda self: SimpleNamespace(is_ready=True))
+    return holder
+
+
+def send(world, who, prompt, conversation_id=None):
+    body = {"blueprint": {"agent_id": "cabin", "role_name": "Digital Marketing Manager", "role_key": DMM,
+                          "system_persona": "x", "allowed_tools": [], "guarded_tools": [],
+                          "tenant_id": world.users[who]["tenant_id"]},
+            "user_prompt": prompt}
+    if conversation_id:
+        body["conversation_id"] = conversation_id
+    r = world.client.post("/api/v1/agent/execute", json=body, headers=world.auth(who))
+    assert r.status_code == 200, r.text
+    return r.json()
+
+
+def test_answers_directly_and_sees_the_conversation_as_real_messages(world, agent):
+    agent["m"] = Script("We could run an Onam offer on passport renewals.", "Sure — a shorter version: Onam passport offer.")
+    pick(world, "a_admin", DMM)
+    first = send(world, "a_admin", "Give me one campaign idea for Onam")
+    assert first["message"] == "We could run an Onam offer on passport renewals."
+    assert first["plan_status"] == "completed"
+    second = send(world, "a_admin", "make it shorter", first["conversation_id"])
+    msgs = agent["m"].calls[-1]
+    assert [type(m).__name__ for m in msgs] == ["SystemMessage", "HumanMessage", "AIMessage", "HumanMessage"]
+    assert msgs[1].content == "Give me one campaign idea for Onam" and "Onam offer" in msgs[2].content
+    assert "How you work in this chat" in msgs[0].content
+    assert second["message"].startswith("Sure")
+
+
+def test_calls_tools_in_several_rounds_and_answers_from_the_results(world, agent):
+    agent["m"] = Script(call("get_campaigns", {"params": "{}"}, "a"),
+                        call("get_marketing_objectives", {"params": "{}"}, "b"),
+                        "You have no campaigns or objectives yet.")
+    pick(world, "a_admin", DMM)
+    body = send(world, "a_admin", "How are we doing on marketing?")
+    assert body["plan_status"] == "completed", body
+    assert [s.split("] ")[0] for s in body["step_summaries"]] == ["[READ", "[READ", "[RESPONSE"]
+    tool_msgs = [m for m in agent["m"].calls[-1] if isinstance(m, ToolMessage)]
+    assert len(tool_msgs) == 2                              # both results went back to the model
+    assert body["message"] == "You have no campaigns or objectives yet."
+
+
+def test_an_action_that_needs_approval_pauses_and_resumes_after_approval(world, agent):
+    args = {"name": "Brand awareness Q4", "target_metric": "reach", "target_value": 1000}
+    agent["m"] = Script(call("create_marketing_objective", {"arguments_json": json.dumps(args)}),
+                        "The objective was created after approval.")
+    pick(world, "a_admin", DMM)
+    body = send(world, "a_admin", "Set up a brand awareness goal of 1000 reach for Q4")
+    assert body["plan_status"] == "awaiting_approval", body
+    assert "awaiting approval" in body["message"]
+    st, objs = 200, world.client.get("/api/v1/strategy/objectives", headers=world.auth("a_admin")).json()
+    assert not any(o["name"] == "Brand awareness Q4" for o in objs)        # nothing executed yet
+    r = world.client.post(f"/api/v1/planning/plans/{body['plan_id']}/resume", json={"plan_id": body["plan_id"]},
+                          headers=world.auth("a_admin"))
+    assert r.status_code == 200 and r.json()["status"] == "completed", r.text
+    objs = world.client.get("/api/v1/strategy/objectives", headers=world.auth("a_admin")).json()
+    assert any(o["name"] == "Brand awareness Q4" for o in objs)
+
+
+def test_a_rejected_action_call_is_reported_back_and_the_model_recovers(world, agent):
+    agent["m"] = Script(call("create_marketing_objective", {"arguments_json": "{}"}),
+                        "I need the goal's name, metric and target to set it up.")
+    pick(world, "a_admin", DMM)
+    body = send(world, "a_admin", "Create a goal")
+    assert body["plan_status"] == "completed"
+    tool_msg = next(m for m in agent["m"].calls[-1] if isinstance(m, ToolMessage))
+    assert tool_msg.content.startswith("[NOT DONE")
+    assert world.client.get("/api/v1/approvals?status=pending", headers=world.auth("a_admin")).json() == []
+
+
+def test_settings_tool_is_offered_to_administrators_only(world, agent):
+    pick(world, "a_admin", DMM)
+    send(world, "a_admin", "hello there friend")
+    assert "customize_eaawp" in agent["m"].tools
+    agent["m"] = Script("Hi")
+    pick(world, "a_employee", DMM)
+    send(world, "a_employee", "hello there friend")
+    assert "customize_eaawp" not in agent["m"].tools
+
+
+def test_administrator_changes_settings_through_the_agent(world, agent):
+    m = Script(call("customize_eaawp", {"arguments_json": json.dumps({"instruction": "Add Visa Assistance service"})}))
+    m.customization = {"summary": "Add a service", "missing_information": [], "operations": [
+        {"type": "UPDATE_COMPANY_PROFILE", "description": "Add Visa Assistance",
+         "params": {"services": [{"name": "Visa Assistance", "description": "", "audience": ""}]}}]}
+    agent["m"] = m
+    pick(world, "a_admin", DMM)
+    body = send(world, "a_admin", "We now help people with visa paperwork too, please reflect that")
+    assert body["plan_status"] == "awaiting_approval", body
+    assert "Proposed changes (nothing has been saved yet)" in body["message"] and "Visa Assistance" in body["message"]
+
+
+def test_github_data_is_shown_even_if_the_model_refuses(world, agent, monkeypatch):
+    from app.integrations.providers.github_provider import GitHubProvider
+
+    async def fake_get(self, token, path, params):
+        return [{"name": "gec-website", "full_name": "gec/gec-website", "private": False, "language": "HTML",
+                 "stargazers_count": 0, "open_issues_count": 0}]
+    monkeypatch.setattr(GitHubProvider, "_get", fake_get)
+    _connect_github(world, grants=("list_repositories",))
+    pick(world, "a_admin", DMM)
+
+    class Picks(Script):
+        def bind_tools(self, tools, *a, **k):
+            super().bind_tools(tools)
+            gh = next(t for t in self.tools if t.endswith("list_repositories"))
+            self.replies = [call(gh, {"params_json": "{}"}),
+                            "Listing repositories is outside my responsibilities. Please consult the Data Analyst."]
+            return self
+    agent["m"] = Picks()
+    body = send(world, "a_admin", "which repos do we have")
+    assert "gec/gec-website" in body["message"]
+    assert "outside my responsibilities" not in body["message"]
+
+
+def test_a_model_failure_is_reported_not_invented(world, agent):
+    agent["m"] = Script(RuntimeError("provider down"))
+    pick(world, "a_admin", DMM)
+    body = send(world, "a_admin", "Summarise our marketing")
+    assert body["plan_status"] == "failed"
+    assert "AI model request failed" in body["message"]
+
+
+def test_unattended_runs_still_use_the_planner(world, agent):
+    from app.api.routers.execution import execute_agent
+    from app.db.models import User
+    from app.schemas.blueprint import AgentBlueprint, AgentExecutionRequest
+
+    class PlannerAware(Script):
+        async def ainvoke(self, messages, *a, **k):
+            if "planning assistant" in str(messages[0].content):
+                self.calls.append(["planner"])
+                return AIMessage(content=json.dumps({"objective": "x", "steps": [
+                    {"step_index": 0, "step_type": "response", "description": "Answer", "tool_name": None,
+                     "arguments": {}, "depends_on": []}]}))
+            return AIMessage(content="report")
+    agent["m"] = PlannerAware()
+
+    async def go():
+        async with world.maker() as s:
+            admin = await s.get(User, world.users["a_admin"]["id"])
+            req = AgentExecutionRequest(blueprint=AgentBlueprint(agent_id="wf", role_name="Digital Marketing Manager",
+                                                                 system_persona="x", tenant_id=world.tenant_a),
+                                        user_prompt="Weekly report", session_id="workflow:test")
+            return await execute_agent(request=req, tenant_id=world.tenant_a, db=s, user=admin)
+    _run(go())
+    assert ["planner"] in agent["m"].calls

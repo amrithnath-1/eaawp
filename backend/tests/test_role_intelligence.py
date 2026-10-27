@@ -411,3 +411,28 @@ def test_a_refusal_never_hides_data_the_tool_returned(world, model, monkeypatch)
     assert "outside my responsibilities" not in body["message"]
     assert "never say it is outside your responsibilities" in rec.humans[-1]
     assert "Every tool in your tool list was given to you" in rec.systems[-1]
+
+
+@pytest.mark.parametrize("prompt", ["give the list of repositiries in my github", "what's new in my github this week"])
+def test_a_wrong_intent_guess_cannot_turn_a_data_request_into_a_connect_card(world, monkeypatch, prompt):
+    """Seen live: a misspelt repository request got 'GitHub is already connected. Would you like to test it…'."""
+    from types import SimpleNamespace
+    from app.llm.gateway import LLMGateway
+
+    class SaysConnect(Recorder):
+        async def ainvoke(self, messages, *a, **k):
+            system = str(messages[0].content)
+            if "intent" in system.lower() and "integration" in system.lower() and "planning assistant" not in system:
+                return AIMessage(content='{"intent_type": "CONNECT_INTEGRATION", "provider_type": "github", '
+                                         '"confidence": 0.95, "reasoning": "x"}')
+            return await super().ainvoke(messages, *a, **k)
+    m = SaysConnect()
+    monkeypatch.setattr(LLMGateway, "get_chat_model", lambda self, *a, **k: m)
+    monkeypatch.setattr(LLMGateway, "health", lambda self: SimpleNamespace(is_ready=True))
+    _connect_github(world, grants=("list_repositories",))
+    pick(world, "a_admin", "DIGITAL_MARKETING_MANAGER")
+    body = ask(world, "a_admin", prompt, "DIGITAL_MARKETING_MANAGER").json()
+    assert not any(s.startswith("[INTEGRATION]") for s in body["step_summaries"]), body
+    # an explicit request to manage the connection still gets the integration flow
+    body = ask(world, "a_admin", "connect github", "DIGITAL_MARKETING_MANAGER").json()
+    assert body["step_summaries"] and body["step_summaries"][0].startswith("[INTEGRATION]"), body
