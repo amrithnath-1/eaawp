@@ -57,7 +57,7 @@ _PROVIDER_RE = re.compile(
 # Asking for data FROM a service, as opposed to managing the connection itself.
 _DATA_REQUEST_RE = re.compile(
     r"\b(list|show|get|fetch|give|find|which|what are|how many|review|analy[sz]e|summari[sz]e|report|compare|open)\b"
-    r".{0,60}\b(repo(s|sitor(y|ies))?|issues?|pull requests?|prs?|commits?|branch(es)?|quer(y|ies)|keywords?|pages?"
+    r".{0,60}\b(repo\w*|issues?|pull requests?|prs?|commits?|branch(es)?|quer(y|ies)|keywords?|pages?"
     r"|clicks|impressions|traffic|sessions|visitors|users|campaigns?|performance|rows|tables?|data)\b"
 )
 _READ_ONLY_INTENTS = frozenset({"LIST_INTEGRATIONS", "LIST_CAPABILITIES", "CHECK_STATUS", "TEST_CONNECTION"})
@@ -355,7 +355,10 @@ async def execute_agent(
         if preset_plan is None and (_has_provider_kw or "integration" in _prompt_lower):
             try:
                 _intent = await parse_integration_intent(request.user_prompt)
-                if _intent.intent_type in _INTEGRATION_ACTION_INTENTS and _intent.confidence >= 0.65:
+                # The model may only pick WHICH management action; it cannot turn a request with no connection or
+                # status wording ("give the list of repos in my github") into one.
+                if (_intent.intent_type in _INTEGRATION_ACTION_INTENTS and _intent.confidence >= 0.65
+                        and (_has_connect_kw or _has_status_kw)):
                     # A data request is never answered with a capability list or status card.
                     if not (_is_data_request and _intent.intent_type in _READ_ONLY_INTENTS):
                         _use_integration_path = True
