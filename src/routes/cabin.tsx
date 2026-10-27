@@ -48,6 +48,7 @@ import {
   conversationKeys,
   fetchOlderMessages,
   useConversation,
+  useConversations,
   type ConversationMessage,
   type IntegrationActionMeta,
 } from "@/hooks/use-conversations";
@@ -163,8 +164,14 @@ function IntegrationActionCard({ meta }: { meta: IntegrationActionMeta }) {
 }
 
 export const Route = createFileRoute("/cabin")({
-  validateSearch: (s: Record<string, unknown>): { c?: string } =>
-    typeof s["c"] === "string" && /^[0-9a-f-]{36}$/i.test(s["c"]) ? { c: s["c"] } : {},
+  // ?c=<id> opens a saved conversation; ?new=1 starts a fresh one. With neither, the latest conversation with the
+  // selected AI employee is reopened, so a chat continues until the person explicitly starts a new one.
+  validateSearch: (s: Record<string, unknown>): { c?: string; new?: boolean } =>
+    typeof s["c"] === "string" && /^[0-9a-f-]{36}$/i.test(s["c"])
+      ? { c: s["c"] }
+      : s["new"] === true || s["new"] === 1 || s["new"] === "1" || s["new"] === "true"
+        ? { new: true }
+        : {},
   component: CabinPage,
 });
 
@@ -354,7 +361,7 @@ function CabinPage() {
   const agentExecute = useAgentExecute();
   const qc = useQueryClient();
   const navigate = useNavigate();
-  const { c: conversationParam } = Route.useSearch();
+  const { c: conversationParam, new: freshChat } = Route.useSearch();
   // The AI runs as the person's selected workspace role; the server decides the role, its persona, tools and
   // knowledge itself, so nothing here can widen what the agent may do.
   const ws = useCurrentWorkspace().data;
@@ -384,6 +391,30 @@ function CabinPage() {
       : null;
   const [openRoleName, setOpenRoleName] = useState<string | null>(null);
 
+  // Continue the latest conversation with this AI employee unless the person asked for a new chat.
+  const latest = useConversations(USE_REAL_API && roleKey ? roleKey : null, "");
+  const resumedLatest = useRef(false);
+  useEffect(() => {
+    if (conversationParam || freshChat) {
+      resumedLatest.current = false;
+      return;
+    }
+    if (resumedLatest.current || !roleKey || !latest.data) return;
+    if (latest.isPlaceholderData || turns.length > 0 || agentExecute.isPending) return;
+    resumedLatest.current = true;
+    const last = latest.data.items.find((c) => c.role_key === roleKey);
+    if (last) void navigate({ to: "/cabin", search: { c: last.id }, replace: true });
+  }, [
+    conversationParam,
+    freshChat,
+    roleKey,
+    latest.data,
+    latest.isPlaceholderData,
+    turns.length,
+    agentExecute.isPending,
+    navigate,
+  ]);
+
   // The URL is the source of truth for which conversation is open (History links set ?c=...).
   useEffect(() => {
     const next = conversationParam ?? null;
@@ -412,7 +443,7 @@ function CabinPage() {
   useEffect(() => {
     if (conversation.isError && activeId && loadedId.current !== activeId) {
       toast.error("That conversation could not be opened. It may have been deleted.");
-      void navigate({ to: "/cabin", search: {}, replace: true });
+      void navigate({ to: "/cabin", search: { new: true }, replace: true });
     }
   }, [conversation.isError, activeId, navigate]);
 
@@ -625,7 +656,7 @@ function CabinPage() {
               {activeId && (
                 <Link
                   to="/cabin"
-                  search={{}}
+                  search={{ new: true }}
                   className="inline-flex items-center gap-1 border border-border px-1.5 py-0.5 font-mono text-[9px] tracking-[0.1em] text-muted-foreground hover:text-foreground"
                 >
                   <MessageSquarePlus className="size-3" /> NEW CHAT
@@ -866,7 +897,7 @@ function CabinPage() {
                     </Link>
                     <Link
                       to="/cabin"
-                      search={{}}
+                      search={{ new: true }}
                       className="border border-border px-2 py-1 font-mono text-[10px] hover:bg-foreground/5"
                     >
                       NEW CHAT

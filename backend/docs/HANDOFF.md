@@ -11,6 +11,27 @@ unless stated.
   then `alembic upgrade head`; then `pip install -r requirements.txt` and `npm install` (react-markdown, remark-gfm).
 - Testing guide for the owner: `docs/testing/EAAWP_GEC_DMM_Complete_Testing_Guide.pdf` (+ `.md`, `build_guide_pdf.py`).
 
+## Phase P: settings by plain-language chat, continuous conversations (2026-10-27)
+
+- `app/services/platform_requests.py`: `looks_like_settings_change()` (regex, no model call) spots requests to change
+  EAAWP settings in ordinary words. For an administrator in an interactive chat, `execution._settings_change_plan`
+  runs the customization planner up front (with the conversation so far) and hands the planner a preset plan:
+  `customize_eaawp` (approval-gated) + response. No operations but missing details → the reply asks for them; neither
+  → the normal planner. It runs before the integration pre-flight ("switch off GitHub" is a settings change; "connect
+  GitHub" still goes to the secure setup flow because "connect" is not a change verb there).
+- Every chat model call is told who is asking (`asker_block`): administrators are told they can change settings and
+  never to be sent to "an administrator"; others are told an administrator can.
+- The planner lists every tool with a `[read: …]` / `[action: …]` description (`planner._tool_summary`) and its rules
+  say people never name tools.
+- Refusals ("falls outside my responsibilities … an administrator can") are neither stored as memory nor fed back.
+- New customization operations (`admin_customization_service._SETTINGS_OPS`): SET_AI_EMPLOYEE_PAUSED,
+  SET_MODULE_ACTIVE, INVITE_TEAM_MEMBER (link never shown in chat), CHANGE_TEAM_ROLE, SET_TEAM_MEMBER_ACTIVE,
+  SET_INTEGRATION_ENABLED, DISCONNECT_INTEGRATION, SET_NOTIFICATION_EMAILS. Team/Marketplace/notification changes act
+  as the approving administrator (`action_governance.approved_by` contextvar → `customize_actions.execute`).
+- Frontend: `/cabin` with no `?c=` reopens the latest conversation with the selected AI employee; `?new=1` (NEW CHAT,
+  History "new conversation", after deleting the open one) starts a fresh one.
+- Tests: `tests/test_plain_language_settings.py` (12). Browser journey 32/32 (scripted model).
+
 ## Phase O: role intelligence, history, real status, connections, background work (2026-10-25)
 Status: IMPLEMENTED AND VERIFIED with automated tests + a real-browser journey (27 checks) against a real server with a
 SCRIPTED model, on SQLite and on PostgreSQL 16; background work after logout and crash recovery verified on a real

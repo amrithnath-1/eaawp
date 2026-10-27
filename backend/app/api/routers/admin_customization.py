@@ -120,6 +120,7 @@ async def execute_plan(
             tenant_id=tenant_id,
             confirmed_by=admin_user.email or admin_user.id,
             db=db,
+            admin=admin_user,
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc

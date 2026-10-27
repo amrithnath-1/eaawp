@@ -21,7 +21,7 @@ import logging
 import re
 import uuid
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, get_args
 
 from langchain_core.messages import HumanMessage, SystemMessage
 from sqlalchemy import select
@@ -32,6 +32,7 @@ from app.integrations.integration_registry import integration_registry
 from app.llm import get_llm_gateway
 from app.schemas.admin_customization import (
     AdminCustomizationResult,
+    OperationType,
     CustomizationOperation,
     CustomizationPlan,
     OperationResult,
@@ -58,7 +59,9 @@ CRITICAL RULES:
 5. Only produce operations from this exact list:
    CREATE_AI_EMPLOYEE, UPDATE_AI_EMPLOYEE, CONNECT_INTEGRATION,
    GRANT_CAPABILITY, REVOKE_CAPABILITY, CREATE_WORKFLOW, UPDATE_WORKFLOW,
-   SET_APPROVAL_POLICY, UPDATE_COMPANY_PROFILE, UPDATE_ROLE_SETTINGS
+   SET_APPROVAL_POLICY, UPDATE_COMPANY_PROFILE, UPDATE_ROLE_SETTINGS,
+   SET_AI_EMPLOYEE_PAUSED, SET_MODULE_ACTIVE, INVITE_TEAM_MEMBER, CHANGE_TEAM_ROLE,
+   SET_TEAM_MEMBER_ACTIVE, SET_INTEGRATION_ENABLED, DISCONNECT_INTEGRATION, SET_NOTIFICATION_EMAILS
 6. If information is missing, list it in missing_information instead of guessing.
 7. Respond with ONLY valid JSON — no markdown, no backticks, no explanation.
 
@@ -79,6 +82,17 @@ UPDATE_ROLE_SETTINGS params (a built-in AI employee: DIGITAL_MARKETING_MANAGER, 
 INSTITUTIONAL_CLERK, MEDICAL_ASSISTANT). Include only what was asked:
   {"role_key": str, "agent_name": str, "communication_style": str, "add_instructions": str,
    "quick_prompts": [str], "add_responsibilities": [str]}
+
+OTHER SETTINGS (use the names and emails from CURRENT TENANT CONFIGURATION; never guess an email):
+  SET_AI_EMPLOYEE_PAUSED   {"role_key": str, "paused": bool}            pause / resume an AI employee
+  SET_MODULE_ACTIVE        {"module_key": str, "active": bool}          activate / deactivate a Marketplace module
+  INVITE_TEAM_MEMBER       {"email": str, "role": "Employee"|"Manager"|"Company Admin"|"AI Administrator"}
+  CHANGE_TEAM_ROLE         {"email": str, "role": <same roles>}
+  SET_TEAM_MEMBER_ACTIVE   {"email": str, "active": bool}               deactivate / reactivate a person
+  SET_INTEGRATION_ENABLED  {"provider_type": str, "enabled": bool}      switch a connected service off / on
+  DISCONNECT_INTEGRATION   {"provider_type": str}                       remove a connection and its grants
+  SET_NOTIFICATION_EMAILS  {"enabled": bool}                            automatic notification emails for the company
+  Workflows: UPDATE_WORKFLOW {"name": str, "is_enabled": bool, "schedule_cron": str} also switches one on/off.
 
 APPROVAL POLICY params for SET_APPROVAL_POLICY:
   {\"scope\": \"all_external_actions\" | \"send_email\" | \"publish\",
@@ -138,6 +152,11 @@ Instruction: "Make the marketing assistant's replies friendlier and call it Mira
 Operations:
   {type: UPDATE_ROLE_SETTINGS, params: {role_key: "DIGITAL_MARKETING_MANAGER", agent_name: "Mira",
    communication_style: "Friendly"}}
+
+Instruction: "Pause the clerk and make priya@example.com a manager"
+Operations:
+  {type: SET_AI_EMPLOYEE_PAUSED, params: {role_key: "INSTITUTIONAL_CLERK", paused: true}}
+  {type: CHANGE_TEAM_ROLE, params: {email: "priya@example.com", role: "Manager"}}
 
 Instruction: "Require approval before sending anything externally"
 Operations:
@@ -240,8 +259,24 @@ async def _gather_tenant_context(tenant_id: str, db: AsyncSession) -> str:
     except Exception as exc:
         logger.debug("Could not load company profile for context: %s", exc)
 
-    context_parts.append("BUILT-IN AI EMPLOYEES (for UPDATE_ROLE_SETTINGS): DIGITAL_MARKETING_MANAGER, "
+    context_parts.append("BUILT-IN AI EMPLOYEES (for UPDATE_ROLE_SETTINGS / SET_AI_EMPLOYEE_PAUSED): DIGITAL_MARKETING_MANAGER, "
                          "DATA_INTELLIGENCE_ANALYST, INSTITUTIONAL_CLERK, MEDICAL_ASSISTANT")
+
+    # People (name, email, role, status only) and Marketplace modules
+    try:
+        from app.db.models import User
+        people = (await db.execute(select(User).where(User.tenant_id == tenant_id).limit(50))).scalars().all()
+        context_parts.append("TEAM:\n" + "\n".join(
+            f"  - {u.name or ''} <{u.email}>: {u.role}, {'active' if u.is_active else 'deactivated'}" for u in people))
+    except Exception as exc:
+        logger.debug("Could not load team for context: %s", exc)
+    try:
+        from app.services.modules import list_modules
+        mods = await list_modules(db, tenant_id)
+        context_parts.append("MARKETPLACE MODULES:\n" + "\n".join(
+            f"  - {m['key']} ({m['name']}): {'active' if m.get('active') else 'inactive'}, {m.get('status')}" for m in mods))
+    except Exception as exc:
+        logger.debug("Could not load modules for context: %s", exc)
 
     # Available providers
     provider_types = integration_registry.list_types()
@@ -316,13 +351,7 @@ async def generate_customization_plan(
                     order=i,
                 )
                 for i, op in enumerate(data.get("operations", [])[:20])
-                if isinstance(op, dict) and op.get("type") in (
-                    "CREATE_AI_EMPLOYEE", "UPDATE_AI_EMPLOYEE",
-                    "CONNECT_INTEGRATION", "GRANT_CAPABILITY",
-                    "REVOKE_CAPABILITY", "CREATE_WORKFLOW",
-                    "UPDATE_WORKFLOW", "SET_APPROVAL_POLICY",
-                    "UPDATE_COMPANY_PROFILE", "UPDATE_ROLE_SETTINGS",
-                )
+                if isinstance(op, dict) and op.get("type") in get_args(OperationType)
             ],
             missing_information=[
                 str(m)[:200] for m in data.get("missing_information", [])[:10]
@@ -348,6 +377,7 @@ async def execute_customization_plan(
     confirmed_by: str,
     db: AsyncSession,
     commit: bool = True,
+    admin: Any = None,
 ) -> AdminCustomizationResult:
     """
     Execute a confirmed customization plan through existing EAAWP services.
@@ -371,7 +401,7 @@ async def execute_customization_plan(
         raise ValueError(f"Plan failed re-validation: {exc}") from exc
 
     for op in sorted(plan.operations, key=lambda o: o.order):
-        result = await _execute_operation(op, tenant_id, confirmed_by, db)
+        result = await _execute_operation(op, tenant_id, confirmed_by, db, admin)
         results.append(result)
 
     succeeded = sum(1 for r in results if r.status == "success")
@@ -424,6 +454,7 @@ async def _execute_operation(
     tenant_id: str,
     confirmed_by: str,
     db: AsyncSession,
+    admin: Any = None,
 ) -> OperationResult:
     """
     Execute one operation by calling the appropriate existing EAAWP service.
@@ -452,6 +483,8 @@ async def _execute_operation(
             return await _op_update_company_profile(op, tenant_id, confirmed_by, db)
         if op.type == "UPDATE_ROLE_SETTINGS":
             return await _op_update_role_settings(op, tenant_id, db)
+        if op.type in _SETTINGS_OPS:
+            return await _SETTINGS_OPS[op.type](op, tenant_id, db, admin)
         return OperationResult(
             type=op.type,
             description=op.description,
@@ -1040,3 +1073,158 @@ async def _op_update_role_settings(op: CustomizationOperation, tenant_id: str, d
     await db.flush()
     return OperationResult(type=op.type, description=op.description, status="success",
                            detail=f"{row.role_name or role_key} updated: " + ", ".join(changed) + ".")
+
+
+# ── Further settings (each calls the same service the settings page uses) ─────
+
+def _ok(op: CustomizationOperation, detail: str) -> OperationResult:
+    return OperationResult(type=op.type, description=op.description, status="success", detail=detail)
+
+
+def _fail(op: CustomizationOperation, detail: str) -> OperationResult:
+    return OperationResult(type=op.type, description=op.description, status="failed", detail=detail)
+
+
+def _need_admin(op: CustomizationOperation, admin: Any) -> OperationResult | None:
+    from app.core.auth import is_admin_user
+    if admin is None or not is_admin_user(admin):
+        return _fail(op, "This change must be approved by a company administrator.")
+    return None
+
+
+async def _op_set_employee_paused(op, tenant_id, db, admin) -> OperationResult:
+    from app.db.models import AIEmployee
+    role_key = str(op.params.get("role_key", "")).upper()
+    paused = bool(op.params.get("paused", True))
+    rows = (await db.execute(select(AIEmployee).where(AIEmployee.tenant_id == tenant_id,
+                                                      AIEmployee.role_key == role_key))).scalars().all()
+    if not rows:
+        return _fail(op, f"No AI employee record for {role_key or 'that role'}. Deactivate its module in the "
+                         "Marketplace instead.")
+    for e in rows:
+        e.status = "PAUSED" if paused else "ACTIVE"
+    db.add(_audit_row(tenant_id, admin, f"{'paused' if paused else 'resumed'} AI employee {role_key} (by chat)"))
+    await db.flush()
+    return _ok(op, f"{rows[0].name} {'paused' if paused else 'resumed'}.")
+
+
+async def _op_set_module_active(op, tenant_id, db, admin) -> OperationResult:
+    if (denied := _need_admin(op, admin)):
+        return denied
+    from fastapi import HTTPException
+    from app.services.modules import set_active
+    try:
+        m = await set_active(db, admin, str(op.params.get("module_key", "")).upper(), bool(op.params.get("active", True)))
+    except HTTPException as exc:
+        return _fail(op, str(exc.detail))
+    return _ok(op, f"{m['name']} is now {'active' if m.get('active') else 'inactive'}.")
+
+
+async def _member_by_email(db, tenant_id: str, email: str):
+    from app.db.models import User
+    from app.services.team_service import norm_email
+    return (await db.execute(select(User).where(User.tenant_id == tenant_id,
+                                                User.email == norm_email(email)))).scalar_one_or_none()
+
+
+async def _op_invite(op, tenant_id, db, admin) -> OperationResult:
+    if (denied := _need_admin(op, admin)):
+        return denied
+    from app.services import team_service as ts
+    try:
+        inv, _token = await ts.create_invitation(db, admin, str(op.params.get("email", "")),
+                                                 str(op.params.get("role", "Employee")))
+    except ts.TeamError as exc:
+        return _fail(op, exc.message)
+    # The one-time link is never put in a chat: it is shared from Team (Resend shows a new link or emails it).
+    return _ok(op, f"Invitation created for {inv.email} as {inv.role}. Open Team → Invitations → Resend to copy "
+                   "the link or email it.")
+
+
+async def _op_change_role(op, tenant_id, db, admin) -> OperationResult:
+    if (denied := _need_admin(op, admin)):
+        return denied
+    from app.services import team_service as ts
+    u = await _member_by_email(db, tenant_id, str(op.params.get("email", "")))
+    if u is None:
+        return _fail(op, "No team member has that email.")
+    try:
+        await ts.change_role(db, admin, u.id, str(op.params.get("role", "")))
+    except ts.TeamError as exc:
+        return _fail(op, exc.message)
+    return _ok(op, f"{u.email} is now {u.role}.")
+
+
+async def _op_member_active(op, tenant_id, db, admin) -> OperationResult:
+    if (denied := _need_admin(op, admin)):
+        return denied
+    from app.services import team_service as ts
+    u = await _member_by_email(db, tenant_id, str(op.params.get("email", "")))
+    if u is None:
+        return _fail(op, "No team member has that email.")
+    active = bool(op.params.get("active", False))
+    try:
+        await ts.set_active(db, admin, u.id, active)
+    except ts.TeamError as exc:
+        return _fail(op, exc.message)
+    return _ok(op, f"{u.email} {'reactivated' if active else 'deactivated'}.")
+
+
+async def _integration_by_provider(tenant_id, db, provider: str):
+    rows = await int_mgr.list_integrations(tenant_id=tenant_id, db=db)
+    provider = provider.strip().lower()
+    return next((i for i in rows if i.provider_type == provider or (i.display_name or "").lower() == provider), None)
+
+
+async def _op_integration_enabled(op, tenant_id, db, admin) -> OperationResult:
+    from app.schemas.integration_framework import IntegrationUpdate
+    row = await _integration_by_provider(tenant_id, db, str(op.params.get("provider_type", "")))
+    if row is None:
+        return _fail(op, "That service is not connected.")
+    enabled = bool(op.params.get("enabled", False))
+    await int_mgr.update_integration(row.id, IntegrationUpdate(is_enabled=enabled), tenant_id, db)
+    db.add(_audit_row(tenant_id, admin, f"integration {row.display_name} switched {'on' if enabled else 'off'} (by chat)"))
+    await db.flush()
+    return _ok(op, f"{row.display_name} switched {'on' if enabled else 'off'}.")
+
+
+async def _op_disconnect(op, tenant_id, db, admin) -> OperationResult:
+    row = await _integration_by_provider(tenant_id, db, str(op.params.get("provider_type", "")))
+    if row is None:
+        return _fail(op, "That service is not connected.")
+    await int_mgr.delete_integration(row.id, tenant_id, db)
+    db.add(_audit_row(tenant_id, admin, f"integration {row.display_name} disconnected (by chat)"))
+    await db.flush()
+    return _ok(op, f"{row.display_name} disconnected; its access grants were removed.")
+
+
+async def _op_notification_emails(op, tenant_id, db, admin) -> OperationResult:
+    if (denied := _need_admin(op, admin)):
+        return denied
+    from app.api.routers.notifications import _provider_ready
+    from app.services import notification_service as ns
+    enabled = bool(op.params.get("enabled", False))
+    if enabled and not await _provider_ready(tenant_id, db):
+        return _fail(op, "Set up and enable the company's email connection first (Integrations).")
+    await ns.set_company_email_enabled(tenant_id, enabled, admin.id, db)
+    db.add(_audit_row(tenant_id, admin, f"automatic notification emails {'authorized' if enabled else 'switched off'} (by chat)"))
+    await db.flush()
+    return _ok(op, f"Automatic notification emails {'on' if enabled else 'off'}.")
+
+
+def _audit_row(tenant_id: str, admin: Any, event: str):
+    from app.db.models import AuditLog
+    return AuditLog(id=str(uuid.uuid4()), tenant_id=tenant_id, actor=str(getattr(admin, "id", None) or "admin (chat)")[:64],
+                    event=event[:500], status="ok")
+
+
+_SETTINGS_OPS = {
+    "SET_AI_EMPLOYEE_PAUSED": _op_set_employee_paused,
+    "SET_MODULE_ACTIVE": _op_set_module_active,
+    "INVITE_TEAM_MEMBER": _op_invite,
+    "CHANGE_TEAM_ROLE": _op_change_role,
+    "SET_TEAM_MEMBER_ACTIVE": _op_member_active,
+    "SET_INTEGRATION_ENABLED": _op_integration_enabled,
+    "DISCONNECT_INTEGRATION": _op_disconnect,
+    "SET_NOTIFICATION_EMAILS": _op_notification_emails,
+}
