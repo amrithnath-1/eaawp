@@ -58,12 +58,27 @@ CRITICAL RULES:
 5. Only produce operations from this exact list:
    CREATE_AI_EMPLOYEE, UPDATE_AI_EMPLOYEE, CONNECT_INTEGRATION,
    GRANT_CAPABILITY, REVOKE_CAPABILITY, CREATE_WORKFLOW, UPDATE_WORKFLOW,
-   SET_APPROVAL_POLICY
+   SET_APPROVAL_POLICY, UPDATE_COMPANY_PROFILE, UPDATE_ROLE_SETTINGS
 6. If information is missing, list it in missing_information instead of guessing.
 7. Respond with ONLY valid JSON — no markdown, no backticks, no explanation.
 
 AVAILABLE PROVIDERS (for CONNECT_INTEGRATION):
   google_search_console, google_analytics, facebook, github, postgresql, mysql, mcp
+
+UPDATE_COMPANY_PROFILE params (the approved company profile every AI employee relies on). Include ONLY the
+fields the administrator asked to change, with ONLY facts the administrator stated - never invent prices,
+processing times, guarantees or results. Lists are ADDED to what exists unless "replace": true is given:
+  {"brand_name": str, "legal_or_long_name": str, "tagline": str, "website": str, "summary": str,
+   "location_and_service_area": str, "brand_voice": str, "policies": str,
+   "services": [{"name": str, "description": str, "audience": str}],
+   "target_audiences": [str], "approved_claims": [str], "forbidden_claims": [str],
+   "marketing_objectives": [str], "kpis": [str], "replace": false}
+  A service with the same name as an existing one updates it; empty strings never erase existing values.
+
+UPDATE_ROLE_SETTINGS params (a built-in AI employee: DIGITAL_MARKETING_MANAGER, DATA_INTELLIGENCE_ANALYST,
+INSTITUTIONAL_CLERK, MEDICAL_ASSISTANT). Include only what was asked:
+  {"role_key": str, "agent_name": str, "communication_style": str, "add_instructions": str,
+   "quick_prompts": [str], "add_responsibilities": [str]}
 
 APPROVAL POLICY params for SET_APPROVAL_POLICY:
   {\"scope\": \"all_external_actions\" | \"send_email\" | \"publish\",
@@ -113,6 +128,16 @@ Operations:
    description: "Prepare and present weekly marketing metrics",
    steps: [{step_type: "analysis", description: "Retrieve and analyse campaign data"},
            {step_type: "response", description: "Generate marketing report"}]}}
+
+Instruction: "Add our passport service to the company profile and set the tagline to 'We handle it'"
+Operations:
+  {type: UPDATE_COMPANY_PROFILE, params: {tagline: "We handle it",
+   services: [{name: "Passport services", description: "", audience: ""}]}}
+
+Instruction: "Make the marketing assistant's replies friendlier and call it Mira"
+Operations:
+  {type: UPDATE_ROLE_SETTINGS, params: {role_key: "DIGITAL_MARKETING_MANAGER", agent_name: "Mira",
+   communication_style: "Friendly"}}
 
 Instruction: "Require approval before sending anything externally"
 Operations:
@@ -206,6 +231,18 @@ async def _gather_tenant_context(tenant_id: str, db: AsyncSession) -> str:
     except Exception as exc:
         logger.debug("Could not load workflows for context: %s", exc)
 
+    # The approved company profile (what AI employees are told about the company)
+    try:
+        from app.services.company_profile import load as _load_profile
+        profile, _ = await _load_profile(db, tenant_id)
+        filled = {k: v for k, v in profile.model_dump().items() if v}
+        context_parts.append("CURRENT COMPANY PROFILE:\n" + (json.dumps(filled, ensure_ascii=False)[:3000] if filled else "  (empty)"))
+    except Exception as exc:
+        logger.debug("Could not load company profile for context: %s", exc)
+
+    context_parts.append("BUILT-IN AI EMPLOYEES (for UPDATE_ROLE_SETTINGS): DIGITAL_MARKETING_MANAGER, "
+                         "DATA_INTELLIGENCE_ANALYST, INSTITUTIONAL_CLERK, MEDICAL_ASSISTANT")
+
     # Available providers
     provider_types = integration_registry.list_types()
     context_parts.append(f"AVAILABLE INTEGRATION PROVIDERS: {', '.join(provider_types)}")
@@ -284,6 +321,7 @@ async def generate_customization_plan(
                     "CONNECT_INTEGRATION", "GRANT_CAPABILITY",
                     "REVOKE_CAPABILITY", "CREATE_WORKFLOW",
                     "UPDATE_WORKFLOW", "SET_APPROVAL_POLICY",
+                    "UPDATE_COMPANY_PROFILE", "UPDATE_ROLE_SETTINGS",
                 )
             ],
             missing_information=[
@@ -309,6 +347,7 @@ async def execute_customization_plan(
     tenant_id: str,
     confirmed_by: str,
     db: AsyncSession,
+    commit: bool = True,
 ) -> AdminCustomizationResult:
     """
     Execute a confirmed customization plan through existing EAAWP services.
@@ -354,10 +393,14 @@ async def execute_customization_plan(
             status="ok" if failed == 0 else "partial",
         )
         db.add(log_entry)
-        await db.commit()
+        if commit:
+            await db.commit()
+        else:
+            await db.flush()      # part of the caller's transaction (e.g. an approved chat action)
     except Exception as exc:
         logger.warning("Audit log write failed: %s", exc)
-        await db.rollback()
+        if commit:
+            await db.rollback()
 
     logger.info(
         "Customization plan executed: tenant=%s by=%s succeeded=%d failed=%d",
@@ -405,6 +448,10 @@ async def _execute_operation(
             return await _op_update_workflow(op, tenant_id, db)
         if op.type == "SET_APPROVAL_POLICY":
             return await _op_set_approval_policy(op, tenant_id, db)
+        if op.type == "UPDATE_COMPANY_PROFILE":
+            return await _op_update_company_profile(op, tenant_id, confirmed_by, db)
+        if op.type == "UPDATE_ROLE_SETTINGS":
+            return await _op_update_role_settings(op, tenant_id, db)
         return OperationResult(
             type=op.type,
             description=op.description,
@@ -889,3 +936,107 @@ async def _op_set_approval_policy(
             f"(updated {updated} role configuration(s))."
         ),
     )
+
+
+# ── Company profile and built-in AI employee settings ────────────────────────
+
+_PROFILE_TEXT_FIELDS = ("brand_name", "legal_or_long_name", "tagline", "website", "summary",
+                        "location_and_service_area", "brand_voice", "policies")
+_PROFILE_LIST_FIELDS = ("target_audiences", "approved_claims", "forbidden_claims", "marketing_objectives", "kpis")
+
+
+async def _op_update_company_profile(op: CustomizationOperation, tenant_id: str, confirmed_by: str,
+                                     db: AsyncSession) -> OperationResult:
+    """Merge the requested changes into the approved company profile. Empty values never erase anything."""
+    from app.db.conversation_models import CompanyProfile
+    from app.services.company_profile import CompanyProfileIn, ServiceEntry, load
+
+    p = op.params or {}
+    current, _ = await load(db, tenant_id)
+    data = current.model_dump()
+    replace = bool(p.get("replace"))
+    changed: list[str] = []
+    for f in _PROFILE_TEXT_FIELDS:
+        v = p.get(f)
+        if isinstance(v, str) and v.strip() and v.strip() != data[f]:
+            data[f] = v.strip()
+            changed.append(f.replace("_", " "))
+    for f in _PROFILE_LIST_FIELDS:
+        v = p.get(f)
+        if isinstance(v, list) and v:
+            items = [str(x).strip() for x in v if str(x).strip()]
+            new = items if replace else data[f] + [x for x in items if x not in data[f]]
+            if new != data[f]:
+                data[f] = new
+                changed.append(f.replace("_", " "))
+    svc = p.get("services")
+    if isinstance(svc, list) and svc:
+        existing = [] if replace else list(data["services"])
+        by_name = {s["name"].strip().lower(): i for i, s in enumerate(existing)}
+        for raw in svc:
+            if not isinstance(raw, dict) or not str(raw.get("name", "")).strip():
+                continue
+            entry = ServiceEntry(name=str(raw["name"]).strip()[:200],
+                                 description=str(raw.get("description") or "").strip()[:1000],
+                                 audience=str(raw.get("audience") or "").strip()[:500]).model_dump()
+            i = by_name.get(entry["name"].lower())
+            if i is None:
+                by_name[entry["name"].lower()] = len(existing)
+                existing.append(entry)
+            else:   # update only the parts that were given
+                existing[i] = {k: (entry[k] or existing[i][k]) for k in ("name", "description", "audience")}
+        if existing != data["services"]:
+            data["services"] = existing
+            changed.append("services")
+    if not changed:
+        return OperationResult(type=op.type, description=op.description, status="skipped",
+                               detail="Nothing to change: the profile already contains this information.")
+    validated = CompanyProfileIn(**data)       # same limits as the Settings form
+    row = await db.get(CompanyProfile, tenant_id)
+    now = datetime.now(timezone.utc)
+    if row is None:
+        db.add(CompanyProfile(tenant_id=tenant_id, profile_json=validated.model_dump_json(),
+                              updated_by=str(confirmed_by)[:64], updated_at=now))
+    else:
+        row.profile_json, row.updated_by, row.updated_at = validated.model_dump_json(), str(confirmed_by)[:64], now
+    await db.flush()
+    return OperationResult(type=op.type, description=op.description, status="success",
+                           detail="Company profile updated: " + ", ".join(changed) + ".")
+
+
+async def _op_update_role_settings(op: CustomizationOperation, tenant_id: str, db: AsyncSession) -> OperationResult:
+    """Name, communication style, extra instructions, quick prompts or responsibilities of a built-in AI employee.
+    Tools, governance, autonomy and the model are deliberately NOT changeable here (structured form only)."""
+    from app.api.routers.role_config import _get_or_seed
+    from app.services.workspaces import WORKSPACE_KEYS
+
+    p = op.params or {}
+    role_key = str(p.get("role_key", "")).upper()
+    if role_key not in WORKSPACE_KEYS:
+        return OperationResult(type=op.type, description=op.description, status="failed",
+                               detail=f"Unknown built-in AI employee '{role_key}'.")
+    row = await _get_or_seed(role_key, tenant_id, db)
+    changed: list[str] = []
+    if str(p.get("agent_name") or "").strip():
+        row.agent_name = str(p["agent_name"]).strip()[:255]
+        changed.append("name")
+    if str(p.get("communication_style") or "").strip():
+        row.communication_style = str(p["communication_style"]).strip()[:64]
+        changed.append("communication style")
+    if str(p.get("add_instructions") or "").strip():
+        extra = str(p["add_instructions"]).strip()[:2000]
+        row.system_persona = ((row.system_persona or "").rstrip() + "\n\n" + extra).strip()
+        changed.append("instructions")
+    if isinstance(p.get("quick_prompts"), list) and p["quick_prompts"]:
+        row.quick_prompts_json = json.dumps([str(x).strip()[:200] for x in p["quick_prompts"] if str(x).strip()][:8])
+        changed.append("quick prompts")
+    if isinstance(p.get("add_responsibilities"), list) and p["add_responsibilities"]:
+        cur = json.loads(row.responsibilities_json or "[]")
+        cur += [str(x).strip()[:300] for x in p["add_responsibilities"] if str(x).strip() and str(x).strip() not in cur]
+        row.responsibilities_json = json.dumps(cur[:30])
+        changed.append("responsibilities")
+    if not changed:
+        return OperationResult(type=op.type, description=op.description, status="skipped", detail="Nothing to change.")
+    await db.flush()
+    return OperationResult(type=op.type, description=op.description, status="success",
+                           detail=f"{row.role_name or role_key} updated: " + ", ".join(changed) + ".")

@@ -171,7 +171,7 @@ async def execute_agent_endpoint(
     token = cs.turn_history.set(history)
     try:
         async with db.begin_nested():
-            resp = await execute_agent(request=request, tenant_id=tenant_id, db=db, user=user)
+            resp = await execute_agent(request=request, tenant_id=tenant_id, db=db, user=user, interactive=True)
     except HTTPException as exc:
         notice = exc.detail if isinstance(exc.detail, str) and exc.status_code < 500 else \
             "The request failed before an answer was produced. Nothing was executed. Please try again."
@@ -190,6 +190,7 @@ async def execute_agent(
     tenant_id: str,
     db: AsyncSession,
     user: User,
+    interactive: bool = False,
 ) -> AgentExecutionResponse:
     """Run a request as `request.blueprint`'s role. Also used by workflows, meetings and resumed pending tasks."""
 
@@ -240,6 +241,12 @@ async def execute_agent(
         server_guarded = []
         server_persona = build_role_charter(role_key, request.blueprint.role_name)
         server_llm = request.blueprint.llm_model
+
+    # Platform administration: an administrator can ask ANY AI employee to change EAAWP itself (company profile,
+    # AI employee settings, grants, workflows, approval policies). Always approval-gated; never offered to others.
+    # Only in an interactive chat with that administrator: unattended runs (workflows, meetings) never reconfigure EAAWP.
+    if interactive and is_admin_user(user) and "customize_eaawp" not in server_guarded:
+        server_guarded = [*server_guarded, "customize_eaawp"]
 
     # Replace the client-supplied blueprint fields with verified server values.
     authoritative_blueprint = request.blueprint.model_copy(update={

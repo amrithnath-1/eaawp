@@ -30,6 +30,8 @@ OperationType = Literal[
     "CREATE_WORKFLOW",
     "UPDATE_WORKFLOW",
     "SET_APPROVAL_POLICY",
+    "UPDATE_COMPANY_PROFILE",
+    "UPDATE_ROLE_SETTINGS",
 ]
 
 

@@ -70,6 +70,7 @@ export function ToolStatusBar({ roleKey }: { roleKey: string | undefined }) {
   const ops = data.operations;
   const builtIn = data.tools.filter((t) => t.source === "built_in");
   const integration = data.tools.filter((t) => t.source === "integration");
+  const platform = data.tools.filter((t) => t.source === "platform");
 
   return (
     <Dialog>
@@ -136,6 +137,19 @@ export function ToolStatusBar({ roleKey }: { roleKey: string | undefined }) {
             ))}
           </ul>
         </section>
+
+        {platform.length > 0 && (
+          <section aria-label="Administration">
+            <p className="font-mono text-[10px] tracking-[0.12em] text-muted-foreground">
+              ADMINISTRATION — YOU CAN ASK ANY AI EMPLOYEE TO CHANGE EAAWP ({platform.length})
+            </p>
+            <ul>
+              {platform.map((t) => (
+                <ToolRow key={`p-${t.key}`} t={t} />
+              ))}
+            </ul>
+          </section>
+        )}
 
         <section aria-label="Integration tools">
           <p className="font-mono text-[10px] tracking-[0.12em] text-muted-foreground">

@@ -150,6 +150,13 @@ async def tool_status(db: AsyncSession, user: User) -> dict:
     role_key = sel.role_key
     scopes, *_ = await _role_tools(db, user.tenant_id, role_key)
     tools = _builtin_tools(scopes) + await _integration_tools(db, user.tenant_id, role_key)
+    if is_admin_user(user):       # platform administration, offered to administrators in every AI employee
+        from app.actions.registry import PLATFORM_ADMIN_TOOLS, get_action_tool
+        for key in sorted(PLATFORM_ADMIN_TOOLS):
+            t = get_action_tool(key)
+            tools.append({"key": key, "name": t.meta.display_name, "source": "platform", "kind": "action",
+                          "description": _first_sentence(t.meta.description), "status": "requires_approval",
+                          "status_label": STATUS_LABELS["requires_approval"]})
     pending = (await db.execute(select(func.count()).select_from(ApprovalRequest).where(
         ApprovalRequest.tenant_id == user.tenant_id, ApprovalRequest.status == "pending"))).scalar_one()
     w = get_workspace(role_key)

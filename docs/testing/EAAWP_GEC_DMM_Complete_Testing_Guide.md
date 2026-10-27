@@ -22,7 +22,7 @@ Almost every test in this guide is **[LOCAL SERVER]**. Mock mode is only useful 
 
 ## What has already been checked by the developers, and what has not
 
-- Checked with automated tests (2,353 backend tests at the time of writing) and with a real browser against a real
+- Checked with automated tests (2,362 backend tests at the time of writing) and with a real browser against a real
   server whose AI model was replaced by a scripted test model. The browser test passed on both SQLite and PostgreSQL 16.
 - **Not** checked by the developers: answers from the real Gemini model; real Google Search Console, Google Analytics,
   GitHub, Meta and MCP accounts; a real Windows PC; the hosted (Render/Vercel) deployment. These are exactly the tests
@@ -179,6 +179,26 @@ testing here. Mark FAIL if an AI employee does another role's job.
 7. In the AI Employee chat ask: "What services does GEC Services offer and who are they for?"
    **Expected:** the answer uses only what you entered and cites the uploaded document; it does not invent services.
 
+# 6a. Customizing EAAWP by chat (administrators)
+
+**[LOCAL SERVER]** An administrator can ask **any** AI employee to change EAAWP itself: the approved company profile,
+an AI employee's name, tone, extra instructions, quick prompts or responsibilities, integration access grants,
+workflows and approval rules. Employees cannot (the AI employee tells them an administrator can do it).
+
+1. As an administrator, in the chat type for example: "Update the approved company profile for GEC Services: add the
+   services Passport Services and Travel and Transport Services. Do not invent prices or processing times."
+2. **Expected:** the answer starts "I have proposed the following action…" and lists **Proposed changes (nothing has
+   been saved yet)**; the plan shows **PROPOSED — WAITING FOR APPROVAL (NOT EXECUTED YET)**. Settings → Company
+   profile is still unchanged.
+3. Press **APPROVE** (or approve it in Approvals, where the exact changes are listed).
+4. **Expected:** the plan completes and the answer reports what was saved (for example "1 saved"). Settings → Company
+   → Approved company profile now shows the new services; information that was already there is kept.
+5. Try "Call the marketing assistant Mira and make its tone friendlier" in the Digital Marketing Manager, approve it,
+   and check that the chat title changes to Mira. Its tools and approval rules are not changed by this.
+6. Try the same request as an **employee**. **Expected:** no proposal; the AI employee says an administrator can make
+   the change.
+7. Never put passwords or keys in such a request: a proposed change containing a credential is refused.
+
 # 7. Connecting GitHub and checking that it appears
 
 **[LIVE CREDENTIALS]** A GitHub *fine-grained personal access token* with **read-only** access to the repositories you
@@ -319,7 +339,8 @@ side) lists the answer with its source.
 
 # 20. Checking tool counts and approval counts against backend state
 
-1. In the chat header click the line "· 23 READY · 5 NEED APPROVAL TO RUN · 0 PENDING APPROVALS".
+1. In the chat header click the line "· 23 READY · 6 NEED APPROVAL TO RUN · 0 PENDING APPROVALS" (administrators
+   see 6: the Digital Marketing Manager's 5 approval-gated tools plus *Customize EAAWP*; employees see 5).
 2. **Expected:** a dialog listing every tool with its status (Ready / Runs only after human approval / Turned off /
    Its integration is not connected / High-risk: not run by AI). The numbers on the header equal the counts in the list.
 3. As an administrator open **Campaigns & Content** (the Customize page), click a tool's governance badge until it
@@ -446,6 +467,7 @@ opens from the ☰ button; the chat works; **HISTORY** opens a side sheet; Appro
 - [ ] Each AI employee answers only within its job (section 5).
 - [ ] The selected AI employee survives refresh and sign-in (section 4).
 - [ ] The DMM uses the approved profile and uploaded knowledge and never invents figures (sections 6, 14).
+- [ ] An administrator can change EAAWP by chat; nothing is saved before approval (section 6a).
 - [ ] Data requests reach connected services; missing setup is explained, never guessed (sections 7–9, 15, 16).
 - [ ] Connected services are visible with account, state and per-role access (sections 7, 13).
 - [ ] Tool and approval counts equal what the server reports (section 20).
@@ -478,6 +500,7 @@ that section are true. If part works, mark FAIL and write what did not.
 | 4 | Select AI employee | LOCAL SERVER | | |
 | 5 | Role behaviour (same questions) | LOCAL SERVER | | |
 | 6 | Knowledge base and company profile | LOCAL SERVER | | |
+| 6a | Customize EAAWP by chat (admin) | LOCAL SERVER | | |
 | 7 | GitHub connection visible + grant | LIVE CREDENTIALS | | |
 | 8 | Google Search Console | LIVE CREDENTIALS | | |
 | 9 | Google Analytics | LIVE CREDENTIALS | | |

@@ -92,8 +92,17 @@ async def process_action_request(
             message=f"Action tool '{tool_name}' is not permitted for this agent.",
         )
 
-    # ── 3. Validate arguments ────────────────────────────────────────────────
-    is_valid, err_msg, normalised = action_tool.validate(request.arguments)
+    # ── 3. Prepare (optional) and validate arguments ─────────────────────────
+    # Some tools turn a request into concrete arguments first (e.g. customize_eaawp plans the exact changes), so
+    # the approver sees precisely what will run and approval re-validates those stored arguments.
+    arguments = request.arguments
+    prepare = getattr(action_tool, "prepare", None)
+    if prepare is not None:
+        try:
+            arguments = await prepare(arguments, tenant_id, db)
+        except ValueError as exc:
+            return ActionResult(tool_name=tool_name, status="invalid_arguments", message=str(exc)[:500])
+    is_valid, err_msg, normalised = action_tool.validate(arguments)
     if not is_valid:
         audit = _make_audit(tenant_id, role_key, tool_name, request.arguments,
                             action_tool.meta.risk_level, "proposed", "pending",

@@ -411,7 +411,7 @@ class TestClerkThroughThePipeline:
                 row.tool_scopes_json = json.dumps([{"name": "L", "tool_key": "list_service_requests", "governance": "enabled", "description": ""}])
                 await s.commit()
         run(read_only_tools())
-        r = self.ask(world, "a_admin")
+        r = self.ask(world, "a_employee")   # employee: no admin-only platform tool, so the read-only simple path
         assert r.status_code == 200 and r.json()["plan_id"] is None          # simple path
 
         async def n():
