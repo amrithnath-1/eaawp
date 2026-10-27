@@ -142,11 +142,12 @@ def _chat_model(role_model: str | None):
     such a setting must never stop the chat from working.
     """
     gateway = get_llm_gateway()
-    if role_model:
-        try:
-            return gateway.get_chat_model_for_role(role_llm_model=role_model, temperature=0)
-        except Exception as exc:  # noqa: BLE001
-            logger.info("Role model %r is not usable here (%s); using the default model", role_model, type(exc).__name__)
+    try:
+        return gateway.get_chat_model_for_role(role_llm_model=role_model, temperature=0)
+    except Exception as exc:  # noqa: BLE001
+        if not role_model:
+            raise                                      # the default model itself is not usable: a real configuration error
+        logger.info("Role model %r is not usable here (%s); using the default model", role_model, type(exc).__name__)
     return gateway.get_chat_model(temperature=0)
 
 
