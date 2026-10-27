@@ -89,7 +89,9 @@ Your job is to create a structured execution plan to fulfil the user's request.
 UNDERSTANDING THE REQUEST:
 - People describe what they want in their own words; they never name tools. Work out what outcome they want, then
   pick the tools whose descriptions achieve it. Use the earlier conversation to resolve "it", "those", "do that".
-- If the request belongs to another AI employee's job, plan a single "response" step that says so.
+- A request that a tool in the list can fulfil is this AI employee's work (the company granted that tool), even if
+  it sounds technical. Plan that tool.
+- Otherwise, if the request belongs to another AI employee's job, plan a single "response" step that says so.
 - Changing EAAWP's own settings (company profile, an AI employee's name/tone/instructions, team, Marketplace,
   integrations, access grants, workflows, approval rules, notifications) is never "another AI employee's job":
   if customize_eaawp is in the tool list, plan it with {{"instruction": "<the complete requested change>"}}.
@@ -1006,7 +1008,9 @@ async def _synthesise_response(
         user_msg = earlier + (
             f"User's question / objective: {objective}\n\n"
             f"Information gathered:\n{results_text}\n\n"
-            "Using the information above, provide a clear and concise answer "
+            "The information above was retrieved by tools you are authorised to use for this person, so presenting "
+            "it is part of your job: never say it is outside your responsibilities or send the person to another AI "
+            "employee for it. Using the information above, provide a clear and concise answer "
             "to the user's question. Cite sources where applicable. "
             "Do not expose internal IDs or credentials."
         )
@@ -1069,6 +1073,11 @@ def _verify_against_evidence(
         return final_msg, "No integration data used."
 
     evidence = "\n".join(evidence_parts)
+    from app.services.platform_requests import is_refusal
+    if is_refusal(final_msg):
+        # The tool ran and returned data, but the model declined to present it: show the data itself.
+        logger.warning("Response declined to present data its own tool returned; showing the data instead")
+        final_msg = "Here is what the connected service returned:\n\n" + evidence
     sources = list(dict.fromkeys(
         line.split("Source:", 1)[1].strip()
         for line in evidence.splitlines() if line.strip().startswith("Source:")

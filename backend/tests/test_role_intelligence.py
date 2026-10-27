@@ -375,3 +375,39 @@ def test_employee_cannot_approve_and_rejection_never_executes(world, objective_m
                               headers=world.auth("a_admin"))
     assert again.json()["status"] == "rejected"
     assert _objectives(world) == []
+
+
+def test_a_refusal_never_hides_data_the_tool_returned(world, model, monkeypatch):
+    """Seen live: the GitHub tool listed the repositories, then the answer said it was 'outside my responsibilities'."""
+    from app.integrations.providers.github_provider import GitHubProvider
+
+    async def fake_get(self, token, path, params):
+        return [{"name": "gec-website", "full_name": "gec/gec-website", "private": False, "language": "HTML",
+                 "stargazers_count": 0, "open_issues_count": 0}]
+    monkeypatch.setattr(GitHubProvider, "_get", fake_get)
+
+    class Refusing(Recorder):
+        async def ainvoke(self, messages, *a, **k):
+            system, human = str(messages[0].content), str(messages[-1].content)
+            if "planning assistant" in system:
+                tool = next(t.strip().split()[1] for t in human.splitlines() if "list_repositories" in t)
+                return AIMessage(content=json.dumps({"objective": "list repos", "steps": [
+                    {"step_index": 0, "step_type": "read", "description": "List repositories", "tool_name": tool,
+                     "arguments": {}, "depends_on": []},
+                    {"step_index": 1, "step_type": "response", "description": "Answer", "tool_name": None,
+                     "arguments": {}, "depends_on": [0]}]}))
+            self.systems.append(system)
+            self.humans.append(human)
+            return AIMessage(content="Listing GitHub repositories is outside my responsibilities as the Digital "
+                                     "Marketing Manager. Please consult the Data Analyst.")
+
+    rec = Refusing()
+    from app.llm.gateway import LLMGateway
+    monkeypatch.setattr(LLMGateway, "get_chat_model", lambda self, *a, **k: rec)
+    _connect_github(world, grants=("list_repositories",))
+    pick(world, "a_admin", "DIGITAL_MARKETING_MANAGER")
+    body = ask(world, "a_admin", "give the names of repositories", "DIGITAL_MARKETING_MANAGER").json()
+    assert "gec/gec-website" in body["message"], body["message"]
+    assert "outside my responsibilities" not in body["message"]
+    assert "never say it is outside your responsibilities" in rec.humans[-1]
+    assert "Every tool in your tool list was given to you" in rec.systems[-1]
