@@ -19,6 +19,7 @@ _LLM_ENV_VARS = (
 _SETTINGS_DEFAULTS = {
     "llm_default_provider": "openai",   # prevent Gemini from being auto-selected
     "gemini_api_key": "",               # prevent real key from leaking into OpenAI tests
+    "chat_engine": "planner",           # scripted-planner tests; the agent's own tests switch to "agent"
 }
 
 

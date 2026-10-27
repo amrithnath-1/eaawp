@@ -48,6 +48,10 @@ class Settings(BaseSettings):
     app_name: str = "EAAWP API"
     app_version: str = "0.2.0"
 
+    # Interactive chat engine: "agent" (the model calls tools itself, looks at the results and decides the next step,
+    # like ChatGPT/Claude) or "planner" (one JSON plan made up front). Workflows and meetings always use the planner.
+    chat_engine: str = "agent"
+
     # ── Database ──────────────────────────────────────────────────────────────
     database_url: str = "sqlite+aiosqlite:///./eaawp.db"
     # Log every SQL statement (parameters stay hidden). Debugging aid only.

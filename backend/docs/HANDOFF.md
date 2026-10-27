@@ -11,6 +11,22 @@ unless stated.
   then `alembic upgrade head`; then `pip install -r requirements.txt` and `npm install` (react-markdown, remark-gfm).
 - Testing guide for the owner: `docs/testing/EAAWP_GEC_DMM_Complete_Testing_Guide.pdf` (+ `.md`, `build_guide_pdf.py`).
 
+## Phase Q: chat works like ChatGPT/Claude (2026-10-27)
+
+- `app/services/chat_agent.py::run_chat_agent` runs every interactive chat turn as a tool-using conversation: the
+  earlier turns are sent as real messages, the role's tools are bound as native function calls, and the model decides
+  each next step (answer, ask back, call a tool, read the result, call another, answer). Up to 6 rounds / 8 tool calls.
+- Read tools run directly. Action tools are declared with one `arguments_json` field and ALWAYS go through
+  `process_action_request`: approval-gated → the turn pauses ("Proposed changes …"), resume works as before;
+  invalid/unauthorised → reported back to the model as `[NOT DONE …]` so it can ask or fix the input.
+- Each turn is stored as an ExecutionPlan + PlanSteps (`blueprint_json.engine = "agent"`): Activity, Approvals,
+  approve-and-resume and grounding (`_verify_against_evidence`, refusal fallback) are unchanged.
+- Kept as deterministic guards in front of it: medical safety screen, greetings, integration connect/status cards,
+  the readiness gate (missing integration → setup card + saved task) and the administrator settings router.
+- `settings.chat_engine` ("agent" default; "planner" = previous behaviour). Workflows and meetings always use the
+  planner. Tests: `tests/test_chat_agent.py`; the older scripted-planner tests run with `chat_engine="planner"`
+  (conftest). Browser journey 32/32 runs on the agent.
+
 ## Phase P: settings by plain-language chat, continuous conversations (2026-10-27)
 
 - `app/services/platform_requests.py`: `looks_like_settings_change()` (regex, no model call) spots requests to change

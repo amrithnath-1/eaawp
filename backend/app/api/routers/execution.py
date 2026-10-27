@@ -164,11 +164,13 @@ async def execute_agent_endpoint(
     role_key = await _resolve_role_key(request, tenant_id, db)
     conv = await cs.open_for_turn(db, user, role_key, request.conversation_id, request.user_prompt)
     history = await cs.context_block(db, conv)
+    earlier_turns = tuple(await cs.recent_turns(db, conv))
     await cs.add_message(db, conv, "user", request.user_prompt)
     # One conversation = one session: pending setup tasks and plans created by this turn point back to it.
     request = request.model_copy(update={"session_id": conv.id, "conversation_id": conv.id})
 
     token = cs.turn_history.set(history)
+    token_msgs = cs.turn_messages.set(earlier_turns)
     try:
         async with db.begin_nested():
             resp = await execute_agent(request=request, tenant_id=tenant_id, db=db, user=user, interactive=True)
@@ -180,6 +182,7 @@ async def execute_agent_endpoint(
         raise
     finally:
         cs.turn_history.reset(token)
+        cs.turn_messages.reset(token_msgs)
 
     await cs.add_message(db, conv, "assistant", resp.message, cs.display_meta(resp), plan_id=resp.plan_id)
     return resp.model_copy(update={"conversation_id": conv.id, "session_id": conv.id})
@@ -577,7 +580,10 @@ async def execute_agent(
         logger.warning("Memory retrieval failed (non-fatal): %s", exc)
 
     try:
-        if has_action_tools:
+        # Interactive chat runs as a tool-using conversation (the model decides each next step, like ChatGPT/Claude);
+        # unattended runs and preset settings changes use the planner.
+        use_agent = interactive and preset_plan is None and settings.chat_engine == "agent"
+        if has_action_tools or use_agent:
             # ── Planning mode ─────────────────────────────────────────────────
             from app.services.planner import create_and_execute_plan
 
@@ -587,16 +593,28 @@ async def execute_agent(
                 rag_text = _build_rag_context(rag_chunks)
 
             try:
-                final_message, plan_id, all_tool_calls = await create_and_execute_plan(
-                    user_prompt=request.user_prompt,
-                    blueprint=augmented_blueprint,
-                    session_id=resolved_session_id,
-                    db=db,
-                    system_persona=augmented_blueprint.system_persona,
-                    data_context_block=data_context_block + memory_context_block,
-                    rag_context=rag_text,
-                    preset_plan=preset_plan,
-                )
+                if use_agent:
+                    from app.services.chat_agent import run_chat_agent
+                    final_message, plan_id, all_tool_calls = await run_chat_agent(
+                        user_prompt=request.user_prompt,
+                        blueprint=augmented_blueprint,
+                        session_id=resolved_session_id,
+                        db=db,
+                        system_persona=augmented_blueprint.system_persona,
+                        data_context_block=data_context_block + memory_context_block,
+                        rag_context=rag_text,
+                    )
+                else:
+                    final_message, plan_id, all_tool_calls = await create_and_execute_plan(
+                        user_prompt=request.user_prompt,
+                        blueprint=augmented_blueprint,
+                        session_id=resolved_session_id,
+                        db=db,
+                        system_persona=augmented_blueprint.system_persona,
+                        data_context_block=data_context_block + memory_context_block,
+                        rag_context=rag_text,
+                        preset_plan=preset_plan,
+                    )
                 # Fetch plan status for response
                 plan_status = None
                 step_summaries: list[str] = []
