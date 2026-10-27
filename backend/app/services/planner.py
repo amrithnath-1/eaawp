@@ -51,6 +51,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import uuid
 from datetime import datetime, timezone
 from typing import Any
@@ -84,7 +85,19 @@ _PLANNER_SYSTEM = f"""
 You are the planning assistant for an EAAWP AI employee. The system message after these rules says which AI employee
 you plan for, what it is responsible for and what it must not do; plan only work that belongs to that role.
 Your job is to create a structured execution plan to fulfil the user's request.
-If the request belongs to another AI employee's job, plan a single "response" step that says so.
+
+UNDERSTANDING THE REQUEST:
+- People describe what they want in their own words; they never name tools. Work out what outcome they want, then
+  pick the tools whose descriptions achieve it. Use the earlier conversation to resolve "it", "those", "do that".
+- A request that a tool in the list can fulfil is this AI employee's work (the company granted that tool), even if
+  it sounds technical. Plan that tool.
+- Otherwise, if the request belongs to another AI employee's job, plan a single "response" step that says so.
+- Changing EAAWP's own settings (company profile, an AI employee's name/tone/instructions, team, Marketplace,
+  integrations, access grants, workflows, approval rules, notifications) is never "another AI employee's job":
+  if customize_eaawp is in the tool list, plan it with {{"instruction": "<the complete requested change>"}}.
+  If it is not in the list, plan a single "response" step saying a company administrator can make the change.
+- Plan tools only when they are needed. A question you can answer from the provided knowledge needs only a
+  "response" step.
 
 Rules:
 1. Create a plan with at most {MAX_PLAN_STEPS} steps.
@@ -150,13 +163,8 @@ Campaign management rules (IMPORTANT):
 - Do NOT expose database credentials, connection IDs, or SMTP details in any step.
 
 Step types:
-- read    : use a read tool (query_company_data, fetch_knowledge_base, query_campaign_analytics,
-             get_campaigns, get_campaign_metrics, get_campaign_summary,
-             analyze_campaign_performance, compare_campaigns, get_campaign_kpis,
-             analyze_funnel, get_funnel_metrics, analyze_campaign_funnel,
-             analyze_marketing_strategy, get_marketing_priorities, get_marketing_objectives)
-- action  : use an action tool (draft_email, send_email, create_internal_task,
-             create_campaign, update_campaign)
+- read    : use a tool marked [read] in the tool list (it only reads data)
+- action  : use a tool marked [action] (it changes something; some need approval first)
 - analysis: reason over prior results (no tool call, internal LLM step)
 - verify  : confirm a prior action produced the expected result
 - response: synthesise the final answer for the user
@@ -197,6 +205,7 @@ async def create_and_execute_plan(
     system_persona: str = "",
     data_context_block: str = "",
     rag_context: str = "",
+    preset_plan: AgentPlan | None = None,
 ) -> tuple[str, str, list[ToolCallDetail]]:
     """
     Create an execution plan for the user's request, execute it, and return
@@ -209,7 +218,7 @@ async def create_and_execute_plan(
     role_key = blueprint.role_key or _role_key(blueprint.role_name)
 
     # ── 1. Generate plan via LLM ──────────────────────────────────────────────
-    plan = await _generate_plan(
+    plan = preset_plan or await _generate_plan(
         user_prompt=user_prompt,
         blueprint=blueprint,
         system_persona=system_persona,
@@ -850,7 +859,7 @@ async def _generate_plan(
     for t in guarded:
         meta = get_action_tool(t)
         what = f"{meta.meta.description} " if meta is not None else ""
-        tool_lines.append(f"  - {t}  [{what}Requires human approval before it runs; propose it only when the user asks for it]")
+        tool_lines.append(f"  - {t}  [action: {what}Requires human approval before it runs; propose it only when the user asks for it]")
     for t in available_tools:
         if is_dynamic_tool_key(t) and t in _dyn_map:
             adapter = _dyn_map[t]
@@ -861,7 +870,7 @@ async def _generate_plan(
             short_desc = str(desc).split("\n")[0][:120]
             tool_lines.append(f"  - {t}  [{short_desc}]")
         else:
-            tool_lines.append(f"  - {t}")
+            tool_lines.append(f"  - {t}  [{_tool_summary(t)}]")
     tools_str = "\n".join(tool_lines)
 
     context_parts = []
@@ -937,6 +946,19 @@ async def _generate_plan(
         )
 
 
+def _tool_summary(name: str) -> str:
+    """'read: <first sentence>' / 'action: <first sentence>' so the planner can match plain-language requests."""
+    from app.actions.registry import get_action_tool
+    action = get_action_tool(name)
+    if action is not None:
+        kind, desc = "action", action.meta.description
+    else:
+        tool = MASTER_TOOL_REGISTRY.get(name)
+        kind, desc = "read", (getattr(tool, "description", "") or "")
+    first = re.split(r"(?<=[.!?])\s", " ".join(str(desc).split()), maxsplit=1)[0]
+    return f"{kind}: {first[:300]}" if first else kind
+
+
 async def _invoke_tool(
     tool_name: str,
     arguments: dict,
@@ -986,7 +1008,9 @@ async def _synthesise_response(
         user_msg = earlier + (
             f"User's question / objective: {objective}\n\n"
             f"Information gathered:\n{results_text}\n\n"
-            "Using the information above, provide a clear and concise answer "
+            "The information above was retrieved by tools you are authorised to use for this person, so presenting "
+            "it is part of your job: never say it is outside your responsibilities or send the person to another AI "
+            "employee for it. Using the information above, provide a clear and concise answer "
             "to the user's question. Cite sources where applicable. "
             "Do not expose internal IDs or credentials."
         )
@@ -1049,6 +1073,11 @@ def _verify_against_evidence(
         return final_msg, "No integration data used."
 
     evidence = "\n".join(evidence_parts)
+    from app.services.platform_requests import is_refusal
+    if is_refusal(final_msg):
+        # The tool ran and returned data, but the model declined to present it: show the data itself.
+        logger.warning("Response declined to present data its own tool returned; showing the data instead")
+        final_msg = "Here is what the connected service returned:\n\n" + evidence
     sources = list(dict.fromkeys(
         line.split("Source:", 1)[1].strip()
         for line in evidence.splitlines() if line.strip().startswith("Source:")

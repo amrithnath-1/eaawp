@@ -32,6 +32,7 @@ from __future__ import annotations
 import json
 import logging
 import uuid
+from contextvars import ContextVar
 from datetime import datetime, timezone
 
 from sqlalchemy import select
@@ -44,6 +45,10 @@ from app.schemas.actions import ActionRequest, ActionResult
 logger = logging.getLogger(__name__)
 
 # Tools allowed by role config governance (matches RoleToolScope.governance)
+# Who approved the action now executing (email or user id). Tools that change people or company settings act as
+# that administrator (e.g. customize_eaawp's team and Marketplace changes).
+approved_by: ContextVar[str | None] = ContextVar("approved_by", default=None)
+
 _GOVERNANCE_AUTO = "enabled"
 _GOVERNANCE_APPROVAL = "requires_approval"
 _GOVERNANCE_RESTRICTED = "disabled"
@@ -308,6 +313,7 @@ async def approve_and_execute(
     await db.flush()
 
     # Execute
+    _approver = approved_by.set(reviewed_by)
     try:
         result = await action_tool.execute(normalised, tenant_id, audit.role_key, db)
         audit.execution_status = "executed"
@@ -335,6 +341,8 @@ async def approve_and_execute(
             status="failed",
             message=f"Action execution failed after approval: {str(exc)[:200]}",
         )
+    finally:
+        approved_by.reset(_approver)
 
 
 async def reject_action(

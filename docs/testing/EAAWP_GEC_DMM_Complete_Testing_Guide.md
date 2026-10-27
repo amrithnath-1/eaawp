@@ -179,24 +179,35 @@ testing here. Mark FAIL if an AI employee does another role's job.
 7. In the AI Employee chat ask: "What services does GEC Services offer and who are they for?"
    **Expected:** the answer uses only what you entered and cites the uploaded document; it does not invent services.
 
-# 6a. Customizing EAAWP by chat (administrators)
+# 6a. Changing EAAWP settings by chat (administrators)
 
-**[LOCAL SERVER]** An administrator can ask **any** AI employee to change EAAWP itself: the approved company profile,
-an AI employee's name, tone, extra instructions, quick prompts or responsibilities, integration access grants,
-workflows and approval rules. Employees cannot (the AI employee tells them an administrator can do it).
+**[LOCAL SERVER]** An administrator can ask **any** AI employee, in ordinary words, to change EAAWP itself. Nobody needs
+to know a tool name. What can be changed this way:
 
-1. As an administrator, in the chat type for example: "Update the approved company profile for GEC Services: add the
-   services Passport Services and Travel and Transport Services. Do not invent prices or processing times."
-2. **Expected:** the answer starts "I have proposed the following action…" and lists **Proposed changes (nothing has
-   been saved yet)**; the plan shows **PROPOSED — WAITING FOR APPROVAL (NOT EXECUTED YET)**. Settings → Company
-   profile is still unchanged.
-3. Press **APPROVE** (or approve it in Approvals, where the exact changes are listed).
-4. **Expected:** the plan completes and the answer reports what was saved (for example "1 saved"). Settings → Company
-   → Approved company profile now shows the new services; information that was already there is kept.
-5. Try "Call the marketing assistant Mira and make its tone friendlier" in the Digital Marketing Manager, approve it,
-   and check that the chat title changes to Mira. Its tools and approval rules are not changed by this.
-6. Try the same request as an **employee**. **Expected:** no proposal; the AI employee says an administrator can make
-   the change.
+| Area | Example request |
+|---|---|
+| Company profile | "Add Passport Services and Travel and Transport Services to our services" / "Change the tagline to …" |
+| An AI employee's settings | "Call yourself Mira from now on and keep a friendly tone" / "Add a quick prompt: Plan this week's posts" |
+| Pause / resume an AI employee | "Pause the institutional clerk" |
+| Marketplace modules | "Deactivate the medical assistant module" |
+| Team | "Invite ravi@gec.in as an employee" / "Make priya@gec.in a manager" / "Deactivate old@gec.in" |
+| Integrations and access | "Give the marketing manager access to Search Console analytics" / "Switch off the GitHub integration" |
+| Workflows | "Create a Monday 9am marketing report workflow" / "Switch off the weekly report workflow" |
+| Approval rules, notifications | "Require approval before any email is sent" / "Turn off notification emails" |
+
+Connecting a new service with a key or password is **not** done in chat: the AI employee sends you to the secure setup
+form. The one-time invitation link is never shown in chat (Team → Invitations → Resend shows or emails it).
+
+1. As an administrator type: "Add Passport Services and Travel and Transport Services to our services".
+2. **Expected:** "I have proposed the following action…" with **Proposed changes (nothing has been saved yet)**; the
+   plan shows **PROPOSED — WAITING FOR APPROVAL (NOT EXECUTED YET)**. Settings → Company profile is still unchanged.
+   If a detail is missing (for example "invite our accountant" without an email), the AI employee asks for it first.
+3. Press **APPROVE & RESUME** (or approve in Approvals, which lists the exact changes).
+4. **Expected:** the plan completes and the result says what was saved, failed or skipped (for example "2 saved").
+   Check the page concerned (Settings, Team, Marketplace, AI Employees, Integrations): the change is there.
+5. Follow-ups work in the same conversation: "We now offer Visa Assistance." then "Add that to our company profile".
+6. Try one of the requests as an **employee**. **Expected:** no proposal; the AI employee says a company
+   administrator can make the change.
 7. Never put passwords or keys in such a request: a proposed change containing a credential is refused.
 
 # 7. Connecting GitHub and checking that it appears
@@ -403,10 +414,13 @@ sessions, a two-employee meeting finished and a scheduled workflow ran twice; wo
 
 # 28. Chat history persistence
 
-1. Ask something, close the browser completely, reopen, sign in. **Expected:** **History** (right side; on a phone, the
+1. Ask two or three things one after the other. **Expected:** they stay in **one** conversation (History shows one entry
+   with all messages). Leave the chat (for example open Settings) and click **AI Employee** again: the same
+   conversation is open. Only **NEW CHAT** starts a new one.
+2. Ask something, close the browser completely, reopen, sign in. **Expected:** **History** (right side; on a phone, the
    **HISTORY** button) lists the conversation with its title and time; opening it shows all messages.
-2. Rename a conversation (pencil) and delete another (bin → DELETE?). **Expected:** the change stays after a refresh.
-3. Search History for a word that appears inside a message. **Expected:** the conversation is found.
+3. Rename a conversation (pencil) and delete another (bin → DELETE?). **Expected:** the change stays after a refresh.
+4. Search History for a word that appears inside a message. **Expected:** the conversation is found.
 
 # 29. Activity, Tasks, Insights and History
 

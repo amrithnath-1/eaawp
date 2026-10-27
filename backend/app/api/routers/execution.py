@@ -247,6 +247,13 @@ async def execute_agent(
     # Only in an interactive chat with that administrator: unattended runs (workflows, meetings) never reconfigure EAAWP.
     if interactive and is_admin_user(user) and "customize_eaawp" not in server_guarded:
         server_guarded = [*server_guarded, "customize_eaawp"]
+    # Tell the model who it is talking to, so it neither refuses an administrator's settings change nor offers one
+    # to someone who cannot make it.
+    if interactive:
+        from app.services.platform_requests import asker_block
+        server_persona = (server_persona + "\n\n" + asker_block(
+            getattr(user, "name", "") or "", getattr(user, "role", "") or "", is_admin_user(user),
+            "customize_eaawp" in server_guarded)).strip()
 
     # Replace the client-supplied blueprint fields with verified server values.
     authoritative_blueprint = request.blueprint.model_copy(update={
@@ -285,6 +292,21 @@ async def execute_agent(
             plan_status=None,
             step_summaries=[],
         )
+
+    # ── Settings changes in plain words (administrators) ──────────────────────
+    # "Add Passport Services to our services", "call yourself Mira", "pause the clerk": the customization planner turns
+    # the request into exact changes now, and the plan below only proposes them for approval. People never need to
+    # know a tool name, and the chat model cannot talk itself out of a request it should handle.
+    preset_plan = None
+    if interactive and "customize_eaawp" in authoritative_blueprint.guarded_tools:
+        from app.services.platform_requests import looks_like_settings_change
+        if looks_like_settings_change(request.user_prompt):
+            preset_plan, _ask = await _settings_change_plan(request.user_prompt, tenant_id, db)
+            if _ask:
+                return AgentExecutionResponse(
+                    message=_ask, tool_calls=[], sources=[], requires_approval=False,
+                    session_id=resolved_session_id, plan_id=None, plan_status=None, step_summaries=[],
+                )
 
     # ── Integration action pre-flight ─────────────────────────────────────────
     # MUST run BEFORE RAG retrieval and BEFORE the planner.
@@ -330,7 +352,7 @@ async def execute_agent(
         _intent = None
         _use_integration_path = _fast_is_integration_action  # default from keywords
 
-        if _has_provider_kw or "integration" in _prompt_lower:
+        if preset_plan is None and (_has_provider_kw or "integration" in _prompt_lower):
             try:
                 _intent = await parse_integration_intent(request.user_prompt)
                 if _intent.intent_type in _INTEGRATION_ACTION_INTENTS and _intent.confidence >= 0.65:
@@ -340,7 +362,7 @@ async def execute_agent(
             except Exception as _llm_exc:
                 logger.debug("Intent parse LLM call failed (using keyword fallback): %s", _llm_exc)
 
-        if _use_integration_path:
+        if _use_integration_path and preset_plan is None:
             # If LLM parse failed, synthesise a minimal intent from keywords
             if _intent is None or _intent.intent_type == "UNKNOWN":
                 from app.schemas.nl_integration import IntegrationIntent
@@ -432,7 +454,8 @@ async def execute_agent(
     # POST /agent/pending-tasks/{id}/resume run it once setup is complete.
     from app.services import task_readiness as _ready
 
-    _assessment = await _ready.first_unmet(request.user_prompt, tenant_id, role_key, db)
+    _assessment = (None if preset_plan is not None
+                   else await _ready.first_unmet(request.user_prompt, tenant_id, role_key, db))
     if _assessment is not None:
         _task = await _ready.save_pending(
             tenant_id=tenant_id, user_id=user.id, role_key=role_key,
@@ -545,7 +568,8 @@ async def execute_agent(
             limit=5,
             user_id=user.id,           # company-wide notes + THIS user's own history, never anyone else's
         )
-        memory_context_block = format_memory_block(memories)
+        from app.services.platform_requests import is_refusal
+        memory_context_block = format_memory_block([m for m in memories if not is_refusal(str(m.get("content", "")))])
     except Exception as exc:
         logger.warning("Memory retrieval failed (non-fatal): %s", exc)
 
@@ -568,6 +592,7 @@ async def execute_agent(
                     system_persona=augmented_blueprint.system_persona,
                     data_context_block=data_context_block + memory_context_block,
                     rag_context=rag_text,
+                    preset_plan=preset_plan,
                 )
                 # Fetch plan status for response
                 plan_status = None
@@ -695,6 +720,9 @@ async def _remember(db, tenant_id: str, role_key: str, user_id: str, prompt: str
     Runs in its own savepoint so a memory problem can never break or roll back the user's request."""
     if role_key in PERSONAL_DATA_ROLES:
         return
+    from app.services.platform_requests import is_refusal
+    if is_refusal(answer):
+        return                       # a stored "that's not my job" would make the next answer refuse again
     try:
         from app.services.memory_service import store_memory
         async with db.begin_nested():
@@ -702,6 +730,37 @@ async def _remember(db, tenant_id: str, role_key: str, user_id: str, prompt: str
                                content=answer[:500], db=db, confidence=0.8, user_id=user_id)
     except Exception as exc:  # noqa: BLE001
         logger.warning("Memory storage failed (non-fatal): %s", exc)
+
+
+async def _settings_change_plan(prompt: str, tenant_id: str, db) -> tuple[object | None, str]:
+    """(plan proposing the exact settings change, '') or (None, question for missing details) or (None, '')."""
+    from app.services.admin_customization_service import generate_customization_plan
+    from app.services.conversations import turn_history
+    from app.services.planner import AgentPlan, PlannedStep
+    from app.actions.customize_actions import _describe
+
+    earlier = turn_history.get()
+    instruction = (f"{earlier[-1500:]}\n\nThe administrator now asks: {prompt}" if earlier else prompt)[:3000]
+    try:
+        plan = await generate_customization_plan(instruction, tenant_id, "chat", db)
+    except Exception as exc:  # noqa: BLE001 - the normal planner still sees the tool
+        logger.warning("Settings-change planning failed, using the normal planner: %s", exc)
+        return None, ""
+    ops = [op.model_dump() for op in plan.operations]
+    if not ops:
+        if plan.missing_information:
+            return None, ("I can make that change, but I need a little more first:\n"
+                          + "\n".join(f"- {m}" for m in plan.missing_information)
+                          + "\n\nReply with the details and I will prepare the change for your approval.")
+        return None, ""
+    args = {"instruction": instruction, "summary": plan.summary, "changes": _describe(ops), "operations": ops,
+            "missing_information": plan.missing_information}
+    return AgentPlan(objective=prompt[:500], steps=[
+        PlannedStep(step_index=0, step_type="action", description=f"Propose: {plan.summary}"[:300],
+                    tool_name="customize_eaawp", arguments=args, depends_on=[]),
+        PlannedStep(step_index=1, step_type="response", description="Report what was saved", tool_name=None,
+                    arguments={}, depends_on=[0]),
+    ]), ""
 
 
 def _blueprint_role_key(role_name: str) -> str:

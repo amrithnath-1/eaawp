@@ -138,7 +138,7 @@ function Row({
                   remove.mutate(c.id, {
                     onSuccess: () => {
                       toast.success("Conversation deleted.");
-                      if (active) void navigate({ to: "/cabin", search: {} });
+                      if (active) void navigate({ to: "/cabin", search: { new: true } });
                     },
                     onError: (e) => toast.error(apiErrorMessage(e)),
                   })
@@ -184,7 +184,7 @@ export function HistoryPanel() {
     <div className="flex h-full min-h-0 flex-col">
       <div className="shrink-0 space-y-2 border-b border-border p-3">
         <button
-          onClick={() => void navigate({ to: "/cabin", search: {} })}
+          onClick={() => void navigate({ to: "/cabin", search: { new: true } })}
           className="flex w-full items-center justify-center gap-1.5 border border-border py-1.5 font-mono text-[10px] tracking-[0.12em] hover:bg-foreground/5"
         >
           <MessageSquarePlus className="size-3.5" /> NEW CONVERSATION

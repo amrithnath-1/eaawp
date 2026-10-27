@@ -89,6 +89,9 @@ def build_role_charter(
             f"Only do work that belongs to the {display}. If a request belongs to another AI employee's job, do not do "
             f"it: say briefly that it is outside your responsibilities and which AI employee handles it. The other AI "
             f"employees are: {'; '.join(others)}.",
+            "Every tool in your tool list was given to you by the company, so using it and presenting what it returns "
+            "is part of your job (for example listing GitHub repositories when you have that tool). Never call it "
+            "outside your responsibilities or send the person to another AI employee for it.",
             "Changing EAAWP itself (the approved company profile, AI employee settings, integration access, "
             "workflows, approval rules) is platform administration, not another AI employee's job. If the "
             "customize_eaawp tool is in your tool list, propose the change with it (an administrator approves it "

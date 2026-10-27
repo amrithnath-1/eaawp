@@ -37,8 +37,11 @@ class CustomizeEaawpAction(BaseActionTool):
             tool_name=TOOL_NAME,
             display_name="Customize EAAWP",
             description=(
-                "Change EAAWP's own configuration on an administrator's request: the approved company profile, "
-                "AI employee settings, integration access grants, workflows and approval policies. Arguments: "
+                "Change EAAWP's own settings on an administrator's request: the company profile (brand, tagline, "
+                "services, audiences, objectives...), AI employee settings (name, tone, instructions, quick prompts), "
+                "pausing/resuming AI employees, Marketplace modules, team members (invite, role, deactivate), "
+                "integration access grants, switching or disconnecting connected services, workflows, approval rules "
+                "and notification emails. Arguments: "
                 '{"instruction": "<the administrator\'s requested change, complete, in their words>"}. '
                 "The concrete changes are shown for approval before anything is saved."
             ),
@@ -93,11 +96,25 @@ class CustomizeEaawpAction(BaseActionTool):
         }
 
     async def execute(self, arguments: dict[str, Any], tenant_id: str, role_key: str, db: Any) -> dict[str, Any]:
+        from sqlalchemy import or_, select
+
+        from app.core.auth import is_admin_user
+        from app.db.models import User
         from app.schemas.admin_customization import CustomizationPlan
+        from app.services.action_governance import approved_by
         from app.services.admin_customization_service import execute_customization_plan
         plan = CustomizationPlan(summary=arguments.get("summary") or "Customization",
                                  operations=arguments["operations"])
-        result = await execute_customization_plan(plan, tenant_id, "approved administrator (chat)", db, commit=False)
+        # The administrator who approved it is the one making the change (team and Marketplace changes need them).
+        who = approved_by.get()
+        admin = None
+        if who:
+            admin = (await db.execute(select(User).where(User.tenant_id == tenant_id,
+                                                         or_(User.email == who, User.id == who)))).scalars().first()
+            if admin is not None and not is_admin_user(admin):
+                admin = None
+        result = await execute_customization_plan(plan, tenant_id, who or "approved administrator (chat)", db,
+                                                  commit=False, admin=admin)
         lines = [f"- {r.description}: {r.status.upper()} — {r.detail}" for r in result.results]
         ok = result.operations_failed == 0
         return {
