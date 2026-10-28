@@ -17,6 +17,7 @@ from __future__ import annotations
 import json
 import re
 import uuid
+from contextvars import ContextVar
 from dataclasses import dataclass, field
 from typing import Literal
 
@@ -163,18 +164,44 @@ async def detect_requirement(
     return found[0] if found else None
 
 
+# Properties named in the current request ({integration_id: property id}); execute_capability uses them when the
+# tool call itself does not name one. Set per request by the readiness gate.
+requested_property: ContextVar[dict] = ContextVar("requested_property", default={})
+
+_HOST = re.compile(r"\b((?:[a-z0-9-]+\.)+[a-z]{2,})\b", re.I)
+
+
+def _host_of(property_id: str) -> str:
+    p = (property_id or "").lower().removeprefix("sc-domain:")
+    p = re.sub(r"^[a-z]+://", "", p).split("/")[0]
+    return p.removeprefix("www.")
+
+
+def property_named_in(text: str, props: list[dict]) -> str | None:
+    """The property the text names ("gecservices.in", "https://www.gecservices.in/..."). A domain property (covering
+    every URL of the site) is preferred over a URL-prefix property of the same site. The latest mention wins."""
+    hosts = [h.lower().removeprefix("www.") for h in _HOST.findall(text or "")]
+    for host in reversed(hosts):
+        matches = [p["id"] for p in props if _host_of(p.get("id", "")) == host]
+        if matches:
+            return next((m for m in matches if m.startswith("sc-domain:")), matches[0])
+    return None
+
+
 async def first_unmet(
-    prompt: str, tenant_id: str, role_key: str, db: AsyncSession
+    prompt: str, tenant_id: str, role_key: str, db: AsyncSession, context: str = ""
 ) -> "Assessment | None":
-    """The first requirement of this request that is not ready, or None when all are."""
+    """The first requirement of this request that is not ready, or None when all are.
+    `context` (earlier turns of the conversation) lets a follow-up use the site named before."""
     for req in await detect_requirements(prompt, tenant_id, role_key, db):
-        a = await assess(req, tenant_id, role_key, db)
+        a = await assess(req, tenant_id, role_key, db, prompt=prompt, context=context)
         if not a.ready:
             return a
     return None
 
 
-async def assess(req: Requirement, tenant_id: str, role_key: str, db: AsyncSession) -> Assessment:
+async def assess(req: Requirement, tenant_id: str, role_key: str, db: AsyncSession,
+                 prompt: str = "", context: str = "") -> Assessment:
     """Check, in order: a connected integration, the role's grants, then OAuth client config."""
     rows = await db.execute(
         select(Integration)
@@ -202,7 +229,7 @@ async def assess(req: Requirement, tenant_id: str, role_key: str, db: AsyncSessi
         missing = [c for c in req.capabilities if c not in have]
         if not missing:
             if req.needs_property:
-                return await _check_property(req, integ, tenant_id, db)
+                return await _check_property(req, integ, tenant_id, db, prompt, context)
             return Assessment("ready", req, integration_id=integ.id)
         best = best or Assessment(
             "needs_grant", req, integration_id=integ.id, missing_capabilities=missing
@@ -222,7 +249,7 @@ async def assess(req: Requirement, tenant_id: str, role_key: str, db: AsyncSessi
 
 
 async def _check_property(
-    req: Requirement, integ: Integration, tenant_id: str, db: AsyncSession
+    req: Requirement, integ: Integration, tenant_id: str, db: AsyncSession, prompt: str = "", context: str = ""
 ) -> Assessment:
     """
     A property must be chosen before reading data.  An admin's stored choice wins;
@@ -231,11 +258,19 @@ async def _check_property(
     """
     from app.integrations import manager
 
-    if manager.default_property_of(integ):
+    named_somewhere = bool(_HOST.search(prompt or "") or _HOST.search(context or ""))
+    if manager.default_property_of(integ) and not named_somewhere:
         return Assessment("ready", req, integration_id=integ.id)
     try:
         props = await manager.list_selectable_properties(integ.id, tenant_id, db)
     except Exception:
+        return Assessment("ready", req, integration_id=integ.id)
+    # A site named in this message (or earlier in the conversation) is used for this request.
+    named = property_named_in(prompt, props) or property_named_in(context, props)
+    if named:
+        requested_property.set({**requested_property.get(), integ.id: named})
+        return Assessment("ready", req, integration_id=integ.id)
+    if manager.default_property_of(integ):
         return Assessment("ready", req, integration_id=integ.id)
     if len(props) == 1:
         await manager.set_default_property(integ.id, tenant_id, props[0]["id"], db)
@@ -294,17 +329,13 @@ def setup_message(a: Assessment, *, is_admin: bool) -> tuple[str, str, dict]:
         )
     if a.state == "needs_property":
         data.update(integration_id=a.integration_id, properties=a.properties)
+        sites = "\n".join(f"- {p.get('name') or p.get('id')}" for p in a.properties[:10])
+        example = _host_of(a.properties[0].get("id", "")) if a.properties else "example.com"
+        ask = (f"{name} has access to several properties:\n{sites}\n\nSay which one in your message (for example "
+               f"“…for {example}”) and I’ll run it")
         if is_admin:
-            return (
-                f"{saved}{name} has access to several properties. Choose which one this AI employee "
-                "should report on and I’ll run the request.",
-                "SELECT_PROPERTY", data,
-            )
-        return (
-            f"{saved}{name} has access to several properties and an administrator needs to choose "
-            "which one to report on. I’ll be ready to run this once they have.",
-            "ADMIN_REQUIRED", data,
-        )
+            return (f"{saved}{ask}, or choose a default below so I never have to ask again.", "SELECT_PROPERTY", data)
+        return (f"{saved}{ask}. An administrator can also set a default site.", "ADMIN_REQUIRED", data)
     data.update(integration_id=a.integration_id, capabilities=a.missing_capabilities)
     if is_admin:
         return (

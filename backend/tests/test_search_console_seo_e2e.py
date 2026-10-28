@@ -593,3 +593,30 @@ class TestProviderUnit:
         res = run(self._p().execute("get_search_analytics", _creds(), {"site_url": SITE, "dimensions": ["query"]}))
         row = res.data[0]
         assert row["query"] == "running shoes" and row["dimensions"] == ["running shoes"] and row["clicks"] == 320
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+class TestSiteNamedInTheRequest:
+    """Seen live: "…for gecservices.in" was still answered with "choose which property" when two sites exist."""
+
+    def test_a_site_named_in_the_message_is_used_without_a_default(self, world, llm, gsc_api):
+        connect_gsc(world)
+        gsc_api.sites = TWO_SITES
+        b = ask(world, prompt="What were the top search queries for blog.example.com in the last 28 days? "
+                              "Show clicks, impressions, CTR and average position.").json()
+        assert b["plan_status"] == "completed", b
+        assert gsc_api.queries and gsc_api.queries[0][0] == SITE_2
+
+    def test_the_domain_property_wins_over_a_url_property_of_the_same_site(self):
+        from app.services.task_readiness import property_named_in
+        props = [{"id": "https://gecservices.in/"}, {"id": "sc-domain:gecservices.in"}, {"id": "https://other.in/"}]
+        assert property_named_in("CTR for https://www.gecservices.in/contact", props) == "sc-domain:gecservices.in"
+        assert property_named_in("CTR for other.in please", props) == "https://other.in/"
+        assert property_named_in("What is my CTR", props) is None
+
+    def test_without_a_named_site_the_reply_lists_the_sites(self, world, llm, gsc_api):
+        connect_gsc(world)
+        gsc_api.sites = TWO_SITES
+        b = ask(world, who="a_admin").json()
+        assert b["plan_status"] == "awaiting_setup"
+        assert "blog.example.com" in b["message"] and "Say which one in your message" in b["message"]

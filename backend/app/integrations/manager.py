@@ -698,7 +698,8 @@ async def execute_capability(
     # The company's selected property fills in when the caller did not name one.
     prop_param = getattr(provider, "property_parameter", None)
     if prop_param and not parameters.get(prop_param):
-        chosen = default_property_of(row)
+        from app.services.task_readiness import requested_property
+        chosen = requested_property.get().get(integration_id) or default_property_of(row)
         if chosen:
             parameters = {**parameters, prop_param: chosen}
 
