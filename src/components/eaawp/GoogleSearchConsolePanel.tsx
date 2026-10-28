@@ -18,6 +18,7 @@
 
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
+import { AdminProviderConfigPanel } from "./AdminProviderConfigPanel";
 import {
   CheckCircle,
   XCircle,
@@ -58,7 +59,8 @@ const GSC_CAPABILITIES = [
   {
     key: "list_sites",
     label: "List Search Console Sites",
-    description: "Retrieve all Search Console properties accessible to the connected Google account.",
+    description:
+      "Retrieve all Search Console properties accessible to the connected Google account.",
     icon: Globe,
   },
   {
@@ -87,15 +89,32 @@ const GRANTABLE_ROLES = [
 
 function StatusBadge({ status }: { status: IntegrationStatus }) {
   const cfg: Record<IntegrationStatus, { icon: React.ElementType; cls: string; label: string }> = {
-    not_configured: { icon: Clock, cls: "text-muted-foreground border-muted-foreground/40", label: "NOT CONFIGURED" },
-    not_tested:     { icon: Clock, cls: "text-muted-foreground border-muted-foreground/40", label: "NOT TESTED" },
-    connected:      { icon: CheckCircle, cls: "text-success border-success/40", label: "CONNECTED" },
-    failed:         { icon: XCircle, cls: "text-destructive border-destructive/40", label: "FAILED" },
-    disabled:       { icon: ShieldOff, cls: "text-muted-foreground border-muted-foreground/40", label: "DISABLED" },
+    not_configured: {
+      icon: Clock,
+      cls: "text-muted-foreground border-muted-foreground/40",
+      label: "NOT CONNECTED",
+    },
+    not_tested: {
+      icon: Clock,
+      cls: "text-muted-foreground border-muted-foreground/40",
+      label: "NOT TESTED",
+    },
+    connected: { icon: CheckCircle, cls: "text-success border-success/40", label: "CONNECTED" },
+    failed: { icon: XCircle, cls: "text-destructive border-destructive/40", label: "FAILED" },
+    disabled: {
+      icon: ShieldOff,
+      cls: "text-muted-foreground border-muted-foreground/40",
+      label: "DISABLED",
+    },
   };
   const { icon: Icon, cls, label } = cfg[status] ?? cfg.not_configured;
   return (
-    <span className={cn("inline-flex items-center gap-1.5 border px-1.5 py-0.5 font-mono text-[10px] tracking-[0.08em]", cls)}>
+    <span
+      className={cn(
+        "inline-flex items-center gap-1.5 border px-1.5 py-0.5 font-mono text-[10px] tracking-[0.08em]",
+        cls,
+      )}
+    >
       <Icon className="size-2.5" />
       {label}
     </span>
@@ -111,17 +130,16 @@ function CapabilityGrantsPanel({ integrationId }: { integrationId: string }) {
   const [pendingRole, setPendingRole] = useState<string>(GRANTABLE_ROLES[0].key);
 
   function isGranted(roleKey: string, capKey: string): CapabilityGrantOut | undefined {
-    return grants.find((g) => g.role_key === roleKey && g.capability_key === capKey && g.is_granted);
+    return grants.find(
+      (g) => g.role_key === roleKey && g.capability_key === capKey && g.is_granted,
+    );
   }
 
   async function handleGrant(roleKey: string, capKey: string) {
-    createGrants.mutate(
-      [{ role_key: roleKey, capability_key: capKey, is_granted: true }],
-      {
-        onSuccess: () => toast.success(`Granted ${capKey} to ${roleKey}`),
-        onError: (e) => toast.error(e.message),
-      },
-    );
+    createGrants.mutate([{ role_key: roleKey, capability_key: capKey, is_granted: true }], {
+      onSuccess: () => toast.success(`Granted ${capKey} to ${roleKey}`),
+      onError: (e) => toast.error(e.message),
+    });
   }
 
   async function handleRevoke(grant: CapabilityGrantOut) {
@@ -144,7 +162,9 @@ function CapabilityGrantsPanel({ integrationId }: { integrationId: string }) {
 
   return (
     <div className="space-y-3 border border-border bg-surface p-3">
-      <p className="font-mono text-[10px] tracking-[0.14em] text-muted-foreground">CAPABILITY GRANTS</p>
+      <p className="font-mono text-[10px] tracking-[0.14em] text-muted-foreground">
+        CAPABILITY GRANTS
+      </p>
       <p className="text-[12px] text-muted-foreground">
         Grant specific capabilities to AI employees. The grant is the authority — a connected
         integration does not automatically give access to any role.
@@ -158,7 +178,9 @@ function CapabilityGrantsPanel({ integrationId }: { integrationId: string }) {
           className="h-7 border border-input bg-background px-2 text-[12px] outline-none focus:border-ring"
         >
           {GRANTABLE_ROLES.map((r) => (
-            <option key={r.key} value={r.key}>{r.label}</option>
+            <option key={r.key} value={r.key}>
+              {r.label}
+            </option>
           ))}
         </select>
       </div>
@@ -204,13 +226,24 @@ function CapabilityGrantsPanel({ integrationId }: { integrationId: string }) {
 
       {grants.length > 0 && (
         <div className="space-y-1 pt-1">
-          <p className="font-mono text-[10px] tracking-[0.14em] text-muted-foreground">ACTIVE GRANTS</p>
-          {grants.filter((g) => g.is_granted).map((g) => (
-            <div key={g.id} className="flex items-center justify-between text-[11px] text-muted-foreground border-l-2 border-success/40 pl-2 py-0.5">
-              <span><span className="text-foreground">{g.role_key}</span> → {g.capability_key}</span>
-              <span className="font-mono text-[10px]">{new Date(g.granted_at).toLocaleDateString()}</span>
-            </div>
-          ))}
+          <p className="font-mono text-[10px] tracking-[0.14em] text-muted-foreground">
+            ACTIVE GRANTS
+          </p>
+          {grants
+            .filter((g) => g.is_granted)
+            .map((g) => (
+              <div
+                key={g.id}
+                className="flex items-center justify-between text-[11px] text-muted-foreground border-l-2 border-success/40 pl-2 py-0.5"
+              >
+                <span>
+                  <span className="text-foreground">{g.role_key}</span> → {g.capability_key}
+                </span>
+                <span className="font-mono text-[10px]">
+                  {new Date(g.granted_at).toLocaleDateString()}
+                </span>
+              </div>
+            ))}
         </div>
       )}
     </div>
@@ -324,7 +357,8 @@ export function GoogleSearchConsolePanel() {
             Read-only access to Search Console properties, search analytics, and site metadata.
           </p>
           <p className="mt-0.5 text-[12px] text-muted-foreground">
-            All capabilities are read-only. No website modifications, publishing, or destructive operations.
+            All capabilities are read-only. No website modifications, publishing, or destructive
+            operations.
           </p>
         </div>
         <a
@@ -344,23 +378,32 @@ export function GoogleSearchConsolePanel() {
         </div>
       )}
 
-      {/* Not connected */}
+      {/* Not connected (never connected, or disconnected): the Google OAuth app settings first, then Connect */}
+      {!isLoading && !integration && (
+        <AdminProviderConfigPanel
+          providerType={PROVIDER_TYPE}
+          providerDisplayName="Google Search Console"
+          allowReplace
+        />
+      )}
       {!isLoading && !integration && (
         <div className="border border-border bg-surface p-4 space-y-3">
           <div className="flex items-center gap-2">
             <StatusBadge status="not_configured" />
           </div>
           <p className="text-[12px] text-muted-foreground">
-            Connect your Google account to give AI employees read-only access to Search Console data.
-            You will be redirected to Google to authorize access.
+            Connect your Google account to give AI employees read-only access to Search Console
+            data. You will be redirected to Google to authorize access.
           </p>
           <div className="rounded border border-border/50 bg-muted/30 p-2.5 space-y-1">
             <p className="font-mono text-[10px] tracking-[0.1em] text-muted-foreground">
               PERMISSIONS REQUESTED
             </p>
             <p className="text-[12px] text-muted-foreground">
-              <span className="font-mono text-[10px] text-foreground/70">https://www.googleapis.com/auth/webmasters.readonly</span>
-              {" "}— read-only access to Search Console properties and analytics only.
+              <span className="font-mono text-[10px] text-foreground/70">
+                https://www.googleapis.com/auth/webmasters.readonly
+              </span>{" "}
+              — read-only access to Search Console properties and analytics only.
             </p>
           </div>
           <button
@@ -425,7 +468,9 @@ export function GoogleSearchConsolePanel() {
               <div className="border-t border-border/50 pt-2 text-[12px] text-muted-foreground space-y-0.5">
                 {Object.entries(integration.account_info).map(([k, v]) => (
                   <div key={k} className="flex gap-2">
-                    <span className="font-mono text-[10px] text-muted-foreground/70 w-32 shrink-0">{k}</span>
+                    <span className="font-mono text-[10px] text-muted-foreground/70 w-32 shrink-0">
+                      {k}
+                    </span>
                     <span>{String(v)}</span>
                   </div>
                 ))}
@@ -503,7 +548,9 @@ export function GoogleSearchConsolePanel() {
           <li>• OAuth credentials are encrypted at rest and never returned to the browser.</li>
           <li>• Only the minimum required scope (webmasters.readonly) is requested.</li>
           <li>• All capability executions are recorded in the audit log.</li>
-          <li>• Capability grants are required before any AI employee can access Search Console data.</li>
+          <li>
+            • Capability grants are required before any AI employee can access Search Console data.
+          </li>
         </ul>
       </div>
     </div>

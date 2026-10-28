@@ -102,8 +102,8 @@ def gsc_api(monkeypatch):
         assert api == "searchconsole", api
         st.threads.append(threading.current_thread())
 
-        def query(siteUrl, requestBody):
-            st.queries.append((siteUrl, requestBody))
+        def query(siteUrl, body):                    # same names as google-api-python-client
+            st.queries.append((siteUrl, body))
             return _Req(st.log, "query", st.rows)
 
         def get(siteUrl):
@@ -112,7 +112,7 @@ def gsc_api(monkeypatch):
 
         return SimpleNamespace(
             sites=lambda: SimpleNamespace(list=lambda **k: _Req(st.log, "list", st.sites), get=get),
-            searchAnalytics=lambda: SimpleNamespace(query=query),
+            searchanalytics=lambda: SimpleNamespace(query=query),
         )
 
     import googleapiclient.discovery as discovery
@@ -647,3 +647,41 @@ class TestModelSpellingOfParameters:
         llm.args = {"site_url": given}
         assert ask(world).json()["plan_status"] == "completed"
         assert gsc_api.queries[0][0] == expected
+
+
+class TestRealGoogleClientContract:
+    """Seen live: "'Resource' object has no attribute 'searchAnalytics'". The fakes above used the same wrong name, so
+    this test builds the REAL google-api-python-client service from its bundled discovery document (offline) and
+    checks the exact HTTP request the provider sends."""
+
+    def test_search_analytics_uses_the_real_client_resource_and_body(self, monkeypatch):
+        import json as _json
+        import googleapiclient.discovery as discovery
+        from app.integrations.providers.google_search_console_provider import GoogleSearchConsoleProvider
+
+        sent = []
+
+        class Http:
+            def request(self, uri, method="GET", body=None, headers=None, **k):
+                sent.append((method, uri, body))
+                payload = {"siteEntry": [{"siteUrl": SITE, "permissionLevel": "siteOwner"}]} if "/sites" in uri and \
+                    "searchAnalytics" not in uri else {"rows": [{"keys": ["passport"], "clicks": 12,
+                                                                 "impressions": 300, "ctr": 0.04, "position": 5.1}]}
+                return type("R", (dict,), {"status": 200, "reason": "OK"})({"status": "200"}), _json.dumps(payload).encode()
+
+        real_build = discovery.build
+
+        def offline_build(name, version, **kw):
+            return real_build(name, version, http=Http(), static_discovery=True, developerKey="unused")
+        monkeypatch.setattr(discovery, "build", offline_build)
+
+        prov = GoogleSearchConsoleProvider()
+        creds = {"access_token": "t", "refresh_token": "r", "client_id": "c", "client_secret": "s",
+                 "token_expiry": "2999-01-01T00:00:00+00:00"}
+        res = run(prov.execute(capability_key="get_search_analytics", credentials=creds,
+                               parameters={"site_url": SITE, "dimensions": ["query"], "row_limit": 10}))
+        assert res.error is None, res.error
+        assert res.data[0]["query"] == "passport" and res.data[0]["impressions"] == 300
+        method, uri, body = next(x for x in sent if "searchAnalytics/query" in x[1])
+        assert method == "POST" and "sites/sc-domain%3Aexample.com/searchAnalytics/query" in uri
+        assert _json.loads(body)["dimensions"] == ["query"] and _json.loads(body)["rowLimit"] == 10

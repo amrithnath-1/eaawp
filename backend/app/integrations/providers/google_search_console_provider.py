@@ -431,7 +431,9 @@ class GoogleSearchConsoleProvider(IntegrationProvider):
             "dimensionFilterGroups": [],  # read-only, unfiltered
         }
         response = await self._call_api_safe(
-            credentials, "searchAnalytics", "query", {"siteUrl": site, "requestBody": body},
+            # google-api-python-client names the resource "searchanalytics" and takes the payload as `body`
+            # (the REST path is .../searchAnalytics/query, but the Python attribute is lowercase).
+            credentials, "searchanalytics", "query", {"siteUrl": site, "body": body},
             allow_empty=True,   # Google omits "rows" (or returns {}) when there is no data
         )
         rows = response.get("rows", []) if isinstance(response, dict) else []
