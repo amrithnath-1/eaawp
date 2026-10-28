@@ -269,6 +269,12 @@ def validate_tool_arguments(
     # If input_schema declares allowed fields, reject unknown top-level keys
     if input_schema and "properties" in input_schema:
         allowed_keys = set(input_schema["properties"].keys())
+        # Models often use the provider API's own spelling ("siteUrl", "startDate", "rowLimit"): accept it as the
+        # declared name when that is unambiguous.
+        for k in [k for k in sanitised if k not in allowed_keys]:
+            snake = re.sub(r"(?<=[a-z0-9])([A-Z])", r"_\1", k).lower().replace("-", "_")
+            if snake in allowed_keys and snake not in sanitised:
+                sanitised[snake] = sanitised.pop(k)
         unknown = {k for k in sanitised if k not in allowed_keys}
         if unknown:
             return (
@@ -309,12 +315,18 @@ def build_dynamic_tool_adapter(defn: DynamicToolDefinition) -> Any:
     _tool_key = defn.tool_key
 
     # Build a safe, truncated description for the LLM
+    props = (defn.input_schema or {}).get("properties") or {}
+    param_help = "; ".join(
+        f"{name}" + (f" ({str(spec.get('description') or spec.get('type') or '')[:80]})" if isinstance(spec, dict) else "")
+        for name, spec in list(props.items())[:12]
+    )
     desc = (
         f"{defn.description} "
         f"[Integration: {defn.integration_name}, "
         f"Provider: {defn.provider_type}, "
         f"Risk: {defn.risk_level.upper()}] "
         "Args: JSON string with structured parameters (no credentials, no SQL)."
+        + (f" Parameter names: {param_help}." if param_help else "")
     )
 
     # The tool body is constant; only the closure-captured routing metadata
