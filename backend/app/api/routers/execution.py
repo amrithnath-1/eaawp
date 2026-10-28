@@ -461,7 +461,8 @@ async def execute_agent(
     from app.services import task_readiness as _ready
 
     _assessment = (None if preset_plan is not None
-                   else await _ready.first_unmet(request.user_prompt, tenant_id, role_key, db))
+                   else await _ready.first_unmet(request.user_prompt, tenant_id, role_key, db,
+                                                 context=_turn_history_text()))
     if _assessment is not None:
         _task = await _ready.save_pending(
             tenant_id=tenant_id, user_id=user.id, role_key=role_key,
@@ -790,6 +791,11 @@ async def _settings_change_plan(prompt: str, tenant_id: str, db) -> tuple[object
         PlannedStep(step_index=1, step_type="response", description="Report what was saved", tool_name=None,
                     arguments={}, depends_on=[0]),
     ]), ""
+
+
+def _turn_history_text() -> str:
+    from app.services.conversations import turn_history
+    return turn_history.get()
 
 
 def _blueprint_role_key(role_name: str) -> str:

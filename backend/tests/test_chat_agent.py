@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 
 import pytest
-from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+from langchain_core.messages import AIMessage, HumanMessage
 
 from tests.conftest import _run
 from tests.test_role_intelligence import _connect_github, ask, pick
@@ -94,8 +94,10 @@ def test_calls_tools_in_several_rounds_and_answers_from_the_results(world, agent
     body = send(world, "a_admin", "How are we doing on marketing?")
     assert body["plan_status"] == "completed", body
     assert [s.split("] ")[0] for s in body["step_summaries"]] == ["[READ", "[READ", "[RESPONSE"]
-    tool_msgs = [m for m in agent["m"].calls[-1] if isinstance(m, ToolMessage)]
-    assert len(tool_msgs) == 2                              # both results went back to the model
+    results = [m.content for m in agent["m"].calls[-1] if isinstance(m, HumanMessage)
+               and m.content.startswith("Results of the tools you just used")]
+    assert len(results) == 2                                # both results went back to the model, as plain text
+    assert "### get_campaigns" in results[0] and "### get_marketing_objectives" in results[1]
     assert body["message"] == "You have no campaigns or objectives yet."
 
 
@@ -122,8 +124,9 @@ def test_a_rejected_action_call_is_reported_back_and_the_model_recovers(world, a
     pick(world, "a_admin", DMM)
     body = send(world, "a_admin", "Create a goal")
     assert body["plan_status"] == "completed"
-    tool_msg = next(m for m in agent["m"].calls[-1] if isinstance(m, ToolMessage))
-    assert tool_msg.content.startswith("[NOT DONE")
+    result = next(m.content for m in agent["m"].calls[-1] if isinstance(m, HumanMessage)
+                  and m.content.startswith("Results of the tools you just used"))
+    assert "[NOT DONE" in result
     assert world.client.get("/api/v1/approvals?status=pending", headers=world.auth("a_admin")).json() == []
 
 
@@ -237,3 +240,31 @@ def test_an_unexpected_agent_error_falls_back_to_the_planner(world, agent, monke
     pick(world, "a_admin", DMM)
     body = send(world, "a_admin", "What is my CTR")
     assert body["message"] == "Answer from the planner." and body["plan_status"] == "completed"
+
+
+def test_no_function_call_messages_are_replayed_to_the_model(world, agent):
+    """Gemini 3 rejects a follow-up that replays its function calls without hidden signatures (seen live)."""
+    agent["m"] = Script(call("get_campaigns", {"params": "{}"}), "No campaigns yet.")
+    pick(world, "a_admin", DMM)
+    send(world, "a_admin", "How are our campaigns doing?")
+    follow_up = agent["m"].calls[-1]
+    assert not any(getattr(m, "tool_calls", None) for m in follow_up)
+    assert not any(type(m).__name__ == "ToolMessage" for m in follow_up)
+
+
+def test_if_the_follow_up_call_fails_the_answer_is_written_from_the_fetched_data(world, agent):
+    class FailsAfterTool(Script):
+        async def ainvoke(self, messages, *a, **k):
+            self.calls.append(list(messages))
+            n = len(self.calls)
+            if n == 1:
+                return call("get_campaigns", {"params": "{}"})
+            if n == 2:
+                raise RuntimeError("400 function call is missing a thought_signature")
+            return AIMessage(content="From your campaign data: there are no campaigns yet.")
+    agent["m"] = FailsAfterTool()
+    pick(world, "a_admin", DMM)
+    body = send(world, "a_admin", "How are our campaigns doing?")
+    assert body["plan_status"] == "completed", body
+    assert body["message"] == "From your campaign data: there are no campaigns yet."
+    assert "Data your tools returned" in agent["m"].calls[-1][-1].content
