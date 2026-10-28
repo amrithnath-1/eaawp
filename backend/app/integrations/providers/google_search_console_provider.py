@@ -411,9 +411,8 @@ class GoogleSearchConsoleProvider(IntegrationProvider):
         if end_dt > today:
             raise GSCApiError("End date cannot be in the future")
 
-        dimensions = parameters.get("dimensions", [])
-        if not isinstance(dimensions, list):
-            dimensions = []
+        from app.integrations.providers.google_analytics_provider import canonical_names
+        dimensions = canonical_names(parameters.get("dimensions") or [], _ALLOWED_DIMENSIONS)
         invalid_dims = set(dimensions) - _ALLOWED_DIMENSIONS
         if invalid_dims:
             raise GSCApiError(f"Unsupported dimension(s): {sorted(invalid_dims)}")

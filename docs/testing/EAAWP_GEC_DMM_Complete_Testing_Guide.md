@@ -462,6 +462,23 @@ opens from the ☰ button; the chat works; **HISTORY** opens a side sheet; Appro
 3. On free hosting (Render) the first request after idle can take up to a minute. **Expected:** the loading screen
    explains this after 5 seconds instead of looking frozen.
 
+# 33a. Automatic answer check (15 questions in one go)
+
+**[LOCAL SERVER or DEPLOYED]** `backend/scripts/eval_chat.py` asks the Digital Marketing Manager 15 realistic
+questions (Search Console figures, follow-ups, GitHub, company profile, reading the website, competitors from the
+internet, honesty about missing data, drafting) and checks each answer automatically.
+
+```
+cd backend
+set EAAWP_API=https://<your-backend>.onrender.com
+set EAAWP_EMAIL=<your admin email>
+set EAAWP_COMPANY_ID=<your company id>
+python scripts\eval_chat.py --site gecservices.in
+```
+
+It asks for your password (never printed or saved), prints PASS/FAIL per question and writes `eval_report.md` with
+every answer, its steps and the problems found. **Expected:** 0 flagged. Anything flagged: send the report section.
+
 # 34. Troubleshooting
 
 | Problem | Fix |

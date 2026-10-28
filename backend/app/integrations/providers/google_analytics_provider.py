@@ -58,6 +58,39 @@ _MAX_ROWS = 1000
 _MAX_DAYS_RANGE = 365
 _PROPERTY_ID_RE = re.compile(r"^\d{1,20}$")
 _RELATIVE_DATE_RE = re.compile(r"^(\d{1,4})daysAgo$")
+# What models also write: "3monthsAgo", "3 months ago", "last 90 days", "2 weeks ago", "1 year ago".
+_LOOSE_RELATIVE_RE = re.compile(
+    r"^(?:last\s+|past\s+)?(\d{1,4})\s*(day|week|month|year)s?(?:\s*ago)?$", re.I)
+
+
+def _months_back(today: "datetime.date", months: int) -> "datetime.date":
+    import calendar
+    y, m = divmod(today.year * 12 + today.month - 1 - months, 12)
+    m += 1
+    return today.replace(year=y, month=m, day=min(today.day, calendar.monthrange(y, m)[1]))
+
+
+def canonical_names(given: Any, allowed: set[str]) -> list[str]:
+    """Dimension/metric names as the API spells them: case, "_", plural and a few synonyms are forgiven
+    ("queries" → query, "search_appearance" → searchAppearance, "pages" → page). Unknown names are kept as given so the
+    caller can report them."""
+    if isinstance(given, str):
+        given = [p.strip() for p in given.split(",") if p.strip()]
+    if not isinstance(given, list):
+        return []
+    synonyms = {"keyword": "query", "keywords": "query", "searchquery": "query", "url": "page", "urls": "page",
+                "landingpage": "page", "devicetype": "device"}
+    by_key = {a.lower().replace("_", ""): a for a in allowed}
+    out = []
+    for g in given:
+        key = str(g).strip().lower().replace("_", "").replace(" ", "")
+        key = synonyms.get(key, key) if synonyms.get(key, key).lower() in by_key else key
+        cand = by_key.get(key) or by_key.get(key[:-1] if key.endswith("s") else key) or \
+            by_key.get(key[:-3] + "y" if key.endswith("ies") else key)
+        if cand is None and key in synonyms:
+            cand = by_key.get(synonyms[key])
+        out.append(cand or str(g))
+    return list(dict.fromkeys(out))
 
 
 def resolve_report_date(value: Any, today: "datetime.date | None" = None) -> "datetime.date":
@@ -77,8 +110,16 @@ def resolve_report_date(value: Any, today: "datetime.date | None" = None) -> "da
     m = _RELATIVE_DATE_RE.match(text)
     if m:
         return today - timedelta(days=int(m.group(1)))
+    loose = _LOOSE_RELATIVE_RE.match(re.sub(r"(?<=\d)(?=[a-zA-Z])|(?<=[a-z])(?=[A-Z])", " ", text).strip())
+    if loose:
+        n, unit = int(loose.group(1)), loose.group(2).lower()
+        if unit == "day":
+            return today - timedelta(days=n)
+        if unit == "week":
+            return today - timedelta(weeks=n)
+        return _months_back(today, n * (12 if unit == "year" else 1))
     try:
-        return datetime.strptime(text, "%Y-%m-%d").date()
+        return datetime.strptime(text[:10], "%Y-%m-%d").date()       # also "2026-07-28T00:00:00Z"
     except ValueError:
         raise GAApiError(
             f"Invalid date '{text[:30]}'. Use YYYY-MM-DD, 'today', 'yesterday' or 'NdaysAgo'."
@@ -419,8 +460,8 @@ class GoogleAnalyticsProvider(IntegrationProvider):
         start_date, end_date = start_dt.isoformat(), end_dt.isoformat()
 
         # Validate metrics and dimensions
-        metrics = parameters.get("metrics", ["sessions", "activeUsers"])
-        dimensions = parameters.get("dimensions", [])
+        metrics = canonical_names(parameters.get("metrics") or ["sessions", "activeUsers"], _ALLOWED_METRICS)
+        dimensions = canonical_names(parameters.get("dimensions") or [], _ALLOWED_DIMENSIONS)
         invalid_m = set(metrics) - _ALLOWED_METRICS
         if invalid_m:
             raise GAApiError(f"Unsupported metrics: {sorted(invalid_m)}")

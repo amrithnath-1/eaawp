@@ -51,6 +51,8 @@ class Settings(BaseSettings):
     # Interactive chat engine: "agent" (the model calls tools itself, looks at the results and decides the next step,
     # like ChatGPT/Claude) or "planner" (one JSON plan made up front). Workflows and meetings always use the planner.
     chat_engine: str = "agent"
+    # Internet tools for the chat agent (web_search via Gemini Google Search, read_web_page for public pages).
+    web_tools_enabled: bool = True
 
     # ── Database ──────────────────────────────────────────────────────────────
     database_url: str = "sqlite+aiosqlite:///./eaawp.db"
