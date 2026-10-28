@@ -34,31 +34,41 @@ def evidence_values(text: str) -> list[float]:
 _FIELD = re.compile(r'"(\w+)"\s*:\s*(-?\d+(?:\.\d+)?)')
 
 
-def _derived(evidence: str, pool: list[float]) -> list[float]:
-    """Figures an answer may legitimately compute from the data: column totals (e.g. total clicks over the rows),
-    and differences, ratios and percentage changes between two returned values (e.g. "up 12% on last week")."""
-    cols: dict[str, float] = {}
-    counts: dict[str, int] = {}
+def _derived(evidence: str) -> tuple[list[float], list[float]]:
+    """(plain figures, percentages) an answer may legitimately compute from the data. Only like with like:
+    totals, averages and differences within one measure (e.g. clicks), % change and share within one measure, and
+    ratios between measure totals (overall CTR = total clicks / total impressions). Never arbitrary pairs, which would
+    let almost any small number pass."""
+    cols: dict[str, list[float]] = {}
     for key, num in _FIELD.findall(evidence or ""):
-        cols[key] = cols.get(key, 0.0) + float(num)
-        counts[key] = counts.get(key, 0) + 1
-    out = [v for k, v in cols.items() if counts[k] > 1]
-    out += [cols[k] / counts[k] for k in cols if counts[k] > 1]                           # averages
-    small = list(dict.fromkeys(pool + out))[:150]
-    for a in small:
-        for b in small:
-            if a == b:
-                continue
-            out += [a + b, a - b]
-            if b:
-                out += [a / b, a / b * 100, (a - b) / b * 100]
-    return out
+        cols.setdefault(key, []).append(float(num))
+    plain: list[float] = []
+    pct: list[float] = []
+    totals = {k: sum(v) for k, v in cols.items() if len(v) > 1}
+    for k, vals in cols.items():
+        if len(vals) > 1:
+            plain += [totals[k], totals[k] / len(vals)]
+        for a in vals[:60]:
+            for b in vals[:60]:
+                if a == b:
+                    continue
+                plain += [a - b, a + b]
+                if b:
+                    pct += [(a - b) / b * 100, a / b * 100]
+                if totals.get(k):
+                    pct.append(a / totals[k] * 100)
+    for ka, ta in totals.items():
+        for kb, tb in totals.items():
+            if ka != kb and tb:
+                pct.append(ta / tb * 100)
+                plain.append(ta / tb)
+    return plain, pct
 
 
 def ungrounded_figures(answer: str, evidence: str) -> list[str]:
     """Figures in ``answer`` that cannot be found in, or computed from, ``evidence``."""
     pool = evidence_values(evidence)
-    derived: list[float] | None = None
+    derived: tuple[list[float], list[float]] | None = None
     bad: list[str] = []
     for m in _NUM.finditer(answer or ""):
         raw, pct = m.group(1), m.group(2)
@@ -68,8 +78,8 @@ def ungrounded_figures(answer: str, evidence: str) -> list[str]:
         if any(round(e, decimals) == v or abs(e - v) < 1e-9 for e in pool):
             continue
         if derived is None:
-            derived = _derived(evidence, pool)
-        if any(round(abs(e), decimals) == v for e in derived):
+            derived = _derived(evidence)
+        if any(round(abs(e), decimals) == v for e in (derived[1] if pct else derived[0])):
             continue
         bad.append(raw + pct)
     return bad
