@@ -358,7 +358,16 @@ class GoogleSearchConsoleProvider(IntegrationProvider):
     async def _resolve_site(self, credentials: dict[str, Any], given: Any) -> str:
         """The given property, else the only accessible one; never guess between several."""
         if given:
-            return self._validate_site_url(given)
+            text = str(given).strip()
+            props = await self.list_properties(credentials)
+            if any(p["id"] == text for p in props):
+                return text
+            # "gecservices.in", "https://gecservices.in", "www.gecservices.in/blog" → the verified property of that site
+            from app.services.task_readiness import property_named_in
+            named = property_named_in(text, props)
+            if named:
+                return named
+            return self._validate_site_url(text)
         props = await self.list_properties(credentials)
         if not props:
             raise GSCApiError("This Google account has no verified Search Console properties that EAAWP can read.")

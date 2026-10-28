@@ -325,7 +325,9 @@ class TestTruthfulWhenThingsGoWrong:
 
     def test_plan_site_url_must_be_a_property_not_arbitrary_text(self, world, llm, gsc_api):
         connect_gsc(world)
-        for bad in ("javascript:alert(1)", "file:///etc/passwd", "sc-domain:", "example.com", "http://x y/"):
+        # (A bare name of a VERIFIED site, e.g. "example.com", is resolved to that property: see
+        # TestModelSpellingOfParameters. Text that names no verified property is still refused.)
+        for bad in ("javascript:alert(1)", "file:///etc/passwd", "sc-domain:", "unknown-site.org", "http://x y/"):
             llm.args = {"site_url": bad}
             assert ask(world).json()["plan_status"] == "failed", bad
         assert not gsc_api.queries
@@ -620,3 +622,28 @@ class TestSiteNamedInTheRequest:
         b = ask(world, who="a_admin").json()
         assert b["plan_status"] == "awaiting_setup"
         assert "blog.example.com" in b["message"] and "Say which one in your message" in b["message"]
+
+
+class TestModelSpellingOfParameters:
+    """Seen live: "Unknown parameter(s): ['endDate', 'rowLimit', 'siteUrl', 'startDate']"."""
+
+    def test_provider_api_spelling_is_accepted(self):
+        from app.tools.dynamic_tool import validate_tool_arguments
+        schema = {"properties": {"site_url": {}, "start_date": {}, "end_date": {}, "row_limit": {}, "dimensions": {}}}
+        ok, err, args = validate_tool_arguments(
+            {"siteUrl": "sc-domain:example.com", "startDate": "90daysAgo", "endDate": "3daysAgo", "rowLimit": 10,
+             "dimensions": ["query"]}, "get_search_analytics", schema)
+        assert ok, err
+        assert args == {"site_url": "sc-domain:example.com", "start_date": "90daysAgo", "end_date": "3daysAgo",
+                        "row_limit": 10, "dimensions": ["query"]}
+        ok, err, _ = validate_tool_arguments({"siteId": "x"}, "get_search_analytics", schema)
+        assert not ok and "Unknown parameter" in err                      # still strict for real unknowns
+
+    @pytest.mark.parametrize("given,expected", [("example.com", SITE), ("https://www.example.com", SITE),
+                                                ("https://blog.example.com", SITE_2), (SITE_2, SITE_2)])
+    def test_a_site_name_resolves_to_the_verified_property(self, world, llm, gsc_api, given, expected):
+        connect_gsc(world, default_property=SITE)
+        gsc_api.sites = TWO_SITES
+        llm.args = {"site_url": given}
+        assert ask(world).json()["plan_status"] == "completed"
+        assert gsc_api.queries[0][0] == expected
