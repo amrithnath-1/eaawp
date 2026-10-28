@@ -31,9 +31,34 @@ def evidence_values(text: str) -> list[float]:
     return vals
 
 
+_FIELD = re.compile(r'"(\w+)"\s*:\s*(-?\d+(?:\.\d+)?)')
+
+
+def _derived(evidence: str, pool: list[float]) -> list[float]:
+    """Figures an answer may legitimately compute from the data: column totals (e.g. total clicks over the rows),
+    and differences, ratios and percentage changes between two returned values (e.g. "up 12% on last week")."""
+    cols: dict[str, float] = {}
+    counts: dict[str, int] = {}
+    for key, num in _FIELD.findall(evidence or ""):
+        cols[key] = cols.get(key, 0.0) + float(num)
+        counts[key] = counts.get(key, 0) + 1
+    out = [v for k, v in cols.items() if counts[k] > 1]
+    out += [cols[k] / counts[k] for k in cols if counts[k] > 1]                           # averages
+    small = list(dict.fromkeys(pool + out))[:150]
+    for a in small:
+        for b in small:
+            if a == b:
+                continue
+            out += [a + b, a - b]
+            if b:
+                out += [a / b, a / b * 100, (a - b) / b * 100]
+    return out
+
+
 def ungrounded_figures(answer: str, evidence: str) -> list[str]:
-    """Figures in ``answer`` that cannot be found in ``evidence``."""
+    """Figures in ``answer`` that cannot be found in, or computed from, ``evidence``."""
     pool = evidence_values(evidence)
+    derived: list[float] | None = None
     bad: list[str] = []
     for m in _NUM.finditer(answer or ""):
         raw, pct = m.group(1), m.group(2)
@@ -41,6 +66,10 @@ def ungrounded_figures(answer: str, evidence: str) -> list[str]:
         if not pct and decimals == 0 and v <= 10:
             continue
         if any(round(e, decimals) == v or abs(e - v) < 1e-9 for e in pool):
+            continue
+        if derived is None:
+            derived = _derived(evidence, pool)
+        if any(round(abs(e), decimals) == v for e in derived):
             continue
         bad.append(raw + pct)
     return bad

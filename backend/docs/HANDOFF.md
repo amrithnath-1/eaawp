@@ -11,6 +11,23 @@ unless stated.
   then `alembic upgrade head`; then `pip install -r requirements.txt` and `npm install` (react-markdown, remark-gfm).
 - Testing guide for the owner: `docs/testing/EAAWP_GEC_DMM_Complete_Testing_Guide.pdf` (+ `.md`, `build_guide_pdf.py`).
 
+## Phase R: answers from integrations + the internet, self-correcting tool use (2026-10-28)
+
+- Chat agent rounds: tool results are added to the person's message as "Work done so far" (no function-call replay,
+  no invented AI turn — the model copied "(I used these tools…)" as its answer). Failed calls are shown with their
+  inputs and reason, and the model is told to retry with corrected inputs. A non-answer (tool note, raw tool key) is
+  replaced by an answer written from the gathered results; earlier non-answers are not sent back as history.
+- Internet: `app/tools/web_tools.py` — `web_search` (separate Gemini call with Google Search grounding; sources
+  listed) and `read_web_page` (public http(s) only; DNS checked for private/loopback/link-local/metadata addresses on
+  every redirect hop; 10 s, 2 MB, text only). Added to every role except MEDICAL_ASSISTANT;
+  `settings.web_tools_enabled`.
+- Google tools forgive model spelling: camelCase parameter names, dates such as "3 months ago" / "last 90 days" /
+  "2 weeks ago" / ISO timestamps, dimension names such as "queries", "pages", "search_appearance".
+  Site names resolve to the verified Search Console property.
+- Grounding accepts figures computed from the data (column totals, averages, differences, ratios, % change).
+- `backend/scripts/eval_chat.py`: asks a live EAAWP a batch of real questions and flags failures / non-answers /
+  refusals / figures without data / missing sources; writes a Markdown report. Use it after each deploy.
+
 ## Phase Q: chat works like ChatGPT/Claude (2026-10-27)
 
 - `app/services/chat_agent.py::run_chat_agent` runs every interactive chat turn as a tool-using conversation: the

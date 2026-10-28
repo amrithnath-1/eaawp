@@ -94,10 +94,11 @@ def test_calls_tools_in_several_rounds_and_answers_from_the_results(world, agent
     body = send(world, "a_admin", "How are we doing on marketing?")
     assert body["plan_status"] == "completed", body
     assert [s.split("] ")[0] for s in body["step_summaries"]] == ["[READ", "[READ", "[RESPONSE"]
-    results = [m.content for m in agent["m"].calls[-1] if isinstance(m, HumanMessage)
-               and m.content.startswith("Results of the tools you just used")]
-    assert len(results) == 2                                # both results went back to the model, as plain text
-    assert "### get_campaigns" in results[0] and "### get_marketing_objectives" in results[1]
+    last = agent["m"].calls[-1]
+    assert [type(m).__name__ for m in last] == ["SystemMessage", "HumanMessage"]   # no invented AI turn to copy
+    work = last[-1].content
+    assert work.startswith("How are we doing on marketing?") and "Work done so far" in work
+    assert "### get_campaigns" in work and "### get_marketing_objectives" in work   # both results, as plain text
     assert body["message"] == "You have no campaigns or objectives yet."
 
 
@@ -124,9 +125,8 @@ def test_a_rejected_action_call_is_reported_back_and_the_model_recovers(world, a
     pick(world, "a_admin", DMM)
     body = send(world, "a_admin", "Create a goal")
     assert body["plan_status"] == "completed"
-    result = next(m.content for m in agent["m"].calls[-1] if isinstance(m, HumanMessage)
-                  and m.content.startswith("Results of the tools you just used"))
-    assert "[NOT DONE" in result
+    work = agent["m"].calls[-1][-1].content
+    assert "create_marketing_objective — FAILED" in work and "[NOT DONE" in work
     assert world.client.get("/api/v1/approvals?status=pending", headers=world.auth("a_admin")).json() == []
 
 
@@ -267,4 +267,45 @@ def test_if_the_follow_up_call_fails_the_answer_is_written_from_the_fetched_data
     body = send(world, "a_admin", "How are our campaigns doing?")
     assert body["plan_status"] == "completed", body
     assert body["message"] == "From your campaign data: there are no campaigns yet."
-    assert "Data your tools returned" in agent["m"].calls[-1][-1].content
+    assert "What your tools returned" in agent["m"].calls[-1][-1].content
+
+
+def test_a_failed_tool_call_is_retried_with_corrected_inputs(world, agent, monkeypatch):
+    """Seen live: the Search Console call failed on its inputs and the model gave up."""
+    import app.core.engine as eng
+    seen = []
+
+    async def fake_exec(name, args, tools):
+        seen.append(args)
+        if args.get("params") == "bad":
+            return "[TOOL ERROR] get_campaigns: Invalid date '3 months ago'."
+        return "[]"
+    monkeypatch.setattr(eng, "_execute_tool", fake_exec)
+    agent["m"] = Script(call("get_campaigns", {"params": "bad"}), call("get_campaigns", {"params": "{}"}),
+                        "There are no campaigns yet.")
+    pick(world, "a_admin", DMM)
+    body = send(world, "a_admin", "How are our campaigns doing?")
+    retry_prompt = agent["m"].calls[1][-1].content
+    assert "FAILED with inputs" in retry_prompt and "call it again with corrected inputs" in retry_prompt
+    assert seen == [{"params": "bad"}, {"params": "{}"}]
+    assert body["message"] == "There are no campaigns yet." and body["plan_status"] == "completed"
+
+
+def test_a_note_about_tools_is_never_the_answer(world, agent):
+    """Seen live: the reply was "(I used these tools: integration_a143f019_get_search_analytics.)"."""
+    agent["m"] = Script(call("get_campaigns", {"params": "{}"}),
+                        "(I used these tools: integration_a143f019_get_search_analytics.)",
+                        "You have no campaigns yet, so there is nothing to report.")
+    pick(world, "a_admin", DMM)
+    body = send(world, "a_admin", "How are our campaigns doing?")
+    assert body["message"] == "You have no campaigns yet, so there is nothing to report."
+    assert "integration_" not in body["message"]
+
+
+def test_earlier_non_answers_are_not_sent_back_as_history(world, agent):
+    agent["m"] = Script("(I used these tools: integration_a143f019_get_search_analytics.)",
+                        "real answer")
+    pick(world, "a_admin", DMM)
+    first = send(world, "a_admin", "first question")
+    send(world, "a_admin", "second question", first["conversation_id"])
+    assert not any("I used these tools" in str(m.content) for m in agent["m"].calls[-1])
