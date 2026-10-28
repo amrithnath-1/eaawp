@@ -15,14 +15,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { toast } from "sonner";
-import {
-  CheckCircle,
-  AlertCircle,
-  Lock,
-  Copy,
-  Loader2,
-  ShieldCheck,
-} from "lucide-react";
+import { CheckCircle, AlertCircle, Lock, Copy, Loader2, ShieldCheck } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { API_BASE_URL } from "@/lib/api-client";
 
@@ -32,7 +25,9 @@ function authHeaders(): Record<string, string> {
   try {
     const token = window.localStorage.getItem("eaawp.access_token");
     if (token) headers["Authorization"] = `Bearer ${token}`;
-  } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
   return headers;
 }
 
@@ -52,6 +47,8 @@ interface AdminProviderConfigPanelProps {
   providerType: string;
   providerDisplayName: string;
   onConfigured?: () => void;
+  /** Offer "replace" when everything is already configured (e.g. after disconnecting, to use another Google app). */
+  allowReplace?: boolean;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -64,9 +61,7 @@ const SECRET_KEY_SUFFIXES = ["secret", "key", "token", "password", "api_key", "a
 
 function isSecretField(fieldKey: string): boolean {
   const lower = fieldKey.toLowerCase();
-  return SECRET_KEY_SUFFIXES.some(
-    (suffix) => lower === suffix || lower.endsWith(`_${suffix}`)
-  );
+  return SECRET_KEY_SUFFIXES.some((suffix) => lower === suffix || lower.endsWith(`_${suffix}`));
 }
 
 function getFieldDisplayName(fieldKey: string): string {
@@ -82,7 +77,9 @@ export function AdminProviderConfigPanel({
   providerType,
   providerDisplayName,
   onConfigured,
+  allowReplace = false,
 }: AdminProviderConfigPanelProps) {
+  const [replacing, setReplacing] = useState(false);
   const [status, setStatus] = useState<ConfigurationStatusResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -98,10 +95,13 @@ export function AdminProviderConfigPanel({
     setLoading(true);
     setError(null);
     try {
-      const resp = await fetch(`${API_BASE_URL}/api/v1/admin/provider-config/${providerType}/status`, {
-        headers: authHeaders(),
-        credentials: "include",
-      });
+      const resp = await fetch(
+        `${API_BASE_URL}/api/v1/admin/provider-config/${providerType}/status`,
+        {
+          headers: authHeaders(),
+          credentials: "include",
+        },
+      );
       if (resp.status === 401) {
         setError("You must be logged in to view configuration status.");
         return;
@@ -135,7 +135,9 @@ export function AdminProviderConfigPanel({
 
     // Build payload — only include fields that have a non-empty value.
     const fields: Record<string, string> = {};
-    for (const key of status.missing_fields) {
+    for (const key of replacing
+      ? [...status.configured_fields, ...status.missing_fields]
+      : status.missing_fields) {
       const val = fieldValues[key];
       if (val && val.trim()) {
         fields[key] = val.trim();
@@ -182,6 +184,7 @@ export function AdminProviderConfigPanel({
       setFieldValues(cleared);
 
       toast.success("Configuration saved successfully.");
+      setReplacing(false);
       onConfigured?.();
       // Re-fetch status to reflect the new state.
       await fetchStatus();
@@ -233,10 +236,7 @@ export function AdminProviderConfigPanel({
       <div className="border border-destructive/40 p-3 text-[12px] text-destructive">
         <AlertCircle className="mb-1 size-3.5" />
         {error}
-        <button
-          onClick={() => void fetchStatus()}
-          className="ml-2 underline hover:no-underline"
-        >
+        <button onClick={() => void fetchStatus()} className="ml-2 underline hover:no-underline">
           Retry
         </button>
       </div>
@@ -245,9 +245,7 @@ export function AdminProviderConfigPanel({
 
   if (!status) return null;
 
-  const allConfigured =
-    status.state === "CONFIGURED" ||
-    status.state === "VALID";
+  const allConfigured = status.state === "CONFIGURED" || status.state === "VALID";
 
   return (
     <div className="border border-border bg-surface">
@@ -278,13 +276,9 @@ export function AdminProviderConfigPanel({
                   <CheckCircle className="size-3.5 shrink-0 text-success" />
                   <span className="text-[12px] text-foreground">{displayName}:</span>
                   {isSecret ? (
-                    <span className="font-mono text-[11px] text-success">
-                      Configured securely
-                    </span>
+                    <span className="font-mono text-[11px] text-success">Configured securely</span>
                   ) : (
-                    <span className="font-mono text-[11px] text-success">
-                      Configured
-                    </span>
+                    <span className="font-mono text-[11px] text-success">Configured</span>
                   )}
                 </div>
               );
@@ -292,14 +286,29 @@ export function AdminProviderConfigPanel({
           </div>
         )}
 
-        {/* Configuration form — only shown if there are missing fields */}
-        {!allConfigured && status.missing_fields.length > 0 && (
+        {allConfigured && allowReplace && !replacing && (
+          <button
+            type="button"
+            onClick={() => setReplacing(true)}
+            className="inline-flex items-center gap-1.5 border border-border px-2.5 py-1 font-mono text-[10px] tracking-[0.08em] text-muted-foreground hover:text-foreground"
+          >
+            <Lock className="size-3" /> REPLACE CLIENT ID / SECRET
+          </button>
+        )}
+
+        {/* Configuration form — shown when fields are missing, or when an administrator chose to replace them */}
+        {((!allConfigured && status.missing_fields.length > 0) || replacing) && (
           <form onSubmit={(e) => void handleSubmit(e)} className="space-y-3">
             <p className="text-[11px] font-mono text-amber-600 dark:text-amber-400">
-              MISSING FIELDS — please provide the following:
+              {replacing
+                ? "REPLACE — enter the new values (fields left empty keep their current value):"
+                : "MISSING FIELDS — please provide the following:"}
             </p>
 
-            {status.missing_fields.map((key) => {
+            {(replacing
+              ? [...status.configured_fields, ...status.missing_fields]
+              : status.missing_fields
+            ).map((key) => {
               const isSecret = isSecretField(key);
               const displayName = getFieldDisplayName(key);
               return (
@@ -337,7 +346,7 @@ export function AdminProviderConfigPanel({
               className={cn(
                 "inline-flex items-center gap-1.5 border border-foreground/20 bg-foreground/5",
                 "px-3 py-1.5 font-mono text-[11px] tracking-[0.08em]",
-                "hover:bg-foreground/10 disabled:opacity-40"
+                "hover:bg-foreground/10 disabled:opacity-40",
               )}
             >
               {submitting ? (
@@ -370,15 +379,11 @@ export function AdminProviderConfigPanel({
                 onClick={() => void handleCopyRedirectUri()}
                 className={cn(
                   "shrink-0 border border-border/50 p-1 hover:bg-foreground/5",
-                  copied && "border-success/40 text-success"
+                  copied && "border-success/40 text-success",
                 )}
                 title="Copy to clipboard"
               >
-                {copied ? (
-                  <CheckCircle className="size-3.5" />
-                ) : (
-                  <Copy className="size-3.5" />
-                )}
+                {copied ? <CheckCircle className="size-3.5" /> : <Copy className="size-3.5" />}
               </button>
             </div>
           </div>
