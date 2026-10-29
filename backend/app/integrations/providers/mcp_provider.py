@@ -64,7 +64,38 @@ def _endpoint(server_url: str) -> str:
     return url if urlparse(url).path not in ("", "/") else f"{url}/mcp"
 
 
-def _event_stream_reply(text: str, msg_id: Any) -> dict | None:
+def tool_catalogue(tools: list[dict]) -> list[dict]:
+    """[{name, description, args: [{name, type, required, description}]}] — compact, for the AI's tool description."""
+    out = []
+    for t in tools[:MAX_DISCOVERED_TOOLS]:
+        schema = t.get("inputSchema") if isinstance(t.get("inputSchema"), dict) else {}
+        props = schema.get("properties") if isinstance(schema.get("properties"), dict) else {}
+        required = set(schema.get("required") or [])
+        args = []
+        for name, spec in list(props.items())[:15]:
+            spec = spec if isinstance(spec, dict) else {}
+            kind = spec.get("type") or ("one of several" if spec.get("anyOf") or spec.get("oneOf") else "value")
+            args.append({"name": str(name)[:60], "type": str(kind)[:20], "required": name in required,
+                         "description": " ".join(str(spec.get("description") or "").split())[:100]})
+        out.append({"name": t["name"], "description": " ".join(str(t.get("description") or "").split())[:240],
+                    "args": args})
+    return out
+
+
+def _arrived(resp: Any):
+    """Bytes as they arrive (an open event stream must not block waiting for a full buffer)."""
+    raw = getattr(resp, "raw", None)
+    if raw is not None and hasattr(raw, "read1"):
+        while True:
+            chunk = raw.read1(65536, decode_content=True)
+            if not chunk:
+                return
+            yield chunk
+    else:
+        yield from resp.iter_content(chunk_size=65536)
+
+
+def _event_stream_reply(text: str, msg_id: Any, exact: bool = False) -> dict | None:
     """The JSON-RPC reply with this id from a Server-Sent Events body (data: lines, events split by blank lines)."""
     replies = []
     for event in re.split(r"\r?\n\r?\n", text):
@@ -77,7 +108,8 @@ def _event_stream_reply(text: str, msg_id: Any) -> dict | None:
             continue
         if isinstance(msg, dict) and ("result" in msg or "error" in msg):
             replies.append(msg)
-    return next((m for m in replies if m.get("id") == msg_id), replies[-1] if replies else None)
+    match = next((m for m in replies if m.get("id") == msg_id), None)
+    return match if exact or match is not None else (replies[-1] if replies else None)
 MAX_RESPONSE_CHARS = 10_000          # text of one tool result handed on to the AI
 # Size of one protocol message read from the server. A tool LIST with long descriptions and schemas (e.g. Firecrawl's)
 # is far larger than any single result; cutting it mid-message lost the whole reply ("sent no answer").
@@ -347,6 +379,8 @@ class MCPIntegrationProvider(IntegrationProvider):
                     "server_url": self._safe_url(server_url),
                     "tool_count": len(tools),
                     "tool_names": [t["name"] for t in tools[:10]],
+                    # Short catalogue (no secrets) so chat can tell the AI how to call each granted tool.
+                    "mcp_tools": tool_catalogue(tools),
                 },
                 error_message=None,
             )
@@ -566,17 +600,33 @@ class MCPIntegrationProvider(IntegrationProvider):
                 raise MCPError("The MCP server tried to redirect the request, which is not allowed.")
             resp.raise_for_status()
             sid = resp.headers.get("Mcp-Session-Id") or resp.headers.get("mcp-session-id")
+            streaming = "text/event-stream" in (resp.headers.get("Content-Type") or "")
             raw = b""
-            for chunk in resp.iter_content(chunk_size=65536):
-                raw += chunk
-                if len(raw) > MAX_MESSAGE_BYTES:
-                    raise MCPError(f"The MCP server's answer is larger than {MAX_MESSAGE_BYTES // 1_000_000} MB.")
+            try:
+                for chunk in _arrived(resp):
+                    raw += chunk
+                    if len(raw) > MAX_MESSAGE_BYTES:
+                        raise MCPError(f"The MCP server's answer is larger than {MAX_MESSAGE_BYTES // 1_000_000} MB.")
+                    # An event stream may stay open after the reply: stop as soon as the reply for this id is in.
+                    if streaming and "id" in payload and b"\n\n" in raw.replace(b"\r\n", b"\n"):
+                        found = _event_stream_reply(raw.decode("utf-8", errors="replace"), payload["id"], exact=True)
+                        if found is not None:
+                            return found, sid
+            finally:
+                resp.close()
             text = raw.decode("utf-8", errors="replace").strip()
             if not text or "id" not in payload:
                 return None, sid
-            if "text/event-stream" in (resp.headers.get("Content-Type") or ""):
-                return _event_stream_reply(text, payload["id"]), sid
-            return json.loads(text), sid
+            if streaming:
+                found = _event_stream_reply(text, payload["id"])
+                if found is None:
+                    raise MCPError("The MCP server's reply could not be read (event stream without a JSON-RPC answer).")
+                return found, sid
+            try:
+                return json.loads(text), sid
+            except ValueError:
+                kind = (resp.headers.get("Content-Type") or "unknown").split(";")[0]
+                raise MCPError(f"The MCP server answered with {kind}, not MCP JSON. Check the server address.") from None
 
         def _do():
             try:
@@ -602,7 +652,7 @@ class MCPIntegrationProvider(IntegrationProvider):
                     session = {}
                 data, _ = _post(body, session)
                 if not isinstance(data, dict):
-                    raise MCPError("The MCP server sent no answer.")
+                    raise MCPError("The MCP server sent an empty answer. Check the server address and key.")
                 if "error" in data:
                     err = data["error"] if isinstance(data["error"], dict) else {"message": str(data["error"])}
                     raise MCPError(

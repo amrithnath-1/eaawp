@@ -348,9 +348,9 @@ function ProviderConnectionForm({
             className={fieldClass}
           />
           <span className="mt-1 block text-[10px] text-muted-foreground">
-            Paste the full address the provider gives (a bare https://host gets /mcp added). If the
-            provider puts your key inside the address, paste it as is: the address is stored
-            encrypted and only the host is ever shown.
+            Paste the full address the provider gives (a bare https://host gets /mcp added). Put the
+            key in &quot;API key&quot; below; it is sent as Authorization: Bearer. Firecrawl:
+            https://mcp.firecrawl.dev/v2/mcp. Stored encrypted; only the host is ever shown.
           </span>
         </label>
       )}
