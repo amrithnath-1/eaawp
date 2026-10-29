@@ -78,7 +78,10 @@ def _event_stream_reply(text: str, msg_id: Any) -> dict | None:
         if isinstance(msg, dict) and ("result" in msg or "error" in msg):
             replies.append(msg)
     return next((m for m in replies if m.get("id") == msg_id), replies[-1] if replies else None)
-MAX_RESPONSE_CHARS = 10_000
+MAX_RESPONSE_CHARS = 10_000          # text of one tool result handed on to the AI
+# Size of one protocol message read from the server. A tool LIST with long descriptions and schemas (e.g. Firecrawl's)
+# is far larger than any single result; cutting it mid-message lost the whole reply ("sent no answer").
+MAX_MESSAGE_BYTES = 2_000_000
 MAX_DISCOVERED_TOOLS = 50
 
 # Patterns that suggest prompt injection in tool names/descriptions
@@ -564,11 +567,11 @@ class MCPIntegrationProvider(IntegrationProvider):
             resp.raise_for_status()
             sid = resp.headers.get("Mcp-Session-Id") or resp.headers.get("mcp-session-id")
             raw = b""
-            for chunk in resp.iter_content(chunk_size=4096):
+            for chunk in resp.iter_content(chunk_size=65536):
                 raw += chunk
-                if len(raw) > MAX_RESPONSE_CHARS * 4:
-                    break
-            text = raw[:MAX_RESPONSE_CHARS * 4].decode("utf-8", errors="replace").strip()
+                if len(raw) > MAX_MESSAGE_BYTES:
+                    raise MCPError(f"The MCP server's answer is larger than {MAX_MESSAGE_BYTES // 1_000_000} MB.")
+            text = raw.decode("utf-8", errors="replace").strip()
             if not text or "id" not in payload:
                 return None, sid
             if "text/event-stream" in (resp.headers.get("Content-Type") or ""):
