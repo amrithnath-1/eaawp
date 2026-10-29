@@ -263,7 +263,7 @@ class _ModernServer:
     """Requires Accept: application/json + text/event-stream (else 406), the initialize handshake and the session id it
     assigns (else 400), answers in Server-Sent Events, and lives at a custom path."""
 
-    def __init__(self, path="/abc123/v2/mcp", extra_tools: int = 0):
+    def __init__(self, path="/abc123/v2/mcp", extra_tools: int = 0, hold_open: float = 0):
         self.hits: list[dict] = []
         outer, self.path = self, path
         # Firecrawl-sized tool list: long descriptions and schemas make tools/list ~150 KB.
@@ -280,6 +280,9 @@ class _ModernServer:
                 self.send_header("Content-Type", "text/event-stream")
                 if sid:
                     self.send_header("Mcp-Session-Id", sid)
+                if hold_open and out:                       # stream stays open after the reply (no length, no close)
+                    self.end_headers(); self.wfile.write(out); self.wfile.flush()
+                    import time as _t; _t.sleep(hold_open); return
                 self.send_header("Content-Length", str(len(out))); self.end_headers(); self.wfile.write(out)
 
             def do_POST(self):
@@ -351,5 +354,22 @@ def test_a_large_tool_list_is_read_completely(world, monkeypatch):
         d = world.client.post(f"{IM}/integrations/{iid}/discover", headers=world.auth("a_admin")).json()
         names = [e["entity_name"] for e in d["entities"]]
         assert "get_keyword_ideas" in names and "firecrawl_tool_29" in names and len(names) == 31
+    finally:
+        s.close()
+
+
+def test_a_stream_left_open_after_the_reply_does_not_hang(world, monkeypatch):
+    """Some servers keep the event stream open after answering; the reply must be used as soon as it arrives."""
+    import time
+    from http.server import ThreadingHTTPServer
+    monkeypatch.setattr(settings, "allow_private_mcp_hosts", True)
+    monkeypatch.setattr("tests.test_mcp_connection.HTTPServer", ThreadingHTTPServer)
+    s = _ModernServer(hold_open=8)
+    try:
+        t0 = time.time()
+        iid = ready(world, s.url)
+        assert time.time() - t0 < 6, "waited for the server to close the stream"
+        d = world.client.post(f"{IM}/integrations/{iid}/discover", headers=world.auth("a_admin")).json()
+        assert [e["entity_name"] for e in d["entities"]] == ["get_keyword_ideas"]
     finally:
         s.close()
