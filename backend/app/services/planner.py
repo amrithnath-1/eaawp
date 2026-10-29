@@ -867,7 +867,7 @@ async def _generate_plan(
             desc = (getattr(adapter, "description", None) or
                     getattr(adapter, "__doc__", None) or "Integration tool")
             # Trim to a single line for the prompt
-            short_desc = str(desc).split("\n")[0][:600]     # includes the parameter names
+            short_desc = " ".join(str(desc).split())[:1500]     # includes the parameter names / granted MCP tools
             tool_lines.append(f"  - {t}  [{short_desc}]")
         else:
             tool_lines.append(f"  - {t}  [{_tool_summary(t)}]")

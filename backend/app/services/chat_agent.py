@@ -50,7 +50,9 @@ AGENT_RULES = """## How you work in this chat
   inputs, when that is what the request needs; look at each result before deciding the next step.
 - Where facts come from: the company's own numbers come from its connected services (Search Console, Analytics,
   GitHub, databases) and records; company facts from the knowledge provided; outside facts (news, competitors,
-  market, regulations, prices) from web_search; the text of a specific website from read_web_page. Say which source
+  market, regulations, prices) from web_search; the text of a specific website from read_web_page. When the person
+  names a connected service (e.g. "use Firecrawl"), use that service's tool; MCP tools are called with tool_name and
+  an arguments object, as listed in the tool's description. Say which source
   each fact came from. Never present web findings as the company's own data.
 - Dates: use the forms a tool asks for (e.g. YYYY-MM-DD or NdaysAgo); "last 3 months" is about 90daysAgo to today.
 - If something essential is missing or ambiguous, ask one short question instead of guessing.

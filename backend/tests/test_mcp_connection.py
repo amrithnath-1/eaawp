@@ -373,3 +373,37 @@ def test_a_stream_left_open_after_the_reply_does_not_hang(world, monkeypatch):
         assert [e["entity_name"] for e in d["entities"]] == ["get_keyword_ideas"]
     finally:
         s.close()
+
+
+def test_chat_is_told_which_mcp_tools_it_may_call_and_their_arguments(world, monkeypatch):
+    """In chat the AI only saw a generic "call an MCP tool"; it now sees the granted tools and their inputs."""
+    from app.tools.dynamic_tool import build_dynamic_tool_adapter, get_available_tools
+    from tests.conftest import _run
+    monkeypatch.setattr(settings, "allow_private_mcp_hosts", True)
+    s = _ModernServer()
+    try:
+        iid = ready(world, s.url)
+        grant(world, iid, "call_tool"); grant(world, iid, "mcp_tool:get_keyword_ideas")
+
+        async def tools():
+            async with world.maker() as db:
+                return await get_available_tools(world.tenant_a, "DIGITAL_MARKETING_MANAGER", db)
+        call = next(t for t in _run(tools()) if t.capability_key == "call_tool")
+        assert "Tools you may call:" in call.description and "- get_keyword_ideas: Keyword ideas" in call.description
+        assert "Parameter names: tool_name" in build_dynamic_tool_adapter(call).description
+    finally:
+        s.close()
+
+
+def test_a_granted_mcp_tool_runs_through_the_execute_endpoint(world, monkeypatch):
+    monkeypatch.setattr(settings, "allow_private_mcp_hosts", True)
+    s = _ModernServer()
+    try:
+        iid = ready(world, s.url)
+        grant(world, iid, "call_tool"); grant(world, iid, "mcp_tool:get_keyword_ideas")
+        r = world.client.post(f"{IM}/integrations/{iid}/execute", headers=world.auth("a_admin"), json={
+            "capability_key": "call_tool", "role_key": "DIGITAL_MARKETING_MANAGER",
+            "parameters": {"tool_name": "get_keyword_ideas", "arguments": {"keyword": "visa help"}}})
+        assert r.status_code == 200 and "visa help near me" in json.dumps(r.json()["data"])
+    finally:
+        s.close()

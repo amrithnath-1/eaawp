@@ -64,6 +64,24 @@ def _endpoint(server_url: str) -> str:
     return url if urlparse(url).path not in ("", "/") else f"{url}/mcp"
 
 
+def tool_catalogue(tools: list[dict]) -> list[dict]:
+    """[{name, description, args: [{name, type, required, description}]}] — compact, for the AI's tool description."""
+    out = []
+    for t in tools[:MAX_DISCOVERED_TOOLS]:
+        schema = t.get("inputSchema") if isinstance(t.get("inputSchema"), dict) else {}
+        props = schema.get("properties") if isinstance(schema.get("properties"), dict) else {}
+        required = set(schema.get("required") or [])
+        args = []
+        for name, spec in list(props.items())[:15]:
+            spec = spec if isinstance(spec, dict) else {}
+            kind = spec.get("type") or ("one of several" if spec.get("anyOf") or spec.get("oneOf") else "value")
+            args.append({"name": str(name)[:60], "type": str(kind)[:20], "required": name in required,
+                         "description": " ".join(str(spec.get("description") or "").split())[:100]})
+        out.append({"name": t["name"], "description": " ".join(str(t.get("description") or "").split())[:240],
+                    "args": args})
+    return out
+
+
 def _arrived(resp: Any):
     """Bytes as they arrive (an open event stream must not block waiting for a full buffer)."""
     raw = getattr(resp, "raw", None)
@@ -361,6 +379,8 @@ class MCPIntegrationProvider(IntegrationProvider):
                     "server_url": self._safe_url(server_url),
                     "tool_count": len(tools),
                     "tool_names": [t["name"] for t in tools[:10]],
+                    # Short catalogue (no secrets) so chat can tell the AI how to call each granted tool.
+                    "mcp_tools": tool_catalogue(tools),
                 },
                 error_message=None,
             )

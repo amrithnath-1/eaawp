@@ -313,6 +313,7 @@ def build_dynamic_tool_adapter(defn: DynamicToolDefinition) -> Any:
     _integration_name = defn.integration_name
     _input_schema = defn.input_schema
     _tool_key = defn.tool_key
+    _provider_type = defn.provider_type
 
     # Build a safe, truncated description for the LLM
     props = (defn.input_schema or {}).get("properties") or {}
@@ -360,6 +361,12 @@ def build_dynamic_tool_adapter(defn: DynamicToolDefinition) -> Any:
             raw = json.loads(params_json) if isinstance(params_json, str) else params_json
         except json.JSONDecodeError as exc:
             return f"[ERROR] {_tool_key}: invalid JSON parameters — {exc}", {}, db, tenant_id, role_key
+        if _provider_type == "mcp" and _capability_key == "call_tool" and isinstance(raw, dict):
+            # Models often put the MCP tool's own inputs next to tool_name: they belong in "arguments".
+            extra = {k: v for k, v in raw.items() if k not in ("tool_name", "arguments")}
+            if extra:
+                args = raw.get("arguments") if isinstance(raw.get("arguments"), dict) else {}
+                raw = {"tool_name": raw.get("tool_name"), "arguments": {**extra, **args}}
         is_valid, err_msg, sanitised = validate_tool_arguments(raw, _capability_key, _input_schema)
         if not is_valid:
             return f"[VALIDATION ERROR] {_tool_key}: {err_msg}", {}, db, tenant_id, role_key
@@ -630,6 +637,25 @@ def is_tool_failure(result: str) -> bool:
 
 # ── Tool availability query ────────────────────────────────────────────────────
 
+def _mcp_call_description(integration: Any, granted: set[str]) -> str:
+    """The MCP call tool described with the tools this role may call and their arguments (from the last test)."""
+    try:
+        catalogue = json.loads(integration.account_info_json or "{}").get("mcp_tools") or []
+    except (ValueError, AttributeError, TypeError):
+        catalogue = []
+    known = {t.get("name"): t for t in catalogue if isinstance(t, dict)}
+    lines = []
+    for name in sorted(granted)[:20]:
+        t = known.get(name) or {}
+        args = ", ".join(f"{a['name']} ({a.get('type', 'value')}{', required' if a.get('required') else ''})"
+                         for a in t.get("args", [])[:10] if isinstance(a, dict) and a.get("name"))
+        lines.append(f"- {name}: {t.get('description', '')[:200]}" + (f" Arguments: {args}." if args else ""))
+    if not lines:
+        return ("Call a tool on this MCP server. No tool has been granted to you on it yet.")
+    return (f"Call a tool on the '{integration.display_name}' MCP server. Pass tool_name and arguments (a JSON object). "
+            "Tools you may call:\n" + "\n".join(lines))
+
+
 async def get_available_tools(
     tenant_id: str,
     role_key: str,
@@ -718,6 +744,12 @@ async def get_available_tools(
             CapabilityCategory.READ, CapabilityCategory.ANALYTICS
         )
 
+        description = capability.description
+        if integration.provider_type == "mcp" and grant.capability_key == "call_tool":
+            description = _mcp_call_description(integration, {
+                g.capability_key[len("mcp_tool:"):] for g in grants
+                if g.integration_id == grant.integration_id and g.capability_key.startswith("mcp_tool:")})
+
         defn = DynamicToolDefinition(
             tool_key=tool_key,
             integration_id=grant.integration_id,
@@ -726,7 +758,7 @@ async def get_available_tools(
             capability_key=grant.capability_key,
             provider_type=integration.provider_type,
             integration_name=integration.display_name,
-            description=capability.description,
+            description=description,
             risk_level=capability.risk_level.value,
             is_read_only=is_read_only,
             input_schema=capability.input_schema,
