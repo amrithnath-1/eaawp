@@ -256,3 +256,82 @@ def test_every_request_rechecks_the_address(world, monkeypatch):
         assert s.hits == []
     finally:
         s.close()
+
+
+# ── a modern streamable-HTTP MCP server (like the official SDK's) ────────────
+class _ModernServer:
+    """Requires Accept: application/json + text/event-stream (else 406), the initialize handshake and the session id it
+    assigns (else 400), answers in Server-Sent Events, and lives at a custom path."""
+
+    def __init__(self, path="/abc123/v2/mcp"):
+        self.hits: list[dict] = []
+        outer, self.path = self, path
+
+        class H(BaseHTTPRequestHandler):
+            def log_message(self, *a): ...
+
+            def _send(self, code, payload=None, sid=None):
+                out = b"" if payload is None else f"event: message\ndata: {json.dumps(payload)}\n\n".encode()
+                self.send_response(code)
+                self.send_header("Content-Type", "text/event-stream")
+                if sid:
+                    self.send_header("Mcp-Session-Id", sid)
+                self.send_header("Content-Length", str(len(out))); self.end_headers(); self.wfile.write(out)
+
+            def do_POST(self):
+                n = int(self.headers.get("Content-Length", 0)); body = json.loads(self.rfile.read(n) or b"{}")
+                outer.hits.append({"path": self.path, "method": body.get("method"),
+                                   "session": self.headers.get("Mcp-Session-Id")})
+                if self.path != outer.path:
+                    return self._send(404)
+                acc = self.headers.get("Accept", "")
+                if "application/json" not in acc or "text/event-stream" not in acc:
+                    return self._send(406)
+                m = body.get("method")
+                if m == "initialize":
+                    return self._send(200, {"jsonrpc": "2.0", "id": body["id"], "result": {
+                        "protocolVersion": "2025-06-18", "capabilities": {"tools": {}},
+                        "serverInfo": {"name": "seo", "version": "1"}}}, sid="sess-42")
+                if self.headers.get("Mcp-Session-Id") != "sess-42":
+                    return self._send(400, {"jsonrpc": "2.0", "id": body.get("id"),
+                                            "error": {"code": -32000, "message": "Bad Request: No valid session ID"}})
+                if m == "notifications/initialized":
+                    return self._send(202)
+                if m == "tools/list":
+                    return self._send(200, {"jsonrpc": "2.0", "id": body["id"], "result": {"tools": [
+                        {"name": "get_keyword_ideas", "description": "Keyword ideas", "inputSchema": {"type": "object"}}]}})
+                args = body["params"]["arguments"]
+                return self._send(200, {"jsonrpc": "2.0", "id": body["id"], "result": {"content": [
+                    {"type": "text", "text": f"ideas for {args.get('keyword')}: {args.get('keyword')} near me (1,900/mo)"}]}})
+
+        self.httpd = HTTPServer(("127.0.0.1", 0), H)
+        self.url = f"http://127.0.0.1:{self.httpd.server_port}{path}"
+        threading.Thread(target=self.httpd.serve_forever, daemon=True).start()
+
+    def close(self):
+        self.httpd.shutdown(); self.httpd.server_close()
+
+
+def test_a_modern_streamable_http_server_works_end_to_end(world, monkeypatch):
+    """Handshake + session id + event-stream replies + a server address with its own path."""
+    monkeypatch.setattr(settings, "allow_private_mcp_hosts", True)
+    s = _ModernServer()
+    try:
+        iid = ready(world, s.url)
+        d = world.client.post(f"{IM}/integrations/{iid}/discover", headers=world.auth("a_admin")).json()
+        assert [e["entity_name"] for e in d["entities"]] == ["get_keyword_ideas"]
+        grant(world, iid, "call_tool"); grant(world, iid, "mcp_tool:get_keyword_ideas")
+        r = use(world, iid, "get_keyword_ideas", {"keyword": "passport services"})
+        assert r.status_code == 200 and "passport services near me (1,900/mo)" in json.dumps(r.json()["data"])
+        assert {h["path"] for h in s.hits} == {"/abc123/v2/mcp"}                 # the address as given, no extra /mcp
+        calls = [h for h in s.hits if h["method"] in ("tools/list", "tools/call")]
+        assert calls and all(h["session"] == "sess-42" for h in calls)            # every call inside the session
+    finally:
+        s.close()
+
+
+def test_a_bare_host_still_gets_the_usual_mcp_path():
+    from app.integrations.providers.mcp_provider import _endpoint
+    assert _endpoint("https://tools.example.com") == "https://tools.example.com/mcp"
+    assert _endpoint("https://tools.example.com/") == "https://tools.example.com/mcp"
+    assert _endpoint("https://mcp.example.com/KEY/v2/mcp") == "https://mcp.example.com/KEY/v2/mcp"

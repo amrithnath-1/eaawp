@@ -55,6 +55,29 @@ from app.integrations.provider import (
 logger = logging.getLogger(__name__)
 
 MCP_CALL_TIMEOUT_SECONDS = 30
+MCP_PROTOCOL_VERSION = "2025-06-18"
+
+
+def _endpoint(server_url: str) -> str:
+    """The URL as given when it has a path (e.g. https://host/abc/v2/mcp); a bare host gets the usual /mcp."""
+    url = (server_url or "").strip().rstrip("/")
+    return url if urlparse(url).path not in ("", "/") else f"{url}/mcp"
+
+
+def _event_stream_reply(text: str, msg_id: Any) -> dict | None:
+    """The JSON-RPC reply with this id from a Server-Sent Events body (data: lines, events split by blank lines)."""
+    replies = []
+    for event in re.split(r"\r?\n\r?\n", text):
+        data = "\n".join(line[5:].lstrip() for line in event.splitlines() if line.startswith("data:"))
+        if not data:
+            continue
+        try:
+            msg = json.loads(data)
+        except ValueError:
+            continue
+        if isinstance(msg, dict) and ("result" in msg or "error" in msg):
+            replies.append(msg)
+    return next((m for m in replies if m.get("id") == msg_id), replies[-1] if replies else None)
 MAX_RESPONSE_CHARS = 10_000
 MAX_DISCOVERED_TOOLS = 50
 
@@ -505,13 +528,17 @@ class MCPIntegrationProvider(IntegrationProvider):
         Enforces timeout and response size limits.
         """
         validate_mcp_credentials(credentials)        # re-check at every call, not only when saved
-        server_url = credentials.get("server_url", "").rstrip("/")
+        endpoint = _endpoint(credentials.get("server_url", ""))
         api_key = credentials.get("api_key", "")
         auth_header = credentials.get("auth_header_name", "Authorization")
 
-        headers: dict[str, str] = {"Content-Type": "application/json"}
+        base_headers: dict[str, str] = {
+            "Content-Type": "application/json",
+            # Streamable HTTP servers answer with JSON or an event stream and refuse requests that accept neither.
+            "Accept": "application/json, text/event-stream",
+        }
         if api_key:
-            headers[auth_header] = f"Bearer {api_key}"
+            base_headers[auth_header] = f"Bearer {api_key}"
 
         body = {
             "jsonrpc": "2.0",
@@ -522,28 +549,59 @@ class MCPIntegrationProvider(IntegrationProvider):
 
         loop = asyncio.get_running_loop()
 
+        def _post(payload: dict, session: dict[str, str]) -> tuple[dict | None, str | None]:
+            """One JSON-RPC message; returns (reply for this id or None, session id the server assigned)."""
+            resp = requests.post(
+                endpoint,
+                headers={**base_headers, **session},
+                json=payload,
+                timeout=MCP_CALL_TIMEOUT_SECONDS,
+                stream=True,
+                allow_redirects=False,       # a redirect could bounce the request (and its API key) to an internal address
+            )
+            if 300 <= resp.status_code < 400:
+                raise MCPError("The MCP server tried to redirect the request, which is not allowed.")
+            resp.raise_for_status()
+            sid = resp.headers.get("Mcp-Session-Id") or resp.headers.get("mcp-session-id")
+            raw = b""
+            for chunk in resp.iter_content(chunk_size=4096):
+                raw += chunk
+                if len(raw) > MAX_RESPONSE_CHARS * 4:
+                    break
+            text = raw[:MAX_RESPONSE_CHARS * 4].decode("utf-8", errors="replace").strip()
+            if not text or "id" not in payload:
+                return None, sid
+            if "text/event-stream" in (resp.headers.get("Content-Type") or ""):
+                return _event_stream_reply(text, payload["id"]), sid
+            return json.loads(text), sid
+
         def _do():
             try:
-                resp = requests.post(
-                    f"{server_url}/mcp",
-                    headers=headers,
-                    json=body,
-                    timeout=MCP_CALL_TIMEOUT_SECONDS,
-                    stream=True,
-                    allow_redirects=False,       # a redirect could bounce the request (and its API key) to an internal address
-                )
-                if 300 <= resp.status_code < 400:
-                    raise MCPError("The MCP server tried to redirect the request, which is not allowed.")
-                resp.raise_for_status()
-                # Enforce response size limit
-                raw = b""
-                for chunk in resp.iter_content(chunk_size=4096):
-                    raw += chunk
-                    if len(raw) > MAX_RESPONSE_CHARS * 4:
-                        break
-                data = json.loads(raw[:MAX_RESPONSE_CHARS * 4].decode("utf-8", errors="replace"))
+                # MCP handshake: initialize, keep the session the server assigns, confirm. Servers that do not speak
+                # it (simple JSON-RPC endpoints) are called directly, as before.
+                session: dict[str, str] = {}
+                try:
+                    init, sid = _post({"jsonrpc": "2.0", "id": 0, "method": "initialize", "params": {
+                        "protocolVersion": MCP_PROTOCOL_VERSION, "capabilities": {},
+                        "clientInfo": {"name": "EAAWP", "version": "1.0"}}}, {})
+                    if init and isinstance(init.get("result"), dict):
+                        if sid:
+                            session["Mcp-Session-Id"] = sid
+                        version = str(init["result"].get("protocolVersion") or MCP_PROTOCOL_VERSION)[:20]
+                        session["MCP-Protocol-Version"] = version
+                        try:
+                            _post({"jsonrpc": "2.0", "method": "notifications/initialized"}, session)
+                        except requests.RequestException:
+                            pass
+                except requests.Timeout:
+                    raise
+                except (requests.RequestException, ValueError, MCPError):
+                    session = {}
+                data, _ = _post(body, session)
+                if not isinstance(data, dict):
+                    raise MCPError("The MCP server sent no answer.")
                 if "error" in data:
-                    err = data["error"]
+                    err = data["error"] if isinstance(data["error"], dict) else {"message": str(data["error"])}
                     raise MCPError(
                         f"MCP server error {err.get('code', '')}: "
                         f"{str(err.get('message', ''))[:200]}"
@@ -552,11 +610,17 @@ class MCPIntegrationProvider(IntegrationProvider):
             except MCPError:
                 raise
             except requests.HTTPError as e:
-                raise MCPError(f"MCP HTTP error: {e.response.status_code}", e)
+                code = e.response.status_code if e.response is not None else "?"
+                hint = {401: " (check the API key / token)", 403: " (the key has no access)",
+                        404: " (check the server address and path)",
+                        406: " (the server rejected the request format)"}.get(code, "")
+                raise MCPError(f"MCP HTTP error: {code}{hint}", e)
             except requests.Timeout:
                 raise MCPError(
                     f"MCP server did not respond within {MCP_CALL_TIMEOUT_SECONDS}s"
                 )
+            except ValueError:
+                raise MCPError("The MCP server's answer was not valid JSON.")
             except requests.RequestException as e:
                 raise MCPError(self._sanitise_error(str(e)), e)
 
