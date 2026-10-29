@@ -263,9 +263,13 @@ class _ModernServer:
     """Requires Accept: application/json + text/event-stream (else 406), the initialize handshake and the session id it
     assigns (else 400), answers in Server-Sent Events, and lives at a custom path."""
 
-    def __init__(self, path="/abc123/v2/mcp"):
+    def __init__(self, path="/abc123/v2/mcp", extra_tools: int = 0):
         self.hits: list[dict] = []
         outer, self.path = self, path
+        # Firecrawl-sized tool list: long descriptions and schemas make tools/list ~150 KB.
+        big = [{"name": f"firecrawl_tool_{i}", "description": "Long instructions. " * 250,
+                "inputSchema": {"type": "object", "properties": {f"p{j}": {"type": "string", "description": "x" * 40}
+                                                                   for j in range(20)}}} for i in range(extra_tools)]
 
         class H(BaseHTTPRequestHandler):
             def log_message(self, *a): ...
@@ -299,7 +303,8 @@ class _ModernServer:
                     return self._send(202)
                 if m == "tools/list":
                     return self._send(200, {"jsonrpc": "2.0", "id": body["id"], "result": {"tools": [
-                        {"name": "get_keyword_ideas", "description": "Keyword ideas", "inputSchema": {"type": "object"}}]}})
+                        {"name": "get_keyword_ideas", "description": "Keyword ideas", "inputSchema": {"type": "object"}},
+                        *big]}})
                 args = body["params"]["arguments"]
                 return self._send(200, {"jsonrpc": "2.0", "id": body["id"], "result": {"content": [
                     {"type": "text", "text": f"ideas for {args.get('keyword')}: {args.get('keyword')} near me (1,900/mo)"}]}})
@@ -335,3 +340,16 @@ def test_a_bare_host_still_gets_the_usual_mcp_path():
     assert _endpoint("https://tools.example.com") == "https://tools.example.com/mcp"
     assert _endpoint("https://tools.example.com/") == "https://tools.example.com/mcp"
     assert _endpoint("https://mcp.example.com/KEY/v2/mcp") == "https://mcp.example.com/KEY/v2/mcp"
+
+
+def test_a_large_tool_list_is_read_completely(world, monkeypatch):
+    """Seen live with Firecrawl: "The MCP server sent no answer." — a ~150 KB tool list was cut at 40 KB."""
+    monkeypatch.setattr(settings, "allow_private_mcp_hosts", True)
+    s = _ModernServer(extra_tools=30)
+    try:
+        iid = ready(world, s.url)
+        d = world.client.post(f"{IM}/integrations/{iid}/discover", headers=world.auth("a_admin")).json()
+        names = [e["entity_name"] for e in d["entities"]]
+        assert "get_keyword_ideas" in names and "firecrawl_tool_29" in names and len(names) == 31
+    finally:
+        s.close()
