@@ -78,7 +78,7 @@ export function navItems(keys: string[], role: WorkspaceRoleKey | undefined): Na
 /** Routes inside the shell that are never navigation entries but always reachable for a signed-in person. */
 const ALWAYS_ALLOWED = new Set(["/recents", "/select-role"]);
 /** Shell routes that belong to company administration (the API refuses non-admins anyway). */
-const ADMIN_ONLY = new Set(["/roles"]);
+const ADMIN_ONLY = new Set(["/roles", "/tools"]);
 
 /** The navigation key that owns a path, if any. */
 export function navKeyForPath(pathname: string): string | null {

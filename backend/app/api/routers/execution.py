@@ -171,6 +171,8 @@ async def execute_agent_endpoint(
 
     token = cs.turn_history.set(history)
     token_msgs = cs.turn_messages.set(earlier_turns)
+    charts: list = []
+    token_charts = cs.turn_charts.set(charts)
     try:
         async with db.begin_nested():
             resp = await execute_agent(request=request, tenant_id=tenant_id, db=db, user=user, interactive=True)
@@ -183,7 +185,10 @@ async def execute_agent_endpoint(
     finally:
         cs.turn_history.reset(token)
         cs.turn_messages.reset(token_msgs)
+        cs.turn_charts.reset(token_charts)
 
+    if charts:
+        resp = resp.model_copy(update={"charts": charts[:6]})
     await cs.add_message(db, conv, "assistant", resp.message, cs.display_meta(resp), plan_id=resp.plan_id)
     return resp.model_copy(update={"conversation_id": conv.id, "session_id": conv.id})
 

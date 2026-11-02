@@ -97,6 +97,9 @@ class AgentExecutionResponse(BaseModel):
     plan_status: str | None = Field(
         default=None, description="Status of the plan: planning/running/awaiting_approval/completed/failed"
     )
+    charts: list[dict] = Field(
+        default_factory=list, description="Verified chart specs for the answer (see docs/TOOLHUB_API.md)"
+    )
     step_summaries: list[str] = Field(
         default_factory=list,
         description="Safe user-visible step descriptions (no chain-of-thought)",

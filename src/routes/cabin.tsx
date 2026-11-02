@@ -25,6 +25,8 @@ import { EmailDraftPreview, parseDraftPreview } from "@/components/eaawp/EmailDr
 import { AdminProviderConfigPanel } from "@/components/eaawp/AdminProviderConfigPanel";
 import { PendingTaskPanel } from "@/components/eaawp/PendingTaskPanel";
 import { ChatMarkdown } from "@/components/eaawp/ChatMarkdown";
+import { ChatCharts } from "@/components/eaawp/ChatChart";
+import type { ChartSpec } from "@/lib/charts";
 import { ToolStatusBar } from "@/components/eaawp/ToolStatusBar";
 import { HistoryPanel } from "@/components/eaawp/HistoryPanel";
 import {
@@ -189,6 +191,8 @@ interface Turn {
   error?: boolean;
   /** For a failed request: the prompt that can be sent again. */
   retryPrompt?: string;
+  /** Charts the server built from this answer's tool results. */
+  charts?: ChartSpec[];
 }
 
 function clock(d: Date = new Date()) {
@@ -212,6 +216,7 @@ function turnFromMessage(m: ConversationMessage): Turn {
     stepSummaries: m.step_summaries ?? [],
     integrationAction: m.integration_action ?? null,
     error: !!m.error,
+    charts: Array.isArray(m.charts) ? m.charts : [],
   };
 }
 
@@ -228,6 +233,7 @@ function turnFromResponse(result: AgentExecutionResponse): Turn {
     planId: result.plan_id ?? null,
     planStatus: result.plan_status ?? null,
     stepSummaries: result.step_summaries ?? [],
+    charts: Array.isArray(result.charts) ? result.charts : [],
   };
 }
 
@@ -746,6 +752,9 @@ function CabinPage() {
                         text={t.text}
                         className={cn("mt-1.5 w-full", t.error && "text-destructive")}
                       />
+                    )}
+                    {t.from === "ai" && t.charts && t.charts.length > 0 && (
+                      <ChatCharts charts={t.charts} />
                     )}
                     {t.retryPrompt && (
                       <button

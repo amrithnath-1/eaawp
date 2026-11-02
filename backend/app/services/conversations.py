@@ -33,6 +33,8 @@ _INTERNAL_PREFIX = "__integration_action__:"
 turn_history: ContextVar[str] = ContextVar("turn_history", default="")
 # The same earlier turns as (sender, text) pairs, for the chat agent, which sends them as real conversation messages.
 turn_messages: ContextVar[tuple] = ContextVar("turn_messages", default=())
+# Charts the chat agent produced for the current turn (a list set by the chat endpoint; None outside a chat turn).
+turn_charts: ContextVar[list | None] = ContextVar("turn_charts", default=None)
 
 
 def _now() -> datetime:
@@ -143,6 +145,8 @@ def display_meta(resp) -> dict:
     }
     if action is not None:
         meta["integration_action"] = action
+    if getattr(resp, "charts", None):
+        meta["charts"] = list(resp.charts)[:6]
     return meta
 
 

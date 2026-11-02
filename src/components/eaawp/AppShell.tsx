@@ -1,7 +1,16 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import { NotificationBell } from "@/components/eaawp/NotificationBell";
-import { ArrowLeftRight, LogOut, Mail, Menu, MoreHorizontal, ShieldAlert, X } from "lucide-react";
+import {
+  ArrowLeftRight,
+  LogOut,
+  Mail,
+  Menu,
+  MoreHorizontal,
+  ShieldAlert,
+  Wrench,
+  X,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useSession, useWorkspaceGuard } from "@/state/session";
 import { useAgentStatus } from "@/state/useAgentStatus";
@@ -151,6 +160,24 @@ export function AppShell({ children, contentClassName }: { children: ReactNode; 
             </li>
           );
         })}
+        {isAdmin && (
+          <li>
+            <Link
+              to="/tools"
+              data-nav="tools"
+              onClick={() => setDrawer(false)}
+              className={cn(
+                "flex items-center gap-2.5 border-l-2 px-3 py-2 text-[13px] transition-colors",
+                pathname === "/tools"
+                  ? "border-foreground bg-sidebar-accent text-sidebar-accent-foreground"
+                  : "border-transparent text-sidebar-foreground hover:bg-sidebar-accent/60",
+              )}
+            >
+              <Wrench className="size-3.5 shrink-0" strokeWidth={1.5} />
+              Tool Center
+            </Link>
+          </li>
+        )}
       </ul>
 
       {ws.can_switch && (

@@ -33,6 +33,7 @@ import { Route as ScheduledRouteImport } from './routes/scheduled'
 import { Route as SelectRoleRouteImport } from './routes/select-role'
 import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as TeamRouteImport } from './routes/team'
+import { Route as ToolsRouteImport } from './routes/tools'
 import { Route as WorkflowsRouteImport } from './routes/workflows'
 import { Route as WorkspaceRouteImport } from './routes/workspace'
 
@@ -156,6 +157,11 @@ const TeamRoute = TeamRouteImport.update({
   path: '/team',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ToolsRoute = ToolsRouteImport.update({
+  id: '/tools',
+  path: '/tools',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const WorkflowsRoute = WorkflowsRouteImport.update({
   id: '/workflows',
   path: '/workflows',
@@ -192,6 +198,7 @@ export interface FileRoutesByFullPath {
   '/select-role': typeof SelectRoleRoute
   '/settings': typeof SettingsRoute
   '/team': typeof TeamRoute
+  '/tools': typeof ToolsRoute
   '/workflows': typeof WorkflowsRoute
   '/workspace': typeof WorkspaceRoute
 }
@@ -220,6 +227,7 @@ export interface FileRoutesByTo {
   '/select-role': typeof SelectRoleRoute
   '/settings': typeof SettingsRoute
   '/team': typeof TeamRoute
+  '/tools': typeof ToolsRoute
   '/workflows': typeof WorkflowsRoute
   '/workspace': typeof WorkspaceRoute
 }
@@ -249,6 +257,7 @@ export interface FileRoutesById {
   '/select-role': typeof SelectRoleRoute
   '/settings': typeof SettingsRoute
   '/team': typeof TeamRoute
+  '/tools': typeof ToolsRoute
   '/workflows': typeof WorkflowsRoute
   '/workspace': typeof WorkspaceRoute
 }
@@ -279,6 +288,7 @@ export interface FileRouteTypes {
     | '/select-role'
     | '/settings'
     | '/team'
+    | '/tools'
     | '/workflows'
     | '/workspace'
   fileRoutesByTo: FileRoutesByTo
@@ -307,6 +317,7 @@ export interface FileRouteTypes {
     | '/select-role'
     | '/settings'
     | '/team'
+    | '/tools'
     | '/workflows'
     | '/workspace'
   id:
@@ -335,6 +346,7 @@ export interface FileRouteTypes {
     | '/select-role'
     | '/settings'
     | '/team'
+    | '/tools'
     | '/workflows'
     | '/workspace'
   fileRoutesById: FileRoutesById
@@ -364,6 +376,7 @@ export interface RootRouteChildren {
   SelectRoleRoute: typeof SelectRoleRoute
   SettingsRoute: typeof SettingsRoute
   TeamRoute: typeof TeamRoute
+  ToolsRoute: typeof ToolsRoute
   WorkflowsRoute: typeof WorkflowsRoute
   WorkspaceRoute: typeof WorkspaceRoute
 }
@@ -538,6 +551,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof TeamRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/tools': {
+      id: '/tools'
+      path: '/tools'
+      fullPath: '/tools'
+      preLoaderRoute: typeof ToolsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/workflows': {
       id: '/workflows'
       path: '/workflows'
@@ -580,6 +600,7 @@ const rootRouteChildren: RootRouteChildren = {
   SelectRoleRoute: SelectRoleRoute,
   SettingsRoute: SettingsRoute,
   TeamRoute: TeamRoute,
+  ToolsRoute: ToolsRoute,
   WorkflowsRoute: WorkflowsRoute,
   WorkspaceRoute: WorkspaceRoute,
 }

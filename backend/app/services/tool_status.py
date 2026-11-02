@@ -95,7 +95,21 @@ async def _integration_tools(db: AsyncSession, tenant_id: str, role_key: str) ->
     for grant, integ in rows:
         provider = integration_registry.get(integ.provider_type)
         cap = provider.get_capability(grant.capability_key) if provider else None
-        if cap is None:
+        if cap is None and integ.provider_type == "mcp" and grant.capability_key.startswith("mcp_tool:"):
+            from app.toolhub import risk as _risk
+            tool_name = grant.capability_key[len("mcp_tool:"):]
+            rc = _risk.classify(tool_name)
+            name, desc, kind = tool_name, f"Tool on the {integ.display_name} MCP server", "read"
+            risk = {"read_only": "low", "internal_compute": "low", "internal_modify": "medium"}.get(rc, "high")
+            if integ.status != "connected":
+                status = "integration_not_connected"
+            elif not integ.is_enabled:
+                status = "integration_disabled"
+            elif risk == "high":
+                status = "blocked_high_risk"
+            else:
+                status = "available"
+        elif cap is None:
             status, name, desc, risk, kind = "capability_missing", grant.capability_key, "", None, "read"
         else:
             name, desc, risk = cap.display_name, _first_sentence(cap.description), cap.risk_level.value
