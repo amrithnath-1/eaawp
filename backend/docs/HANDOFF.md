@@ -11,6 +11,13 @@ unless stated.
   then `alembic upgrade head`; then `pip install -r requirements.txt` and `npm install` (react-markdown, remark-gfm).
 - Testing guide for the owner: `docs/testing/EAAWP_GEC_DMM_Complete_Testing_Guide.pdf` (+ `.md`, `build_guide_pdf.py`).
 
+## Phase S: tool hub — discovery, orchestration, Tool Builder, diagnostics, metrics, charts (2026-11-02)
+
+See `docs/TOOLHUB.md` (architecture, risk policy, recovery, sandbox) and `docs/TOOLHUB_API.md` (Tool Center API and
+the ChartSpec contract). Migration `f5a0b27c8d46` adds six tenant-scoped tables (additive).
+Tests: `test_toolhub_discovery.py` (A), `test_toolhub_orchestration.py` (B, E, F, G), `test_toolhub_builder.py` (C),
+`test_toolhub_security.py` (D + MCP recovery), `test_toolhub_performance.py` (I). Browser: scratch `toolcenter.py`.
+
 ## Phase R: answers from integrations + the internet, self-correcting tool use (2026-10-28)
 
 - Chat agent rounds: tool results are added to the person's message as "Work done so far" (no function-call replay,
