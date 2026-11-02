@@ -33,6 +33,7 @@ Risk classification:
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import logging
 import re
@@ -77,8 +78,9 @@ def tool_catalogue(tools: list[dict]) -> list[dict]:
             kind = spec.get("type") or ("one of several" if spec.get("anyOf") or spec.get("oneOf") else "value")
             args.append({"name": str(name)[:60], "type": str(kind)[:20], "required": name in required,
                          "description": " ".join(str(spec.get("description") or "").split())[:100]})
+        full = json.dumps({"d": t.get("description") or "", "s": schema}, sort_keys=True, default=str)
         out.append({"name": t["name"], "description": " ".join(str(t.get("description") or "").split())[:240],
-                    "args": args})
+                    "args": args, "hash": hashlib.sha256(full.encode()).hexdigest()[:32]})
     return out
 
 
