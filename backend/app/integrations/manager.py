@@ -389,6 +389,7 @@ async def test_integration(
     provider = integration_registry.get_or_raise(row.provider_type)
 
     credentials: dict[str, Any] = {}
+    t_start = datetime.now(timezone.utc)
     try:
         credentials = _decrypt_credentials(row.encrypted_credentials)
         result = await provider.test_connection(credentials)
@@ -419,6 +420,14 @@ async def test_integration(
         )
         row.is_enabled = True   # auto-enable on first successful test
     await db.flush()
+    if row.provider_type == "mcp":
+        # Keep the tool registry in line with what the server offers now (added / changed / removed tools).
+        from app.toolhub import mcp_sync
+        await mcp_sync.sync(db, tenant_id, integration_id,
+                            result_account_info.get("mcp_tools") if result_success else None,
+                            duration_ms=int((now - t_start).total_seconds() * 1000),
+                            error=None if result_success else (result_error or "connection test failed"),
+                            actor="connection test")
 
     return IntegrationTestResponse(
         integration_id=integration_id,
@@ -473,6 +482,10 @@ async def discover_integration_entities(
         ) from exc
     finally:
         credentials.clear()
+
+    if row.provider_type == "mcp":
+        from app.toolhub import mcp_sync
+        await mcp_sync.sync(db, tenant_id, integration_id, entities, actor="review tools")
 
     entity_outs = [
         DiscoveredEntityOut(

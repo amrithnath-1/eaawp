@@ -4,6 +4,7 @@
  */
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiClient, USE_REAL_API } from "@/lib/api-client";
+import type { ChartSpec } from "@/lib/charts";
 
 // ── Conversations ─────────────────────────────────────────────────────────────
 
@@ -35,6 +36,8 @@ export interface ConversationMessage {
   pending_task_id?: string | null;
   integration_action?: IntegrationActionMeta;
   error?: boolean;
+  /** Charts saved with this assistant message (empty when none). */
+  charts?: ChartSpec[];
 }
 
 export interface ConversationDetail {

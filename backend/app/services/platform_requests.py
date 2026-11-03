@@ -20,6 +20,7 @@ import re
 _QUESTION = re.compile(r"^\s*(how|where|why|what|when|which|who|explain|tell me how|can you explain|is it possible)\b",
                        re.I)
 _VERB = (r"(add|remove|delete|drop|change|update|edit|set|rename|call|name|make|enable|disable|turn\s+(on|off)|"
+         r"granted|revoked|"
          r"switch\s+(on|off)|pause|resume|unpause|activate|deactivate|reactivate|grant|revoke|give|allow|invite|"
          r"promote|demote|require|configure|customi[sz]e|replace|include|put|correct|fix|create|schedule|build|"
          r"set\s+up|stop)")
@@ -44,6 +45,8 @@ _TARGETS = [
     r"\b(team\s+member|invite|invitation)\b",
     r"\b[\w.+-]+@[\w-]+\.[\w.]+\b.*\b(manager|admin|administrator|employee|role)\b",
     r"\b(access|permission)\s+(to|for)\b", r"\bcapabilit(y|ies)\b",
+    r"\b(grant|granted|revoke|revoked|allow|allowed)\b.*\b(tools?|mcp)\b",
+    r"\b(tools?|mcp)\b.*\b(grant|granted|revoke|revoked)\b",
     r"\b(switch|turn)\s+(off|on)\s+[\w\s]{0,20}?(integration|connection|search\s+console|analytics|github|database|"
     r"mcp|email)\b",
     r"\bworkflows?\b",

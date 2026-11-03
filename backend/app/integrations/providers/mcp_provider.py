@@ -33,6 +33,7 @@ Risk classification:
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import logging
 import re
@@ -77,8 +78,9 @@ def tool_catalogue(tools: list[dict]) -> list[dict]:
             kind = spec.get("type") or ("one of several" if spec.get("anyOf") or spec.get("oneOf") else "value")
             args.append({"name": str(name)[:60], "type": str(kind)[:20], "required": name in required,
                          "description": " ".join(str(spec.get("description") or "").split())[:100]})
+        full = json.dumps({"d": t.get("description") or "", "s": schema}, sort_keys=True, default=str)
         out.append({"name": t["name"], "description": " ".join(str(t.get("description") or "").split())[:240],
-                    "args": args})
+                    "args": args, "hash": hashlib.sha256(full.encode()).hexdigest()[:32]})
     return out
 
 
@@ -263,6 +265,34 @@ def _validate_mcp_url(url: str) -> str:
             )
 
     return url
+
+
+_JSON_TYPES = {"string": str, "boolean": bool, "object": dict, "array": list, "number": (int, float), "integer": int}
+
+
+def _argument_problems(args: dict, schema: dict) -> list[str]:
+    """Missing required inputs and top-level type mismatches. Deliberately conservative: servers' schemas use far
+    more JSON-schema than we check, and anything we cannot judge is left to the server."""
+    props = schema.get("properties") or {}
+    problems = [f"{k} is missing (required)" for k in (schema.get("required") or []) if k not in args]
+    for k, v in args.items():
+        spec = props.get(k)
+        if not isinstance(spec, dict) or "type" not in spec:
+            continue
+        types = spec["type"] if isinstance(spec["type"], list) else [spec["type"]]
+        py: tuple = ()
+        for name in types:
+            t = _JSON_TYPES.get(name)
+            py += t if isinstance(t, tuple) else (t,) if t else ()
+        if any(name not in _JSON_TYPES and name != "null" for name in types):
+            continue                                  # a type we do not know: the server decides
+        if "null" in types and v is None:
+            continue
+        if py and (not isinstance(v, py) or (isinstance(v, bool) and bool not in py)):
+            problems.append(f"{k} should be {'/'.join(types)}, got {type(v).__name__}")
+    if schema.get("additionalProperties") is False:
+        problems += [f"{k} is not an input of this tool" for k in args if k not in props]
+    return problems
 
 
 def _check_injection(text: str, field_name: str) -> None:
@@ -520,6 +550,20 @@ class MCPIntegrationProvider(IntegrationProvider):
         tool_args = parameters.get("arguments", {})
         if not isinstance(tool_args, dict):
             raise MCPError("arguments must be a JSON object")
+        # Validate against the tool's input schema as the server lists it now, before anything is sent: a call with
+        # missing or wrongly typed inputs never reaches the server, and the model is told exactly what to fix.
+        schema = next((t.get("inputSchema") for t in tools if t["name"] == tool_name), None)
+        if isinstance(schema, dict) and schema:
+            problems = _argument_problems(tool_args, schema)
+            if problems:
+                props = schema.get("properties") or {}
+                req = set(schema.get("required") or [])
+                inputs = ", ".join(f"{k} (required)" if k in req else k for k in list(props)[:12]) or "none"
+                raise MCPError(
+                    f"VALIDATION ERROR: arguments for '{tool_name}' do not match its input schema: "
+                    + "; ".join(p.replace("$.", "") for p in problems[:6])
+                    + f". Inputs: {inputs}. Nothing was sent to the server."
+                )
 
         # Check argument keys for injection and credential leakage
         from app.tools.dynamic_tool import _FORBIDDEN_PARAM_FIELDS

@@ -226,4 +226,33 @@ def test_unavailable_changes_are_reported_not_faked(world, llm):
         {"type": "SET_NOTIFICATION_EMAILS", "description": "Turn notification emails on", "params": {"enabled": True}}],
         "Switch off the GitHub integration and turn on notification emails")
     step = next(s for s in plan["steps"] if s["tool_name"] == "customize_eaawp")
-    assert "0 saved, 2 failed" in step["result_summary"], step
+    # Seen live: an approved change that saved nothing showed COMPLETED. It is now a failed step and plan, with reasons.
+    assert plan["status"] == "failed" and step["status"] == "failed", plan
+    assert "No change was saved" in step["result_summary"] and "That service is not connected" in step["result_summary"]
+
+
+
+def test_mcp_tools_can_be_granted_by_asking_in_chat(world, llm, monkeypatch):
+    """Seen live: "grant all Firecrawl tools" was approved but saved nothing ('firecrawl_search' does not exist)."""
+    from app.config import settings
+    from tests.test_toolhub_discovery import LiveMcp, connect, press_test_now, tool
+    monkeypatch.setattr(settings, "allow_private_mcp_hosts", True)
+    s = LiveMcp([tool("firecrawl_search"), tool("firecrawl_scrape")])
+    try:
+        iid = connect(world, s.url, "FireCrawl MCP")
+        press_test_now(world, iid)
+        plan = _change(world, llm, [
+            {"type": "GRANT_CAPABILITY", "description": f"Grant {t}", "params": {
+                "provider_type": "mcp", "server": "FireCrawl MCP", "capability_key": t, "role_key": DMM}}
+            for t in ("firecrawl_search", "firecrawl_scrape", "firecrawl_imaginary")],
+            "Grant the Firecrawl tools to the marketing manager")
+        step = next(x for x in plan["steps"] if x["tool_name"] == "customize_eaawp")
+        assert plan["status"] == "completed" and "2 saved, 1 failed" in step["result_summary"], step
+        keys = {g["capability_key"] for g in world.client.get(f"/api/v1/integration-manager/integrations/{iid}/grants",
+                                                                headers=world.auth("a_admin")).json()}
+        assert keys == {"call_tool", "mcp_tool:firecrawl_search", "mcp_tool:firecrawl_scrape"}
+        tools = world.client.get("/api/v1/workspace/tools", headers=world.auth("a_admin")).json()["tools"]
+        mine = [t for t in tools if t["key"].startswith("mcp_tool:")]
+        assert mine and all(t["status"] == "available" for t in mine)      # no longer counted "unavailable"
+    finally:
+        s.close()

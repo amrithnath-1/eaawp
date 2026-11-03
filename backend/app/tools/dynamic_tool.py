@@ -379,6 +379,15 @@ def build_dynamic_tool_adapter(defn: DynamicToolDefinition) -> Any:
         err, sanitised, db, tenant_id, role_key = _precheck(params_json)
         if err:
             return err
+        if _provider_type == "mcp" and _capability_key == "call_tool":
+            # Capability-based risk of the specific MCP tool: external communication, money and security-sensitive
+            # operations never run automatically from a chat (there is no approval flow for third-party MCP tools).
+            from app.toolhub import risk as _risk
+            _rc = _risk.classify(str(sanitised.get("tool_name", "")))
+            if not _risk.runs_automatically(_rc) and _rc != "internal_modify":
+                return (f"[GOVERNANCE REQUIRED] {_tool_key}: '{sanitised.get('tool_name')}' is classified "
+                        f"{_rc.replace('_', ' ')} and cannot run automatically. A person must do this, or an "
+                        "administrator must provide an approved workflow for it.")
 
         # The manager performs every security check: tenant ownership, connected
         # + enabled, and the role's capability grant.  Credentials are decrypted
@@ -452,6 +461,8 @@ def build_dynamic_tool_adapter(defn: DynamicToolDefinition) -> Any:
         coroutine=_execute,
         name=defn.tool_key,
         description=desc,
+        metadata={"integration_id": _integration_id, "provider_type": defn.provider_type,
+                  "capability_key": _capability_key, "risk_level": _risk_level},
     )
 
 

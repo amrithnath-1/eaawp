@@ -11,6 +11,28 @@ unless stated.
   then `alembic upgrade head`; then `pip install -r requirements.txt` and `npm install` (react-markdown, remark-gfm).
 - Testing guide for the owner: `docs/testing/EAAWP_GEC_DMM_Complete_Testing_Guide.pdf` (+ `.md`, `build_guide_pdf.py`).
 
+## Phase S2: MCP request routing and contextual security classification (2026-11-03)
+Status: IMPLEMENTED; VERIFIED through the real API against a real local MCP server (tests/test_mcp_routing_and_security.py,
+66 tests). Live EAAWP → Firecrawl execution NOT verified from the build sandbox (its network blocks Firecrawl and
+gecservices.in); run tests/test_live_mcp_scrape.py with EAAWP_LIVE_MCP_URL set to verify it where Firecrawl is reachable.
+- Root cause 1: the integration pre-flight in execution.py answered any message containing "connected"/"integration"/"mcp"
+  with a connection card (keyword match + LLM intent CONNECT_INTEGRATION → "already connected"), so execution requests
+  never reached the agent. Now app/services/request_routing.py decides the route first (status, management, discovery,
+  execution, multi-execution, diagnostics, permission check/change); only status/management/grant requests get cards.
+- Root cause 2: validate_user_prompt matched five phrases anywhere in the message ("bypass the restrictions", "ignore …
+  instructions", "jailbreak") regardless of context. Now classify_user_prompt separates commanded overrides, secret /
+  cross-company requests (blocked) from assessments, questions and quoted content (allowed, run as controlled testing).
+- Also: MCP arguments validated against the tool's live input schema before dispatch; deterministic discovery /
+  diagnostics / permission answers (app/services/service_inspection.py); agent sent back once if an execution request
+  is answered without running the tool; "disconnect" never answered as "connect".
+
+## Phase S: tool hub — discovery, orchestration, Tool Builder, diagnostics, metrics, charts (2026-11-02)
+
+See `docs/TOOLHUB.md` (architecture, risk policy, recovery, sandbox) and `docs/TOOLHUB_API.md` (Tool Center API and
+the ChartSpec contract). Migration `f5a0b27c8d46` adds six tenant-scoped tables (additive).
+Tests: `test_toolhub_discovery.py` (A), `test_toolhub_orchestration.py` (B, E, F, G), `test_toolhub_builder.py` (C),
+`test_toolhub_security.py` (D + MCP recovery), `test_toolhub_performance.py` (I). Browser: scratch `toolcenter.py`.
+
 ## Phase R: answers from integrations + the internet, self-correcting tool use (2026-10-28)
 
 - Chat agent rounds: tool results are added to the person's message as "Work done so far" (no function-call replay,

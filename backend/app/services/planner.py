@@ -1063,10 +1063,12 @@ def _verify_against_evidence(
     """
     from app.services.grounding import ungrounded_figures
     from app.tools.dynamic_tool import is_dynamic_tool_key
+    from app.tools.registry import _dynamic_tools_ctx
 
     evidence_parts: list[str] = []
     for step, planned in zip(db_steps, plan.steps):
-        if (planned.tool_name and is_dynamic_tool_key(planned.tool_name)
+        meta = getattr((_dynamic_tools_ctx.get() or {}).get(planned.tool_name or ""), "metadata", None) or {}
+        if (planned.tool_name and is_dynamic_tool_key(planned.tool_name) and meta.get("provider_type") != "mcp"
                 and step.status == "completed" and step_results.get(planned.step_index)):
             evidence_parts.append(step_results[planned.step_index])
     if not evidence_parts:

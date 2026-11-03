@@ -117,6 +117,9 @@ class CustomizeEaawpAction(BaseActionTool):
                                                   commit=False, admin=admin)
         lines = [f"- {r.description}: {r.status.upper()} — {r.detail}" for r in result.results]
         ok = result.operations_failed == 0
+        if result.operations_succeeded == 0:
+            # Nothing was saved: report it as a failed action (the plan shows FAILED, not COMPLETED).
+            raise RuntimeError("No change was saved. " + " ".join(f"{r.description}: {r.detail}" for r in result.results)[:600])
         return {
             "success": ok,
             "message": (f"Customization applied: {result.operations_succeeded} saved, "

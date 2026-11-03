@@ -31,6 +31,7 @@ def evidence_values(text: str) -> list[float]:
     return vals
 
 
+_ROW = re.compile(r"\{[^{}]*\}")
 _FIELD = re.compile(r'"(\w+)"\s*:\s*(-?\d+(?:\.\d+)?)')
 
 
@@ -62,6 +63,14 @@ def _derived(evidence: str) -> tuple[list[float], list[float]]:
             if ka != kb and tb:
                 pct.append(ta / tb * 100)
                 plain.append(ta / tb)
+    # Ratios between two measures of the SAME row (e.g. one page's clicks / impressions = that page's CTR).
+    for obj in _ROW.findall(evidence or "")[:500]:
+        nums = [float(n) for _, n in _FIELD.findall(obj)][:12]
+        for a in nums:
+            for b in nums:
+                if a != b and b:
+                    pct.append(a / b * 100)
+                    plain.append(a / b)
     return plain, pct
 
 

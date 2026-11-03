@@ -17,8 +17,10 @@ Workflows and meetings (unattended) keep using the planner.
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
+import time
 import uuid
 from datetime import datetime, timezone
 from typing import Any
@@ -192,8 +194,12 @@ async def run_chat_agent(
     system_persona: str = "",
     data_context_block: str = "",
     rag_context: str = "",
+    required_tools: frozenset[str] = frozenset(),
 ) -> tuple[str, str, list[ToolCallDetail]]:
-    """Run one chat turn. Same contract as planner.create_and_execute_plan: (message, plan_id, tool_calls)."""
+    """Run one chat turn. Same contract as planner.create_and_execute_plan: (message, plan_id, tool_calls).
+
+    required_tools: tool-key prefixes the request was routed to (a tool-execution request for a connected service).
+    If the model answers without calling any of them, it is told once to run the tool instead of describing it."""
     from app.services.conversations import turn_messages
     from app.services.planner import (
         _clean_response,
@@ -223,6 +229,21 @@ async def run_chat_agent(
     if _settings.web_tools_enabled and role_key not in NO_WEB_ROLES:
         from app.tools.web_tools import WEB_TOOLS
         read_tools.update(WEB_TOOLS)
+    # Tool hub: the role's granted generated tools, and find_tools / build_tool / make_chart for every AI employee.
+    from app.toolhub import metrics as hub_metrics, orchestration as orch
+    plan_id = str(uuid.uuid4())
+    state = orch.TurnState()
+    custom: dict[str, Any] = {}
+    try:
+        custom.update(await orch.generated_tools(db, tenant_id, role_key, plan_id))
+    except Exception as exc:  # noqa: BLE001 - a registry problem must not stop the chat
+        logger.warning("Generated tools unavailable this turn: %s", exc)
+    custom.update(orch.meta_tools(db, tenant_id, role_key, plan_id, state, actor=f"{role_key} (chat)"))
+    read_tools.update(custom)
+    try:
+        notes = {k: v for k, v in (await hub_metrics.hints(db, tenant_id)).items() if k in read_tools}
+    except Exception:  # noqa: BLE001
+        notes = {}
     action_names = list(dict.fromkeys(
         t for t in [*blueprint.allowed_tools, *blueprint.guarded_tools] if is_action_tool(t)))
     declarations = [*read_tools.values(), *[d for d in map(_action_declaration, action_names) if d is not None]]
@@ -233,6 +254,9 @@ async def run_chat_agent(
     system = "\n\n".join(p for p in (
         system_persona,
         AGENT_RULES,
+        orch.ORCHESTRATION_RULES,
+        ("## Tool reliability (this company's recent executions)\n" + "\n".join(f"- {k}: {v}" for k, v in notes.items())
+         if notes else ""),
         (f"## Company knowledge retrieved for this message (reference only)\n{rag_context[:4000]}" if rag_context else ""),
         data_context_block[:3000] if data_context_block else "",
         f"Today (UTC): {datetime.now(timezone.utc).date().isoformat()}",
@@ -252,7 +276,6 @@ async def run_chat_agent(
             + "\n\n".join(work) + f"\n\n{nxt} Never describe which tools you used; answer the question itself."))]
 
     # ── The run is recorded like a plan, step by step ────────────────────────────────────────────────────────────
-    plan_id = str(uuid.uuid4())
     db_plan = ExecutionPlan(
         id=plan_id, tenant_id=tenant_id, role_key=role_key, session_id=session_id, objective=user_prompt[:500],
         status="running", total_steps=0, completed_steps=0, tool_calls_used=0,
@@ -292,8 +315,26 @@ async def run_chat_agent(
         await db.flush()
         return message, plan_id, calls_made
 
+    async def _run_read(name: str, args: dict, record: bool = True) -> tuple[str, str | None, int]:
+        """One read/compute call with diagnosis, bounded retries and (optionally) an execution record."""
+        t0 = time.monotonic()
+        if name in custom:
+            runner = lambda: custom[name].ainvoke(args)  # noqa: E731
+        else:
+            runner = lambda: _execute_tool(name, args, read_tools)  # noqa: E731
+        meta = getattr(dyn_map.get(name), "metadata", None) or {}
+        mcp_id = meta.get("integration_id") if meta.get("provider_type") == "mcp" else None
+        result, cat = await orch.execute(
+            name, args, runner, db=db if record else None, tenant_id=tenant_id, role_key=role_key, plan_id=plan_id,
+            label=_label(name, dyn_map), source=orch.source_of(name, dyn_map),
+            record=record and not name.startswith("gen_"),        # generated tools record their own runs
+            mcp_integration=mcp_id if record else None)
+        return result, cat, int((time.monotonic() - t0) * 1000)
+
     final = ""
     gathered: list[str] = []
+    needed = tuple(p for p in required_tools if any(n.startswith(p) for n in read_tools))
+    nudged = False
     try:
         for round_no in range(MAX_ROUNDS + 1):
             if round_no == MAX_ROUNDS:
@@ -301,6 +342,14 @@ async def run_chat_agent(
             else:
                 response = await bound.ainvoke(current())
             tool_calls = list(getattr(response, "tool_calls", None) or [])
+            if (not tool_calls and needed and not nudged and round_no < MAX_ROUNDS - 1
+                    and not any(c.name.startswith(needed) for c in calls_made)):
+                # An execution request answered with words (often "it is connected…") instead of running the tool.
+                nudged = True
+                work.append("### [ROUTING] No tool was run yet\nThis message asks you to RUN the connected "
+                            "service's tool. Call " + " or ".join(sorted(needed)[:4]) + " now with arguments that "
+                            "fit its listed inputs. Only if a required input is truly missing, ask for it.")
+                continue
             if not tool_calls or round_no == MAX_ROUNDS:
                 final = _text(response.content)
                 break
@@ -313,7 +362,15 @@ async def run_chat_agent(
                 if not failed:
                     gathered.append(f"{_label(tool, dyn_map)}:\n{str(text)[:_RESULT_CHARS]}")
 
-            for tc in tool_calls:
+            # Independent calls that touch no database session run concurrently; results are used in order below.
+            ready: dict[int, Any] = {}
+            safe = [(i, tc) for i, tc in enumerate(tool_calls)
+                    if tc.get("name") in read_tools and orch.parallel_safe(tc.get("name", ""))]
+            if len(safe) > 1:
+                outs = await asyncio.gather(*(_run_read(tc.get("name", ""), tc.get("args") or {}, record=False)
+                                              for _, tc in safe))
+                ready = {i: o for (i, _), o in zip(safe, outs)}
+            for call_no, tc in enumerate(tool_calls):
                 name, raw_args = tc.get("name", ""), tc.get("args") or {}
                 if len(calls_made) >= MAX_TOOL_CALLS_PER_PLAN:
                     note(name, raw_args, "[NOT RUN] Tool call limit reached for this message.")
@@ -346,6 +403,14 @@ async def run_chat_agent(
                         db_plan.final_message = text
                         await db.flush()
                         return text, plan_id, calls_made
+                    if outcome.status != "proposed":
+                        await hub_metrics.record(db, tenant_id=tenant_id, tool_key=name, tool_label=_label(name, dyn_map),
+                                                 tool_source="action", role_key=role_key, plan_id=plan_id,
+                                                 status="success" if outcome.status == "executed" else "blocked",
+                                                 error_category=None if outcome.status == "executed" else
+                                                 ("permission" if outcome.status == "unauthorized" else "invalid_args"),
+                                                 error_message=None if outcome.status == "executed" else outcome.message,
+                                                 input_value=args, output_value=outcome.message, duration_ms=0)
                     if outcome.status == "executed":
                         finish(row, "completed", outcome.message)
                         results[row.step_index] = outcome.message
@@ -360,13 +425,23 @@ async def run_chat_agent(
                     row = add_step("read", _label(name, dyn_map), name, raw_args)
                     await db.flush()
                     calls_made.append(ToolCallDetail(name=name, args=raw_args))
-                    result = await _execute_tool(name, raw_args, read_tools)
+                    if call_no in ready:
+                        result, cat, ms = ready[call_no]
+                        await hub_metrics.record(db, tenant_id=tenant_id, tool_key=name, tool_label=_label(name, dyn_map),
+                                                 tool_source=orch.source_of(name, dyn_map), role_key=role_key,
+                                                 plan_id=plan_id, status="failed" if cat else "success",
+                                                 error_category=cat, error_message=result if cat else None,
+                                                 input_value=raw_args, output_value=result, duration_ms=ms,
+                                                 recovery="ran in parallel")
+                    else:
+                        result, cat, _ms = await _run_read(name, raw_args)
                     failed = is_tool_failure(result)
                     if failed:
                         finish(row, "failed", result)
                     else:
                         finish(row, "completed", result)
                         results[row.step_index] = result[:_RESULT_CHARS]
+                        state.evidence.append(result[:_RESULT_CHARS])
                     note(name, raw_args, result, failed=failed)
                     continue
 
@@ -375,6 +450,12 @@ async def run_chat_agent(
             # messages (Gemini 3 rejects replayed calls without hidden signatures) and not as an invented AI turn
             # (the model would copy it as its answer).
             work.extend(round_notes)
+            if state.new_tools:
+                read_tools.update(state.new_tools)
+                custom.update(state.new_tools)
+                state.new_tools.clear()
+                declarations = [*read_tools.values(), *[d for d in map(_action_declaration, action_names) if d]]
+                bound = model.bind_tools(declarations)
     except Exception as exc:  # noqa: BLE001 - provider failure: say so, never invent an answer
         logger.error("Chat agent model call failed (%s)", type(exc).__name__, exc_info=True)
         final = await _answer_from(model, system, user_prompt, gathered or work) if work else ""
@@ -393,6 +474,10 @@ async def run_chat_agent(
     final, grounding = _verify_against_evidence(final, AgentPlan(objective=user_prompt[:500], steps=planned),
                                                 steps, results, user_prompt)
     finish(reply_row, "completed", f"Final response. {grounding}")
+    from app.services.conversations import turn_charts
+    out_charts = turn_charts.get()
+    if out_charts is not None:
+        out_charts.extend(state.charts)
     db_plan.status, db_plan.final_message = "completed", final
     db_plan.completed_at = datetime.now(timezone.utc)
     await db.flush()

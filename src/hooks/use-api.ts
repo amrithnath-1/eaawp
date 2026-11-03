@@ -8,6 +8,7 @@
  * Components never check the flag themselves.
  */
 
+import type { ChartSpec } from "@/lib/charts";
 import { useQuery, useMutation, useQueryClient, useInfiniteQuery } from "@tanstack/react-query";
 import { apiClient, USE_REAL_API, API_BASE_URL } from "@/lib/api-client";
 
@@ -888,6 +889,8 @@ export interface AgentExecutionResponse {
   pending_task_id?: string | null;
   /** The saved conversation (History) this exchange was stored in. */
   conversation_id?: string | null;
+  /** Charts built from this answer's tool results (empty when none). */
+  charts?: ChartSpec[];
 }
 
 /**

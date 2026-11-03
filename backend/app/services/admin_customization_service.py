@@ -94,6 +94,12 @@ OTHER SETTINGS (use the names and emails from CURRENT TENANT CONFIGURATION; neve
   SET_NOTIFICATION_EMAILS  {"enabled": bool}                            automatic notification emails for the company
   Workflows: UPDATE_WORKFLOW {"name": str, "is_enabled": bool, "schedule_cron": str} also switches one on/off.
 
+GRANT_CAPABILITY / REVOKE_CAPABILITY for MCP servers and generated tools:
+  MCP: {"provider_type": "mcp", "server": "<connection name>", "capability_key": "<tool name exactly as listed in
+  MCP TOOLS>", "role_key": "<ROLE>"} — ONE operation per tool; "all tools" means every listed tool of that server
+  except ones whose names send, publish, pay, delete or administer. Generated tools: {"provider_type": "generated",
+  "capability_key": "<gen_... key>", "role_key": "<ROLE>"}.
+
 APPROVAL POLICY params for SET_APPROVAL_POLICY:
   {\"scope\": \"all_external_actions\" | \"send_email\" | \"publish\",
    \"mode\": \"approval_required\" | \"auto\",
@@ -259,6 +265,18 @@ async def _gather_tenant_context(tenant_id: str, db: AsyncSession) -> str:
     except Exception as exc:
         logger.debug("Could not load company profile for context: %s", exc)
 
+    try:
+        from app.db.toolhub_models import ToolRecord
+        tools = (await db.execute(select(ToolRecord).where(ToolRecord.tenant_id == tenant_id,
+                                                           ToolRecord.status == "active").limit(300))).scalars().all()
+        servers = {i.id: i.display_name for i in await int_mgr.list_integrations(tenant_id=tenant_id, db=db,
+                                                                               provider_type="mcp")}
+        mcp_lines = [f"  - {servers.get(t.integration_id, '?')}: {t.key} ({t.risk_class})" for t in tools if t.source == "mcp"]
+        gen_lines = [f"  - {t.key}: {t.description[:100]}" for t in tools if t.source == "generated"]
+        context_parts.append("MCP TOOLS (server: tool):\n" + ("\n".join(mcp_lines) or "  none"))
+        context_parts.append("GENERATED TOOLS:\n" + ("\n".join(gen_lines) or "  none"))
+    except Exception as exc:
+        logger.debug("Could not load tool registry for context: %s", exc)
     context_parts.append("BUILT-IN AI EMPLOYEES (for UPDATE_ROLE_SETTINGS / SET_AI_EMPLOYEE_PAUSED): DIGITAL_MARKETING_MANAGER, "
                          "DATA_INTELLIGENCE_ANALYST, INSTITUTIONAL_CLERK, MEDICAL_ASSISTANT")
 
@@ -741,10 +759,16 @@ async def _op_grant_capability(
     capability_key = str(p.get("capability_key", ""))
     role_key = str(p.get("role_key", "DIGITAL_MARKETING_MANAGER"))
 
+    if provider_type == "generated":
+        return await _grant_generated(op, tenant_id, db, capability_key, role_key)
+
     # Find the integration
     integrations = await int_mgr.list_integrations(
         tenant_id=tenant_id, db=db, provider_type=provider_type
     )
+    server = str(p.get("server") or p.get("integration_name") or "").strip().lower()
+    if server:
+        integrations = [i for i in integrations if (i.display_name or "").lower() == server] or integrations
     if not integrations:
         return OperationResult(
             type=op.type, description=op.description, status="failed",
@@ -753,6 +777,27 @@ async def _op_grant_capability(
     integration_id = integrations[0].id
 
     from app.schemas.integration_framework import CapabilityGrantCreate
+    if provider_type == "mcp" and capability_key not in ("call_tool", "discover_tools"):
+        # MCP tools are granted one by one as mcp_tool:<name>, together with the generic call permission; only tools
+        # the server really offers (as last discovered) can be granted.
+        from app.db.toolhub_models import ToolRecord
+        name = capability_key.removeprefix("mcp_tool:")
+        known = (await db.execute(select(ToolRecord.key).where(
+            ToolRecord.tenant_id == tenant_id, ToolRecord.integration_id == integration_id,
+            ToolRecord.source == "mcp", ToolRecord.status == "active"))).scalars().all()
+        if name not in known:
+            return OperationResult(type=op.type, description=op.description, status="failed",
+                                   detail=f"'{name}' is not a tool on {integrations[0].display_name}. "
+                                          f"Known tools: {', '.join(sorted(known)[:15]) or 'none — press TEST NOW first'}.")
+        for key in ("call_tool", f"mcp_tool:{name}"):
+            await int_mgr.create_capability_grant(
+                integration_id=integration_id,
+                body=CapabilityGrantCreate(role_key=role_key, capability_key=key, is_granted=True,
+                                           granted_by="admin-customization"),
+                tenant_id=tenant_id, db=db)
+        await db.flush()
+        return OperationResult(type=op.type, description=op.description, status="success",
+                               detail=f"MCP tool '{name}' on {integrations[0].display_name} granted to {role_key}.")
     await int_mgr.create_capability_grant(
         integration_id=integration_id,
         body=CapabilityGrantCreate(
@@ -1073,6 +1118,19 @@ async def _op_update_role_settings(op: CustomizationOperation, tenant_id: str, d
     await db.flush()
     return OperationResult(type=op.type, description=op.description, status="success",
                            detail=f"{row.role_name or role_key} updated: " + ", ".join(changed) + ".")
+
+
+async def _grant_generated(op, tenant_id, db, key, role_key) -> OperationResult:
+    from app.db.toolhub_models import ToolRecord
+    from app.toolhub import builder
+    rec = (await db.execute(select(ToolRecord).where(ToolRecord.tenant_id == tenant_id, ToolRecord.source == "generated",
+                                                     ToolRecord.key == key))).scalar_one_or_none()
+    if rec is None or rec.status != "active":
+        return OperationResult(type=op.type, description=op.description, status="failed",
+                               detail=f"No active generated tool called '{key}'.")
+    await builder.grant(db, tenant_id, rec.id, role_key, "admin-customization")
+    return OperationResult(type=op.type, description=op.description, status="success",
+                           detail=f"Generated tool '{key}' granted to {role_key}.")
 
 
 # ── Further settings (each calls the same service the settings page uses) ─────
