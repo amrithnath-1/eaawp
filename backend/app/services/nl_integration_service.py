@@ -400,6 +400,19 @@ async def build_conversation_reply(
             },
         )
 
+    if intent.intent_type == "DISCONNECT_INTEGRATION":
+        if not existing:
+            pname = provider_info["display_name"] if provider_info else (provider or "that integration")
+            return ("{} is not connected, so there is nothing to disconnect.".format(pname), "NONE", {})
+        i = existing[0]
+        return (
+            "{} can be disconnected by an administrator from Integrations → {} → Disconnect. Nothing has been "
+            "changed yet; disconnecting removes its saved credentials and stops every AI employee from using it."
+            .format(i["display_name"], i["display_name"]),
+            "SHOW_STATUS",
+            {"integration_id": i["id"]},
+        )
+
     if intent.intent_type == "CHECK_STATUS":
         if not existing:
             pname = provider_info["display_name"] if provider_info else (provider or "that integration")

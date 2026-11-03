@@ -194,8 +194,12 @@ async def run_chat_agent(
     system_persona: str = "",
     data_context_block: str = "",
     rag_context: str = "",
+    required_tools: frozenset[str] = frozenset(),
 ) -> tuple[str, str, list[ToolCallDetail]]:
-    """Run one chat turn. Same contract as planner.create_and_execute_plan: (message, plan_id, tool_calls)."""
+    """Run one chat turn. Same contract as planner.create_and_execute_plan: (message, plan_id, tool_calls).
+
+    required_tools: tool-key prefixes the request was routed to (a tool-execution request for a connected service).
+    If the model answers without calling any of them, it is told once to run the tool instead of describing it."""
     from app.services.conversations import turn_messages
     from app.services.planner import (
         _clean_response,
@@ -329,6 +333,8 @@ async def run_chat_agent(
 
     final = ""
     gathered: list[str] = []
+    needed = tuple(p for p in required_tools if any(n.startswith(p) for n in read_tools))
+    nudged = False
     try:
         for round_no in range(MAX_ROUNDS + 1):
             if round_no == MAX_ROUNDS:
@@ -336,6 +342,14 @@ async def run_chat_agent(
             else:
                 response = await bound.ainvoke(current())
             tool_calls = list(getattr(response, "tool_calls", None) or [])
+            if (not tool_calls and needed and not nudged and round_no < MAX_ROUNDS - 1
+                    and not any(c.name.startswith(needed) for c in calls_made)):
+                # An execution request answered with words (often "it is connected…") instead of running the tool.
+                nudged = True
+                work.append("### [ROUTING] No tool was run yet\nThis message asks you to RUN the connected "
+                            "service's tool. Call " + " or ".join(sorted(needed)[:4]) + " now with arguments that "
+                            "fit its listed inputs. Only if a required input is truly missing, ask for it.")
+                continue
             if not tool_calls or round_no == MAX_ROUNDS:
                 final = _text(response.content)
                 break

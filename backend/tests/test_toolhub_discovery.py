@@ -23,7 +23,7 @@ class LiveMcp:
     """A real MCP server whose tool list can be changed between discoveries; `down` makes it answer 503."""
 
     def __init__(self, tools: list[dict]):
-        self.tools, self.down, self.calls = list(tools), False, []
+        self.tools, self.down, self.calls, self.outputs = list(tools), False, [], {}
         outer = self
 
         class H(BaseHTTPRequestHandler):
@@ -51,7 +51,7 @@ class LiveMcp:
                     return self._send(200, {"jsonrpc": "2.0", "id": body["id"], "result": {"tools": outer.tools}})
                 outer.calls.append(body["params"])
                 return self._send(200, {"jsonrpc": "2.0", "id": body["id"], "result": {"content": [
-                    {"type": "text", "text": f"ran {body['params']['name']}"}]}})
+                    {"type": "text", "text": outer.outputs.get(body['params']['name'], f"ran {body['params']['name']}")}]}})
 
         self.httpd = ThreadingHTTPServer(("127.0.0.1", 0), H)
         self.url = f"http://127.0.0.1:{self.httpd.server_port}/mcp"

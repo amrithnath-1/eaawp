@@ -25,6 +25,8 @@ _RULES: list[tuple[str, re.Pattern]] = [
                                r"name or service|temporarily|sent an empty answer|sent no answer", re.I)),
     ("not_found", re.compile(r"\b404\b|not found on MCP server|Unknown (capability|tool)|no such tool|"
                              r"is not one of your tools", re.I)),
+    # Our own check against the server's current schema, before sending: the inputs are wrong, the schema is not.
+    ("invalid_args", re.compile(r"do not match its input schema", re.I)),
     ("schema_mismatch", re.compile(r"Unknown parameter|is required|not an allowed field|should be (object|string|"
                                    r"number|integer|array|boolean)|matches none|invalid params|-32602", re.I)),
     ("invalid_args", re.compile(r"VALIDATION ERROR|invalid (date|argument|value)|must be|Invalid JSON|"
