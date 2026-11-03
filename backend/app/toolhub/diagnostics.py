@@ -10,9 +10,14 @@ from __future__ import annotations
 import re
 
 CATEGORIES = ("auth", "permission", "rate_limit", "timeout", "unavailable", "not_found", "invalid_args",
-              "schema_mismatch", "malformed_output", "policy_blocked", "execution_error")
+              "schema_mismatch", "malformed_output", "policy_blocked", "execution_error",
+              "task_failed", "task_timeout", "task_expired")
 
 _RULES: list[tuple[str, re.Pattern]] = [
+    # Outcomes of a long-running job (mcp_tasks). Never retried: retrying would start the job again.
+    ("task_expired", re.compile(r"^\s*\[TASK EXPIRED\]")),
+    ("task_timeout", re.compile(r"^\s*\[TASK TIMED_OUT\]")),
+    ("task_failed", re.compile(r"^\s*\[TASK (FAILED|CANCELLED)\]")),
     ("policy_blocked", re.compile(r"GOVERNANCE REQUIRED|HIGH risk|approval workflow|blocked by policy|not allowed in "
                                   r"the sandbox|sandbox rejected", re.I)),
     ("permission", re.compile(r"PERMISSION DENIED|not been granted|not permitted|forbidden|\b403\b|no access|"
@@ -44,6 +49,10 @@ NEEDS = {
     "rate_limit": "The service's usage limit was reached: wait and try again, or raise the limit with the provider.",
     "policy_blocked": "Company rules do not allow this to run automatically: it needs approval or is not allowed.",
     "not_found": "The tool or address no longer exists on the server: refresh the tool list (TEST NOW).",
+    "task_expired": "The server no longer has this job (it expired or the id is unknown); start a new one only if "
+                    "the person still needs it.",
+    "task_timeout": "The job did not finish in time; EAAWP stopped checking it. It was not started again.",
+    "task_failed": "The job itself failed or was cancelled on the server.",
 }
 
 

@@ -171,7 +171,19 @@ async def lifespan(app: FastAPI):  # type: ignore[type-arg]
         logger.warning("Meeting recovery could not run: %s", type(_exc).__name__)
 
     await start_scheduler()
+    try:
+        # Long-running MCP jobs: keeps following RUNNING jobs, including those interrupted by a restart.
+        from app.db.session import AsyncSessionLocal
+        from app.toolhub import mcp_tasks
+        mcp_tasks.start_poller(AsyncSessionLocal)
+    except Exception as _exc:  # must never block startup
+        logger.warning("MCP task poller could not start: %s", type(_exc).__name__)
     yield
+    try:
+        from app.toolhub import mcp_tasks as _mt
+        _mt.stop_poller()
+    except Exception:  # noqa: BLE001
+        pass
     logger.info("EAAWP backend shutting down")
     await stop_scheduler()
 

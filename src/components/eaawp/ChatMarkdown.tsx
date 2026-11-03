@@ -6,6 +6,79 @@
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { cn } from "@/lib/utils";
+import { chartProblem, normalizeChartSpec, type ChartSpec } from "@/lib/charts";
+import { ChartFallback, ChatChart } from "@/components/eaawp/ChatChart";
+
+/** Languages whose fenced blocks may hold legacy chart JSON (a bare ``` block has no language). */
+const CHART_LANGS = new Set(["json", "chart"]);
+
+interface HastLike {
+  type?: string;
+  tagName?: string;
+  value?: string;
+  properties?: { className?: unknown };
+  children?: HastLike[];
+}
+
+function hastText(n: HastLike | undefined): string {
+  if (!n) return "";
+  if (n.type === "text") return n.value ?? "";
+  return (n.children ?? []).map(hastText).join("");
+}
+
+/**
+ * Legacy safety net: older saved answers sometimes carry a chart as a JSON code block. When the block is
+ * complete, parseable JSON that is chart-shaped, return the specs to draw; otherwise null (render as code).
+ */
+function legacyChartsFromCodeBlock(node: unknown): ChartSpec[] | null {
+  const pre = node as HastLike | undefined;
+  const code = pre?.children?.find((c) => c.type === "element" && c.tagName === "code");
+  if (!code) return null;
+  const cls = code.properties?.className;
+  const classes = Array.isArray(cls)
+    ? cls.map(String)
+    : typeof cls === "string"
+      ? cls.split(/\s+/)
+      : [];
+  const lang = classes
+    .find((c) => c.startsWith("language-"))
+    ?.slice("language-".length)
+    .toLowerCase();
+  if (lang !== undefined && !CHART_LANGS.has(lang)) return null;
+  const text = hastText(code).trim();
+  if (!text.startsWith("{") && !text.startsWith("[")) return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    return null; // incomplete or invalid JSON stays a code block
+  }
+  const items = Array.isArray(parsed) ? parsed : [parsed];
+  if (items.length === 0) return null;
+  const specs = items.map(normalizeChartSpec);
+  if (specs.some((s) => s === null)) return null;
+  return specs as ChartSpec[];
+}
+
+function LegacyCharts({ specs }: { specs: ChartSpec[] }) {
+  return (
+    <div className="my-2 flex w-full min-w-0 flex-col gap-2">
+      {specs.map((raw, i) => {
+        // Drawn from an older answer's text: the server never verified these numbers, so say so.
+        const s: ChartSpec = {
+          ...raw,
+          note: raw.note ?? "Drawn from the text of an earlier answer; not verified against tool results.",
+        };
+        const problem = chartProblem(s);
+        return problem ? (
+          <ChartFallback key={i} spec={s} reason={problem} />
+        ) : (
+          <ChatChart key={i} spec={s} />
+        );
+      })}
+    </div>
+  );
+}
 
 const components: Components = {
   h1: ({ children }) => (
@@ -45,11 +118,15 @@ const components: Components = {
       {children}
     </code>
   ),
-  pre: ({ children }) => (
-    <pre className="my-2 overflow-x-auto border border-border bg-muted/60 p-2 font-mono text-[12px] [&>code]:bg-transparent [&>code]:p-0">
-      {children}
-    </pre>
-  ),
+  pre: ({ node, children }) => {
+    const specs = legacyChartsFromCodeBlock(node);
+    if (specs) return <LegacyCharts specs={specs} />;
+    return (
+      <pre className="my-2 overflow-x-auto border border-border bg-muted/60 p-2 font-mono text-[12px] [&>code]:bg-transparent [&>code]:p-0">
+        {children}
+      </pre>
+    );
+  },
   table: ({ children }) => (
     <div className="my-2 max-w-full overflow-x-auto">
       <table className="w-full border-collapse text-[12px]">{children}</table>

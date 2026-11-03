@@ -157,3 +157,46 @@ class ToolEvent(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     __table_args__ = (Index("ix_toolhub_events_tenant_time", "tenant_id", "created_at"),)
+
+
+class McpTask(Base):
+    """A long-running operation started on an MCP server (a job), followed until it ends.
+
+    state: CREATED → QUEUED/RUNNING → COMPLETED | FAILED | CANCELLED | TIMED_OUT | EXPIRED. The remote id is the one
+    the server's own status mechanism takes (found from its schemas), never guessed. Terminal tasks are never polled.
+    """
+
+    __tablename__ = "toolhub_mcp_tasks"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    tenant_id: Mapped[str] = mapped_column(String(36), ForeignKey("companies.id", ondelete="CASCADE"), nullable=False)
+    integration_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    role_key: Mapped[str] = mapped_column(String(128), nullable=False)
+    plan_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    start_tool: Mapped[str] = mapped_column(String(128), nullable=False)
+    args_hash: Mapped[str] = mapped_column(String(64), nullable=False, default="")
+    args_summary: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    mechanism: Mapped[str] = mapped_column(String(16), nullable=False, default="tool")   # tool | mcp_tasks
+    status_tool: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    status_param: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    cancel_tool: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    remote_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    remote_id_field: Mapped[str] = mapped_column(String(64), nullable=False, default="id")
+    state: Mapped[str] = mapped_column(String(16), nullable=False, default="CREATED")
+    remote_status: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    poll_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    poll_failures: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    last_poll_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    result_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    next_poll_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    deadline_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    __table_args__ = (
+        Index("ix_toolhub_tasks_tenant_time", "tenant_id", "created_at"),
+        Index("ix_toolhub_tasks_state_poll", "state", "next_poll_at"),
+        Index("ix_toolhub_tasks_dedupe", "tenant_id", "integration_id", "start_tool", "args_hash"),
+    )

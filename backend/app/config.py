@@ -95,6 +95,15 @@ class Settings(BaseSettings):
     # When empty the key is derived from SECRET_KEY (previous behaviour).
     encryption_key: str = ""
     allow_private_mcp_hosts: bool = False  # dev/test only: let MCP servers live on loopback/private addresses (default: public only)
+    # MCP calls and long-running MCP operations (jobs)
+    mcp_call_timeout_s: int = 30              # one JSON-RPC request
+    mcp_task_poll_initial_s: float = 5.0      # first status check after a job starts (a server's pollInterval wins)
+    mcp_task_poll_max_s: float = 30.0         # backoff ceiling between status checks
+    mcp_task_turn_wait_s: float = 60.0        # how long one chat answer waits for a job before reporting it running
+    mcp_task_max_duration_s: int = 1800       # after this a job is TIMED_OUT and no longer polled
+    mcp_task_dedupe_window_s: int = 600       # the same job (tool + inputs) is not started twice within this window
+    mcp_task_poller_enabled: bool = True      # background poller (resumes running jobs after a restart)
+    mcp_task_poller_interval_s: float = 15.0
     allow_private_db_hosts: bool = False   # production only: permit loopback/private database hosts (see services/outbound_guard.py)
 
     # ── LLM ───────────────────────────────────────────────────────────────────

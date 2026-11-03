@@ -245,3 +245,57 @@ async def refresh_mcp(integration_id: str, admin: User = Depends(require_admin),
     if i.status != "connected":
         raise HTTPException(409, "Test the connection first (TEST NOW).")
     return await mcp_sync.refresh(db, admin.tenant_id, integration_id, actor=admin.email or admin.id)
+
+
+# ── Long-running MCP operations (jobs) ───────────────────────────────────────
+
+@router.get("/tasks")
+async def tasks(state: str | None = Query(None, pattern="^(CREATED|QUEUED|RUNNING|COMPLETED|FAILED|CANCELLED|TIMED_OUT|EXPIRED)$"),
+                limit: int = Query(100, ge=1, le=500), admin: User = Depends(require_admin),
+                db: AsyncSession = Depends(get_db)) -> dict:
+    """Jobs started on MCP servers by this company's AI employees, newest first (no results' text, no secrets)."""
+    from app.db.toolhub_models import McpTask
+    from app.toolhub import mcp_tasks
+    q = select(McpTask).where(McpTask.tenant_id == admin.tenant_id)
+    if state:
+        q = q.where(McpTask.state == state)
+    rows = (await db.execute(q.order_by(McpTask.created_at.desc()).limit(limit))).scalars().all()
+    return {"tasks": [mcp_tasks.summary(t) for t in rows]}
+
+
+async def _task(db: AsyncSession, tenant_id: str, task_id: str):
+    from app.db.toolhub_models import McpTask
+    t = (await db.execute(select(McpTask).where(McpTask.tenant_id == tenant_id, McpTask.id == task_id))
+         ).scalar_one_or_none()
+    if t is None:
+        raise HTTPException(404, "Task not found.")
+    return t
+
+
+@router.get("/tasks/{task_id}")
+async def task_detail(task_id: str, admin: User = Depends(require_admin), db: AsyncSession = Depends(get_db)) -> dict:
+    from app.toolhub import mcp_tasks
+    t = await _task(db, admin.tenant_id, task_id)
+    return {**mcp_tasks.summary(t), "result_text": (t.result_text or "")[:20000]}
+
+
+@router.post("/tasks/{task_id}/check")
+async def task_check(task_id: str, admin: User = Depends(require_admin), db: AsyncSession = Depends(get_db)) -> dict:
+    """One status check now (never on a finished, timed-out or expired job)."""
+    from app.toolhub import mcp_tasks
+    t = await mcp_tasks.poll_once(db, await _task(db, admin.tenant_id, task_id))
+    await db.commit()
+    return mcp_tasks.summary(t)
+
+
+@router.post("/tasks/{task_id}/cancel")
+async def task_cancel(task_id: str, admin: User = Depends(require_admin), db: AsyncSession = Depends(get_db)) -> dict:
+    from app.toolhub import mcp_tasks
+    t = await _task(db, admin.tenant_id, task_id)
+    ok, msg = await mcp_tasks.cancel(db, t)
+    if not ok:
+        raise HTTPException(409, msg)
+    db.add(ToolEvent(tenant_id=admin.tenant_id, kind="task_cancelled", actor=admin.email or admin.id,
+                     detail=f"{t.start_tool} job {t.remote_id}"))
+    await db.commit()
+    return mcp_tasks.summary(t)

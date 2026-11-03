@@ -394,9 +394,12 @@ async def execute_agent(
                 return _route_reply(_blocked, "EXECUTION_BLOCKED (nothing was run)")
             if _usable:
                 from app.tools.dynamic_tool import make_tool_key
+                from app.toolhub.mcp_schema import function_name as _fn
+                # The server's native tools (mcp_<id8>_<tool>) or, for a server not in the registry yet, call_tool.
                 _required_tools = frozenset(
-                    make_tool_key(r.id, "call_tool") if r.provider_type == "mcp" else f"integration_{r.id.replace('-', '')[:8].lower()}_"
-                    for r in _usable)
+                    p for r in _usable for p in ((_fn(r.id, ""), make_tool_key(r.id, "call_tool"))
+                                                 if r.provider_type == "mcp"
+                                                 else (f"integration_{r.id.replace('-', '')[:8].lower()}_",)))
                 _names = ", ".join(r.display_name for r in _usable)
                 _pre_steps.append(f"[ROUTE] {_svc_route.route} → agent with real tool dispatch ({_names}; "
                                   f"{'; '.join(_svc_route.signals)})")
@@ -770,6 +773,18 @@ async def execute_agent(
                         for s in sr.scalars().all()
                     ]
 
+                if not agent_done and plan_id:
+                    # Planner path (workflows, meetings, agent fallback): charts written into the text are validated
+                    # against this plan's tool results and shown as charts / tables, never as raw JSON.
+                    from app.toolhub import charts as _hub_charts
+                    _ev = "\n".join((s.result_summary or "") for s in (await db.execute(
+                        select(PlanStep).where(PlanStep.plan_id == plan_id))).scalars())
+                    final_message, _tcharts, _ = _hub_charts.extract_from_text(final_message, _ev)
+                    if _tcharts:
+                        from app.services.conversations import turn_charts as _tc
+                        _out = _tc.get()
+                        if _out is not None:
+                            _out.extend(_tcharts)
                 if plan_status != "failed":   # a failure notice is not an answer worth remembering
                     await _remember(db, authoritative_blueprint.tenant_id, role_key, user.id, request.user_prompt, final_message)
                 if plan_status == "completed":
@@ -823,6 +838,8 @@ async def execute_agent(
                     rag_chunks=rag_chunks if rag_chunks else None,
                     data_context_block=data_context_block + memory_context_block,
                 )
+                from app.toolhub import charts as _hub_charts2
+                resp.message, _scharts, _ = _hub_charts2.extract_from_text(resp.message, "")
                 # Carry plan fields as None for simple mode
                 await _remember(db, authoritative_blueprint.tenant_id, role_key, user.id, request.user_prompt, resp.message)
 

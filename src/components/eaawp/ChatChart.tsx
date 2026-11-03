@@ -2,7 +2,7 @@
  * Renders one server-provided ChartSpec (see backend/docs/TOOLHUB_API.md "Charts in chat answers").
  * Values are drawn exactly as given: null stays a gap, nothing is interpolated, filled or invented.
  */
-import { Component, useMemo, useRef, useState, type ReactNode } from "react";
+import { Component, useMemo, useRef, useState, type ReactElement, type ReactNode } from "react";
 import {
   Area,
   AreaChart,
@@ -218,34 +218,155 @@ async function exportPng(
   }
 }
 
+// ── Fallback: the data as a table plus the reason, never raw JSON ────────────
+
+/** Whatever labels / series / KPIs can be read safely from a possibly malformed spec. */
+function readableData(spec: unknown): {
+  labels: string[];
+  series: { name: string; values: unknown[] }[];
+  kpis: { label: string; value: unknown; unit: string | null }[];
+} {
+  const o = (typeof spec === "object" && spec !== null ? spec : {}) as Partial<
+    Record<keyof ChartSpec, unknown>
+  >;
+  const labels = Array.isArray(o.labels) ? o.labels.map((l) => String(l ?? "")) : [];
+  const series = Array.isArray(o.series)
+    ? o.series
+        .filter(
+          (s): s is { name?: unknown; values: unknown[] } =>
+            typeof s === "object" &&
+            s !== null &&
+            Array.isArray((s as { values?: unknown }).values),
+        )
+        .map((s, i) => ({
+          name: typeof s.name === "string" && s.name ? s.name : `Series ${i + 1}`,
+          values: s.values,
+        }))
+    : [];
+  const kpis = Array.isArray(o.kpis)
+    ? o.kpis
+        .filter((k): k is Record<string, unknown> => typeof k === "object" && k !== null)
+        .map((k) => ({
+          label: String(k["label"] ?? ""),
+          value: k["value"],
+          unit: typeof k["unit"] === "string" ? k["unit"] : null,
+        }))
+    : [];
+  return { labels, series, kpis };
+}
+
+function FallbackTable({ spec }: { spec: unknown }) {
+  const { labels, series, kpis } = readableData(spec);
+  const unit =
+    typeof spec === "object" && spec !== null && typeof (spec as ChartSpec).unit === "string"
+      ? (spec as ChartSpec).unit
+      : null;
+  if (kpis.length > 0) {
+    return (
+      <table className="w-full border-collapse text-[11px]">
+        <tbody>
+          {kpis.map((k, i) => (
+            <tr key={i} className="border-b border-border last:border-0">
+              <td className="break-words px-2 py-1">{k.label}</td>
+              <td className="px-2 py-1 text-right font-mono">
+                {formatNumber(num(k.value), k.unit)}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    );
+  }
+  const rowCount = Math.max(labels.length, ...series.map((s) => s.values.length), 0);
+  if (rowCount === 0) return null;
+  return (
+    <table className="w-full border-collapse text-[11px]">
+      <thead>
+        <tr className="bg-surface-2">
+          <th className="label-xs border-b border-border px-2 py-1 text-left">Label</th>
+          {series.map((s, i) => (
+            <th key={i} className="label-xs border-b border-border px-2 py-1 text-right">
+              {s.name}
+            </th>
+          ))}
+        </tr>
+      </thead>
+      <tbody>
+        {Array.from({ length: rowCount }, (_, r) => (
+          <tr key={r} className="border-b border-border last:border-0">
+            <td className="break-words px-2 py-1">{labels[r] ?? `#${r + 1}`}</td>
+            {series.map((s, i) => (
+              <td key={i} className="px-2 py-1 text-right font-mono">
+                {formatNumber(num(s.values[r]), unit)}
+              </td>
+            ))}
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+/**
+ * Shown instead of a chart that cannot be drawn: the title, whatever data could be read as a table, and one
+ * line saying why. Exported so the Markdown renderer can use it for legacy chart JSON.
+ */
+export function ChartFallback({
+  spec,
+  title,
+  reason,
+}: {
+  spec?: unknown;
+  title?: string | undefined;
+  reason?: string | undefined;
+}) {
+  const t =
+    title ??
+    (typeof spec === "object" && spec !== null && typeof (spec as ChartSpec).title === "string"
+      ? (spec as ChartSpec).title
+      : undefined);
+  return (
+    <div
+      role="note"
+      data-testid="chart-fallback"
+      className="mt-2 w-full min-w-0 border border-border bg-surface/40 p-3"
+    >
+      {t ? <div className="break-words text-[13px] font-medium">{t}</div> : null}
+      {spec !== undefined && (
+        <div className="mt-2 max-h-80 overflow-auto border border-border empty:hidden">
+          <FallbackTable spec={spec} />
+        </div>
+      )}
+      <p className="mt-2 font-mono text-[10px] tracking-[0.08em] text-muted-foreground">
+        This chart could not be drawn{reason ? `: ${reason}` : ""}.
+      </p>
+    </div>
+  );
+}
+
+// Back-compat name used inside this file.
+const ChartFailed = ChartFallback;
+
 // ── Error boundary so one bad spec never breaks the chat ─────────────────────
 
-class ChartBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
+class ChartBoundary extends Component<
+  { children: ReactNode; spec?: unknown },
+  { failed: boolean }
+> {
   override state = { failed: false };
   static getDerivedStateFromError() {
     return { failed: true };
   }
-  override render() {
-    return this.state.failed ? <ChartFailed /> : this.props.children;
+  override componentDidCatch(error: unknown) {
+    console.warn("Chart rendering failed", error);
   }
-}
-
-function ChartFailed({
-  title,
-  reason,
-}: {
-  title?: string | undefined;
-  reason?: string | undefined;
-}) {
-  return (
-    <div
-      role="note"
-      className="mt-2 w-full border border-border px-3 py-2 font-mono text-[10px] tracking-[0.08em] text-muted-foreground"
-    >
-      {title ? <span className="text-foreground">{title} · </span> : null}
-      Chart could not be drawn{reason ? ` (${reason})` : ""}.
-    </div>
-  );
+  override render() {
+    return this.state.failed ? (
+      <ChartFailed spec={this.props.spec} reason="the chart renderer failed on this data" />
+    ) : (
+      this.props.children
+    );
+  }
 }
 
 // ── Data table (exact numbers) ───────────────────────────────────────────────
@@ -275,7 +396,10 @@ function DataTable({ spec }: { spec: ChartSpec }) {
     );
   }
   const series = spec.series;
-  const rowLabel = spec.type === "scatter" ? "Point" : spec.x_label || "Label";
+  const rowLabel =
+    spec.type === "scatter"
+      ? "Point"
+      : spec.x_label || (spec.type === "histogram" ? "Bin" : "Label");
   const rowCount =
     spec.type === "scatter"
       ? Math.max(spec.labels.length, series[0]?.values.length ?? 0, series[1]?.values.length ?? 0)
@@ -331,9 +455,39 @@ function KpiCards({ spec }: { spec: ChartSpec }) {
   );
 }
 
+function NoData() {
+  return (
+    <div
+      role="note"
+      className="flex h-24 w-full items-center justify-center border border-dashed border-border font-mono text-[10px] tracking-[0.08em] text-muted-foreground"
+    >
+      No data to chart
+    </div>
+  );
+}
+
+/** Explicit-height box so ResponsiveContainer never collapses to 0px. */
+function ChartFrame({ height, children }: { height: number; children: ReactElement }) {
+  return (
+    <div className="w-full min-w-0" style={{ height }}>
+      <ResponsiveContainer width="100%" height="100%" minWidth={0}>
+        {children}
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
+function truncate(s: string, n: number): string {
+  return s.length > n ? `${s.slice(0, Math.max(1, n - 1))}…` : s;
+}
+
+const CHART_HEIGHT = 280;
+
 function ChartBody({ spec }: { spec: ChartSpec }) {
   const unit = spec.unit;
   const multi = spec.series.length > 1;
+  const stacked =
+    spec.stacked === true && (spec.type === "bar" || spec.type === "hbar" || spec.type === "area");
   const yLabel = axisLabel(spec.y_label, unit);
   const xLabel = axisLabel(spec.x_label, null);
   const fmt = (v: unknown) => formatNumber(num(v), unit);
@@ -341,7 +495,7 @@ function ChartBody({ spec }: { spec: ChartSpec }) {
   const rows = useMemo(
     () =>
       spec.labels.map((label, i) => {
-        const row: Record<string, string | number | null> = { __label: label };
+        const row: Record<string, string | number | null> = { __label: String(label ?? "") };
         spec.series.forEach((s, si) => {
           row[`s${si}`] = num(s.values[i]);
         });
@@ -349,7 +503,12 @@ function ChartBody({ spec }: { spec: ChartSpec }) {
       }),
     [spec],
   );
-  const longLabels = spec.labels.length > 6 && spec.labels.some((l) => String(l).length > 8);
+  const hasAnyValue = rows.some((r) => spec.series.some((_, si) => r[`s${si}`] !== null));
+
+  const maxLabelLen = spec.labels.reduce((m, l) => Math.max(m, String(l ?? "").length), 0);
+  const longLabels =
+    (spec.labels.length > 6 && maxLabelLen > 8) || (spec.labels.length > 3 && maxLabelLen > 14);
+  const xTickFormatter = (v: unknown) => truncate(String(v ?? ""), longLabels ? 14 : 22);
   const xAxis = (
     <XAxis
       dataKey="__label"
@@ -359,7 +518,8 @@ function ChartBody({ spec }: { spec: ChartSpec }) {
       minTickGap={8}
       angle={longLabels ? -30 : 0}
       textAnchor={longLabels ? "end" : "middle"}
-      height={(longLabels ? 56 : 30) + (xLabel ? 14 : 0)}
+      height={(longLabels ? 64 : 30) + (xLabel ? 14 : 0)}
+      tickFormatter={xTickFormatter}
       {...(xLabel
         ? { label: { value: xLabel, position: "insideBottom", offset: 0, style: AXIS_LABEL_STYLE } }
         : {})}
@@ -396,9 +556,17 @@ function ChartBody({ spec }: { spec: ChartSpec }) {
   const legend = multi ? <Legend wrapperStyle={LEGEND_STYLE} iconSize={9} /> : null;
   const margin = { top: 8, right: 12, bottom: 4, left: 0 };
 
+  const cartesian =
+    spec.type === "bar" ||
+    spec.type === "hbar" ||
+    spec.type === "line" ||
+    spec.type === "area" ||
+    spec.type === "histogram";
+  if (cartesian && !hasAnyValue) return <NoData />;
+
   if (spec.type === "bar") {
     return (
-      <ResponsiveContainer width="100%" height={280}>
+      <ChartFrame height={CHART_HEIGHT}>
         <BarChart data={rows} margin={margin}>
           {grid}
           {xAxis}
@@ -413,15 +581,102 @@ function ChartBody({ spec }: { spec: ChartSpec }) {
               fill={chartColor(i)}
               isAnimationActive={false}
               maxBarSize={48}
+              {...(stacked ? { stackId: "stack" } : {})}
             />
           ))}
         </BarChart>
-      </ResponsiveContainer>
+      </ChartFrame>
+    );
+  }
+  if (spec.type === "hbar") {
+    // Categories on the Y axis: good for rankings and long labels. Height grows with the category count.
+    const band = Math.max(18, (stacked ? 1 : spec.series.length) * 12 + 10);
+    const height = Math.min(640, Math.max(180, spec.labels.length * band + 60 + (multi ? 24 : 0)));
+    const catWidth = Math.min(132, Math.max(48, maxLabelLen * 6 + 8));
+    const xl = axisLabel(spec.y_label ?? spec.x_label, unit); // the value axis
+    return (
+      <ChartFrame height={height}>
+        <BarChart data={rows} layout="vertical" margin={{ top: 8, right: 16, bottom: 4, left: 0 }}>
+          <CartesianGrid stroke="var(--border)" strokeDasharray="3 3" horizontal={false} />
+          <XAxis
+            type="number"
+            tick={AXIS_TICK}
+            stroke="var(--border)"
+            tickFormatter={(v: number) => compact(v)}
+            height={xl ? 44 : 30}
+            {...(xl
+              ? {
+                  label: {
+                    value: xl,
+                    position: "insideBottom",
+                    offset: 0,
+                    style: AXIS_LABEL_STYLE,
+                  },
+                }
+              : {})}
+          />
+          <YAxis
+            type="category"
+            dataKey="__label"
+            tick={AXIS_TICK}
+            stroke="var(--border)"
+            width={catWidth}
+            interval={0}
+            tickFormatter={(v: unknown) =>
+              truncate(String(v ?? ""), Math.floor((catWidth - 8) / 6))
+            }
+          />
+          {tooltip}
+          {legend}
+          {spec.series.map((s, i) => (
+            <Bar
+              key={i}
+              dataKey={`s${i}`}
+              name={s.name}
+              fill={chartColor(i)}
+              isAnimationActive={false}
+              maxBarSize={28}
+              {...(stacked ? { stackId: "stack" } : {})}
+            />
+          ))}
+        </BarChart>
+      </ChartFrame>
+    );
+  }
+  if (spec.type === "histogram") {
+    const s0 = spec.series[0];
+    return (
+      <ChartFrame height={CHART_HEIGHT}>
+        <BarChart data={rows} margin={margin} barCategoryGap={0} barGap={0}>
+          {grid}
+          {xAxis}
+          {axisLabel(spec.y_label, unit) ? (
+            yAxis
+          ) : (
+            <YAxis
+              tick={AXIS_TICK}
+              stroke="var(--border)"
+              width={48}
+              tickFormatter={(v: number) => compact(v)}
+              allowDecimals={false}
+            />
+          )}
+          {tooltip}
+          <Bar
+            dataKey="s0"
+            name={s0?.name ?? "Count"}
+            fill={chartColor(0)}
+            stroke="var(--background)"
+            strokeWidth={1}
+            isAnimationActive={false}
+          />
+        </BarChart>
+      </ChartFrame>
     );
   }
   if (spec.type === "line") {
     return (
-      <ResponsiveContainer width="100%" height={280}>
+      <ChartFrame height={CHART_HEIGHT}>
         <LineChart data={rows} margin={margin}>
           {grid}
           {xAxis}
@@ -443,12 +698,12 @@ function ChartBody({ spec }: { spec: ChartSpec }) {
             />
           ))}
         </LineChart>
-      </ResponsiveContainer>
+      </ChartFrame>
     );
   }
   if (spec.type === "area") {
     return (
-      <ResponsiveContainer width="100%" height={280}>
+      <ChartFrame height={CHART_HEIGHT}>
         <AreaChart data={rows} margin={margin}>
           {grid}
           {xAxis}
@@ -463,28 +718,39 @@ function ChartBody({ spec }: { spec: ChartSpec }) {
               name={s.name}
               stroke={chartColor(i)}
               fill={chartColor(i)}
-              fillOpacity={0.18}
+              fillOpacity={stacked ? 0.35 : 0.18}
               strokeWidth={2}
               connectNulls={false}
               isAnimationActive={false}
+              {...(stacked ? { stackId: "stack" } : {})}
             />
           ))}
         </AreaChart>
-      </ResponsiveContainer>
+      </ChartFrame>
     );
   }
   if (spec.type === "pie" || spec.type === "donut") {
     const s0 = spec.series[0];
     const slices = spec.labels
-      .map((label, i) => ({ name: label, value: num(s0?.values[i]), color: chartColor(i) }))
+      .map((label, i) => ({
+        name: String(label ?? ""),
+        value: num(s0?.values[i]),
+        color: chartColor(i),
+      }))
       .filter(
         (d): d is { name: string; value: number; color: string } => d.value !== null && d.value > 0,
       );
     const hidden = spec.labels.length - slices.length;
-    if (slices.length === 0) return <ChartFailed reason="no positive values to draw" />;
+    if (slices.length === 0) {
+      return (s0?.values ?? []).every((v) => num(v) === null) ? (
+        <NoData />
+      ) : (
+        <ChartFailed spec={spec} reason="no positive values to draw" />
+      );
+    }
     return (
       <>
-        <ResponsiveContainer width="100%" height={280}>
+        <ChartFrame height={CHART_HEIGHT + (slices.length > 6 ? 40 : 0)}>
           <PieChart margin={{ top: 4, right: 4, bottom: 4, left: 4 }}>
             <Tooltip
               formatter={(v: unknown) => fmt(v)}
@@ -492,7 +758,11 @@ function ChartBody({ spec }: { spec: ChartSpec }) {
               labelStyle={TOOLTIP_LABEL_STYLE}
               itemStyle={{ color: "var(--foreground)" }}
             />
-            <Legend wrapperStyle={LEGEND_STYLE} iconSize={9} />
+            <Legend
+              wrapperStyle={LEGEND_STYLE}
+              iconSize={9}
+              formatter={(v: unknown) => truncate(String(v ?? ""), 24)}
+            />
             <Pie
               data={slices}
               dataKey="value"
@@ -503,12 +773,12 @@ function ChartBody({ spec }: { spec: ChartSpec }) {
               stroke="var(--background)"
               strokeWidth={1}
             >
-              {slices.map((d) => (
-                <Cell key={d.name} fill={d.color} />
+              {slices.map((d, i) => (
+                <Cell key={`${d.name}-${i}`} fill={d.color} />
               ))}
             </Pie>
           </PieChart>
-        </ResponsiveContainer>
+        </ChartFrame>
         {hidden > 0 && (
           <p className="mt-1 font-mono text-[10px] text-muted-foreground">
             {hidden} {hidden === 1 ? "value is" : "values are"} empty or not positive and not drawn
@@ -527,11 +797,11 @@ function ChartBody({ spec }: { spec: ChartSpec }) {
       const y = num(sy?.values[i]);
       if (x !== null && y !== null) points.push({ x, y, name: spec.labels[i] ?? `#${i + 1}` });
     }
-    if (points.length === 0) return <ChartFailed reason="no complete x/y pairs" />;
+    if (points.length === 0) return <NoData />;
     const xl = axisLabel(spec.x_label ?? sx?.name ?? null, null);
     const yl = axisLabel(spec.y_label ?? sy?.name ?? null, unit);
     return (
-      <ResponsiveContainer width="100%" height={280}>
+      <ChartFrame height={CHART_HEIGHT}>
         <ScatterChart margin={{ top: 8, right: 12, bottom: 4, left: 0 }}>
           <CartesianGrid stroke="var(--border)" strokeDasharray="3 3" />
           <XAxis
@@ -595,7 +865,7 @@ function ChartBody({ spec }: { spec: ChartSpec }) {
           />
           <Scatter data={points} fill={chartColor(0)} isAnimationActive={false} />
         </ScatterChart>
-      </ResponsiveContainer>
+      </ChartFrame>
     );
   }
   return null;
@@ -607,19 +877,13 @@ export function ChatChart({ spec }: { spec: ChartSpec }) {
   const [exporting, setExporting] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
-  if (problem)
-    return (
-      <ChartFailed
-        title={typeof spec?.title === "string" ? spec.title : undefined}
-        reason={problem}
-      />
-    );
+  if (problem) return <ChartFailed spec={spec} reason={problem} />;
 
   const drawsSvg = spec.type !== "kpi" && spec.type !== "table";
   const legendItems =
     spec.type === "pie" || spec.type === "donut"
       ? spec.labels.map((l, i) => ({ name: l, color: chartColor(i) }))
-      : spec.type === "scatter"
+      : spec.type === "scatter" || spec.type === "histogram"
         ? []
         : spec.series.length > 1
           ? spec.series.map((s, i) => ({ name: s.name, color: chartColor(i) }))
@@ -637,14 +901,20 @@ export function ChatChart({ spec }: { spec: ChartSpec }) {
     }
   }
 
+  const description = typeof spec.description === "string" ? spec.description.trim() : "";
+
   return (
     <figure
       data-testid="chat-chart"
-      className="mt-2 w-full min-w-0 border border-border bg-surface/40 p-3"
+      data-chart-type={spec.type}
+      className="mt-2 w-full min-w-0 max-w-full overflow-hidden border border-border bg-surface/40 p-3"
     >
       <div className="flex flex-wrap items-start justify-between gap-2">
-        <figcaption className="min-w-0 break-words text-[13px] font-medium">
-          {spec.title}
+        <figcaption className="min-w-0 flex-1 break-words">
+          <span className="block text-[13px] font-medium">{spec.title}</span>
+          {description && (
+            <span className="mt-0.5 block text-[11px] text-muted-foreground">{description}</span>
+          )}
         </figcaption>
         {spec.type !== "table" && (
           <div className="flex shrink-0 gap-1.5">
@@ -686,7 +956,7 @@ export function ChatChart({ spec }: { spec: ChartSpec }) {
         ) : spec.type === "kpi" ? (
           <KpiCards spec={spec} />
         ) : (
-          <ChartBoundary>
+          <ChartBoundary spec={spec} key={spec.id}>
             <ChartBody spec={spec} />
           </ChartBoundary>
         )}
@@ -709,7 +979,7 @@ export function ChatCharts({ charts }: { charts: ChartSpec[] | null | undefined 
   return (
     <div className="flex w-full min-w-0 flex-col gap-2" aria-label="Charts">
       {charts.map((c, i) => (
-        <ChartBoundary key={c?.id ?? i}>
+        <ChartBoundary key={c?.id ?? i} spec={c}>
           <ChatChart spec={c} />
         </ChartBoundary>
       ))}

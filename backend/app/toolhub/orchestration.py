@@ -17,7 +17,7 @@ import json
 import logging
 import time
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Optional
 
 from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, Field
@@ -50,12 +50,34 @@ class _BuildArgs(BaseModel):
     example_input_json: str = Field("", description="Optional JSON example of the input object.")
 
 
+class _SeriesArg(BaseModel):
+    name: str = Field(..., description="Series name shown in the legend, e.g. 'Clicks'.")
+    values: list[Optional[float]] = Field(..., description="One number per label, in label order (null if missing).")
+
+
+class _KpiArg(BaseModel):
+    label: str
+    value: float
+    unit: str = ""
+
+
 class _ChartArgs(BaseModel):
-    chart_json: str = Field(..., description=(
-        'JSON: {"title": str, "type": "bar|line|area|pie|donut|scatter|kpi|table" (optional, chosen from the data '
-        'if omitted), "labels": [str], "series": [{"name": str, "values": [number]}], "unit": str, "x_label": str, '
-        '"y_label": str, "source": str} or for KPI cards {"title": str, "kpis": [{"label": str, "value": number, '
-        '"unit": str}]}. Values must come from tool results of this answer.'))
+    title: str = Field("", description="Chart title.")
+    type: str = Field("", description="bar | hbar (horizontal bars, for rankings or long labels) | line | area | pie | "
+                                      "donut | scatter | histogram | kpi | table. Leave empty to choose from the data.")
+    description: str = Field("", description="One sentence on what the chart shows.")
+    labels: list[str] = Field(default_factory=list, description="Categories or dates on the x axis.")
+    series: list[_SeriesArg] = Field(default_factory=list, description="One or more series (several = grouped / "
+                                     "comparison chart). Scatter: series[0] = x values, series[1] = y values.")
+    stacked: bool = Field(False, description="Stack the series (bar, hbar, area).")
+    values: list[float] = Field(default_factory=list, description="Histogram only: the raw values to bin.")
+    bins: int = Field(0, description="Histogram only: number of bins (0 = automatic).")
+    kpis: list[_KpiArg] = Field(default_factory=list, description="KPI cards: label, value, unit.")
+    unit: str = Field("", description="Unit of the values, e.g. '%', 'clicks', 'INR'.")
+    x_label: str = ""
+    y_label: str = ""
+    source: str = Field("", description="Where the numbers came from (tool / service).")
+    chart_json: str = Field("", description="(Older form) the whole chart as a JSON string. Prefer the fields.")
 
 
 def meta_tools(db: AsyncSession, tenant_id: str, role_key: str, plan_id: str, state: TurnState,
@@ -87,11 +109,17 @@ def meta_tools(db: AsyncSession, tenant_id: str, role_key: str, plan_id: str, st
             return res.message
         return f"[TOOL ERROR] build_tool: {res.message}"
 
-    async def make_chart(chart_json: str) -> str:
-        try:
-            raw = json.loads(chart_json)
-        except ValueError:
-            return "[VALIDATION ERROR] make_chart: chart_json must be valid JSON."
+    async def make_chart(**fields: Any) -> str:
+        legacy = fields.pop("chart_json", "") or ""
+        if legacy.strip():
+            try:
+                raw = json.loads(legacy)
+            except ValueError:
+                return "[VALIDATION ERROR] make_chart: chart_json must be valid JSON (or use the chart fields)."
+        else:
+            raw = {k: (v.model_dump() if hasattr(v, "model_dump") else
+                       [x.model_dump() if hasattr(x, "model_dump") else x for x in v] if isinstance(v, list) else v)
+                   for k, v in fields.items() if v not in ("", None, [], 0) or k == "stacked"}
         spec, why = charts.build(raw, "\n".join(state.evidence))
         if spec is None:
             return f"[VALIDATION ERROR] make_chart: {why}"
@@ -107,9 +135,10 @@ def meta_tools(db: AsyncSession, tenant_id: str, role_key: str, plan_id: str, st
                         "for a capability, including tools not granted to you. Read-only; runs nothing."),
         MAKE_CHART: StructuredTool.from_function(
             coroutine=make_chart, name=MAKE_CHART, args_schema=_ChartArgs,
-            description="Add a chart (bar, line, area, pie/donut, scatter, KPI cards or table) under your answer, "
-                        "from numbers your tools returned in this answer. Use it for comparisons, trends, shares and "
-                        "KPIs. Invented or unverified values are refused."),
+            description="Show a chart under your answer (bar, horizontal bar, grouped/stacked bars, line, area, "
+                        "pie/donut, scatter, histogram, KPI cards or table), from numbers your tools returned in this "
+                        "answer. Use it for comparisons, trends, shares, distributions and KPIs. Never write chart "
+                        "JSON in your answer text — call this instead. Invented or unverified values are refused."),
     }
     if role_key not in NO_BUILD_ROLES:
         tools[BUILD_TOOL] = StructuredTool.from_function(
@@ -149,6 +178,8 @@ def source_of(name: str, dyn_map: dict) -> str:
         return "internet"
     if name.startswith("gen_"):
         return "generated"
+    if name.startswith("mcp_"):
+        return "mcp"
     if name in dyn_map:
         return "mcp" if name.endswith("_call_tool") or name.endswith("_discover_tools") else "integration"
     return "builtin"
@@ -162,7 +193,7 @@ def parallel_safe(name: str) -> bool:
 
 async def execute(name: str, args: dict, runner, *, db: AsyncSession | None, tenant_id: str, role_key: str,
                   plan_id: str, label: str, source: str, record: bool = True,
-                  mcp_integration: str | None = None) -> tuple[str, str | None]:
+                  mcp_integration: str | None = None, idempotent: bool = True) -> tuple[str, str | None]:
     """Run one read/compute call with recovery. Returns (result text, error category or None)."""
     from app.tools.dynamic_tool import is_tool_failure
 
@@ -173,7 +204,7 @@ async def execute(name: str, args: dict, runner, *, db: AsyncSession | None, ten
         except Exception as exc:  # noqa: BLE001 - a crashing tool is a failed call, never a crashed answer
             result = f"[TOOL ERROR] {name}: {type(exc).__name__}: {str(exc)[:300]}"
         cat = diagnostics.classify_error(result) if is_tool_failure(result) else None
-        if cat and diagnostics.retryable(cat, idempotent=True) and retries < diagnostics.MAX_RETRIES:
+        if cat and diagnostics.retryable(cat, idempotent=idempotent) and retries < diagnostics.MAX_RETRIES:
             await asyncio.sleep(diagnostics.BACKOFF_SECONDS[retries])
             retries += 1
             recovery.append(f"retry {retries} after {cat}")
@@ -209,6 +240,9 @@ ORCHESTRATION_RULES = """## Planning and tools
   administrator can grant it — do not work around it.
 - Use build_tool only for a calculation or data transformation that no existing tool or combination can do, and
   only after find_tools. Never use it to fetch data, contact anyone or change records.
-- When numbers are compared, trend over time, form shares or are KPIs, add a chart with make_chart using exactly
-  the numbers your tools returned. Say in the answer if data was insufficient for a chart.
+- When numbers are compared, trend over time, form shares, show a distribution or are KPIs, add a chart with
+  make_chart using exactly the numbers your tools returned (pick the type that fits: line for time, bar/hbar for
+  comparisons and rankings, donut for shares of a whole, histogram for distributions, kpi for headline figures).
+  Never write chart JSON or chart code in the answer text. No chart for simple conversational answers, and never a
+  chart from numbers no tool returned. Say in the answer if data was insufficient for a chart.
 - If a required integration is not connected or a tool fails, say what is missing; never fill gaps with guesses."""

@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import pytest
@@ -24,6 +25,10 @@ class LiveMcp:
 
     def __init__(self, tools: list[dict]):
         self.tools, self.down, self.calls, self.outputs = list(tools), False, [], {}
+        # outputs[name]: text, or a callable(arguments) -> text | (text, is_error); delays[name]: seconds to wait;
+        # methods[name]: callable(params) -> result for other JSON-RPC methods (e.g. tasks/get).
+        self.delays: dict = {}
+        self.methods: dict = {}
         outer = self
 
         class H(BaseHTTPRequestHandler):
@@ -49,9 +54,23 @@ class LiveMcp:
                     return self._send(202)
                 if m == "tools/list":
                     return self._send(200, {"jsonrpc": "2.0", "id": body["id"], "result": {"tools": outer.tools}})
+                if m in outer.methods:
+                    return self._send(200, {"jsonrpc": "2.0", "id": body["id"], "result": outer.methods[m](
+                        body.get("params") or {})})
                 outer.calls.append(body["params"])
-                return self._send(200, {"jsonrpc": "2.0", "id": body["id"], "result": {"content": [
-                    {"type": "text", "text": outer.outputs.get(body['params']['name'], f"ran {body['params']['name']}")}]}})
+                name = body["params"]["name"]
+                if name in outer.delays:
+                    time.sleep(outer.delays[name])
+                out = outer.outputs.get(name, f"ran {name}")
+                if callable(out):
+                    out = out(body["params"].get("arguments") or {})
+                is_err = False
+                if isinstance(out, tuple):
+                    out, is_err = out
+                result = {"content": [{"type": "text", "text": out}]}
+                if is_err:
+                    result["isError"] = True
+                return self._send(200, {"jsonrpc": "2.0", "id": body["id"], "result": result})
 
         self.httpd = ThreadingHTTPServer(("127.0.0.1", 0), H)
         self.url = f"http://127.0.0.1:{self.httpd.server_port}/mcp"

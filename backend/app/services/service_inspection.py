@@ -210,9 +210,11 @@ async def diagnostics(db: AsyncSession, tenant_id: str, role_key: str, services:
     for r in rows:
         lines = [f"- Connection record: {r.status.upper()}, last tested {_when(r.last_tested_at)}"
                  + (f", last error: {r.error_message[:200]}" if r.error_message else "")]
-        prefix = f"integration_{r.id.replace('-', '')[:8]}_"
+        short = r.id.replace('-', '')[:8].lower()
+        from sqlalchemy import or_
         res = await db.execute(select(ToolExecution).where(
-            ToolExecution.tenant_id == tenant_id, ToolExecution.tool_key.like(f"{prefix}%"))
+            ToolExecution.tenant_id == tenant_id,
+            or_(ToolExecution.tool_key.like(f"integration_{short}_%"), ToolExecution.tool_key.like(f"mcp_{short}_%")))
             .order_by(ToolExecution.started_at.desc()).limit(20))
         runs = list(res.scalars())
         failed = [x for x in runs if x.status != "success"]

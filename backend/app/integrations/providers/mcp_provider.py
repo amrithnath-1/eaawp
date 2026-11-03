@@ -56,6 +56,12 @@ from app.integrations.provider import (
 logger = logging.getLogger(__name__)
 
 MCP_CALL_TIMEOUT_SECONDS = 30
+FULL_TOOLS_KEY = "_full_tools"
+
+
+def _timeout() -> int:
+    from app.config import settings
+    return int(getattr(settings, "mcp_call_timeout_s", MCP_CALL_TIMEOUT_SECONDS) or MCP_CALL_TIMEOUT_SECONDS)
 MCP_PROTOCOL_VERSION = "2025-06-18"
 
 
@@ -267,32 +273,23 @@ def _validate_mcp_url(url: str) -> str:
     return url
 
 
-_JSON_TYPES = {"string": str, "boolean": bool, "object": dict, "array": list, "number": (int, float), "integer": int}
-
-
-def _argument_problems(args: dict, schema: dict) -> list[str]:
-    """Missing required inputs and top-level type mismatches. Deliberately conservative: servers' schemas use far
-    more JSON-schema than we check, and anything we cannot judge is left to the server."""
-    props = schema.get("properties") or {}
-    problems = [f"{k} is missing (required)" for k in (schema.get("required") or []) if k not in args]
-    for k, v in args.items():
-        spec = props.get(k)
-        if not isinstance(spec, dict) or "type" not in spec:
-            continue
-        types = spec["type"] if isinstance(spec["type"], list) else [spec["type"]]
-        py: tuple = ()
-        for name in types:
-            t = _JSON_TYPES.get(name)
-            py += t if isinstance(t, tuple) else (t,) if t else ()
-        if any(name not in _JSON_TYPES and name != "null" for name in types):
-            continue                                  # a type we do not know: the server decides
-        if "null" in types and v is None:
-            continue
-        if py and (not isinstance(v, py) or (isinstance(v, bool) and bool not in py)):
-            problems.append(f"{k} should be {'/'.join(types)}, got {type(v).__name__}")
-    if schema.get("additionalProperties") is False:
-        problems += [f"{k} is not an input of this tool" for k in args if k not in props]
-    return problems
+def result_text_of(response: dict) -> tuple[str, bool]:
+    """(text, is_error) of a tools/call result: text content, else structured content as JSON."""
+    content = response.get("content", []) if isinstance(response, dict) else []
+    parts: list[str] = []
+    if isinstance(content, list):
+        for c in content:
+            if isinstance(c, dict) and c.get("type") == "text":
+                parts.append(str(c.get("text", "")))
+            elif isinstance(c, dict) and c.get("type") == "resource" and isinstance(c.get("resource"), dict):
+                parts.append(str(c["resource"].get("text", ""))[:20000])
+    elif content:
+        parts.append(str(content))
+    if not "".join(parts).strip() and isinstance(response, dict) and response.get("structuredContent") is not None:
+        parts.append(json.dumps(response["structuredContent"], ensure_ascii=False, default=str))
+    if not parts and isinstance(response, dict) and isinstance(response.get("task"), dict):
+        parts.append(json.dumps({"task": response["task"]}, ensure_ascii=False, default=str))
+    return "\n".join(parts)[:MAX_RESPONSE_CHARS], bool(isinstance(response, dict) and response.get("isError"))
 
 
 def _check_injection(text: str, field_name: str) -> None:
@@ -411,6 +408,10 @@ class MCPIntegrationProvider(IntegrationProvider):
                     "tool_names": [t["name"] for t in tools[:10]],
                     # Short catalogue (no secrets) so chat can tell the AI how to call each granted tool.
                     "mcp_tools": tool_catalogue(tools),
+                    # Full input schemas for the tool registry. Removed by the manager before anything is stored or
+                    # returned (FULL_TOOLS_KEY): the connection record keeps only the compact catalogue.
+                    FULL_TOOLS_KEY: [{"name": t["name"], "description": t.get("description", ""),
+                                      "inputSchema": t.get("inputSchema") or {}} for t in tools],
                 },
                 error_message=None,
             )
@@ -522,8 +523,10 @@ class MCPIntegrationProvider(IntegrationProvider):
     ) -> CapabilityResult:
         """Execute a specific MCP tool."""
         tool_name = parameters.get("tool_name", "")
-        if not tool_name or len(tool_name) > 128:
-            raise MCPError("tool_name is required and must be ≤128 characters")
+        from app.toolhub.mcp_schema import valid_tool_name
+        if not valid_tool_name(tool_name):
+            raise MCPError(f"VALIDATION ERROR: tool name {str(tool_name)[:60]!r} is not a valid MCP tool name. "
+                           "Nothing was sent to the server.")
 
         _check_injection(tool_name, "tool_name parameter")
 
@@ -554,11 +557,10 @@ class MCPIntegrationProvider(IntegrationProvider):
         # missing or wrongly typed inputs never reaches the server, and the model is told exactly what to fix.
         schema = next((t.get("inputSchema") for t in tools if t["name"] == tool_name), None)
         if isinstance(schema, dict) and schema:
-            problems = _argument_problems(tool_args, schema)
+            from app.toolhub.mcp_schema import describe as _describe, validate as _validate
+            problems = _validate(tool_args, schema)
             if problems:
-                props = schema.get("properties") or {}
-                req = set(schema.get("required") or [])
-                inputs = ", ".join(f"{k} (required)" if k in req else k for k in list(props)[:12]) or "none"
+                inputs = _describe(schema)
                 raise MCPError(
                     f"VALIDATION ERROR: arguments for '{tool_name}' do not match its input schema: "
                     + "; ".join(p.replace("$.", "") for p in problems[:6])
@@ -581,21 +583,19 @@ class MCPIntegrationProvider(IntegrationProvider):
             params={"name": tool_name, "arguments": tool_args},
         )
 
-        content = response.get("content", [])
-        if isinstance(content, list):
-            text_parts = [
-                c.get("text", "") for c in content
-                if isinstance(c, dict) and c.get("type") == "text"
-            ]
-            result_text = "\n".join(text_parts)[:MAX_RESPONSE_CHARS]
-        else:
-            result_text = str(content)[:MAX_RESPONSE_CHARS]
-
+        result_text, is_error = result_text_of(response)
+        if is_error:
+            # The tool ran and reported a failure (MCP isError): a failure, not data.
+            raise MCPError(f"TOOL ERROR from '{tool_name}': {result_text[:1500] or 'the tool reported an error'}")
         return CapabilityResult(
             data=result_text,
             row_count=1,
             source_label=f"MCP:{tool_name}",
         )
+
+    async def request(self, credentials: dict[str, Any], method: str, params: dict) -> dict:
+        """One JSON-RPC request (e.g. tasks/get) with the same transport, limits and checks as tool calls."""
+        return await self._mcp_request(credentials, method=method, params=params)
 
     async def _mcp_request(
         self,
@@ -636,7 +636,7 @@ class MCPIntegrationProvider(IntegrationProvider):
                 endpoint,
                 headers={**base_headers, **session},
                 json=payload,
-                timeout=MCP_CALL_TIMEOUT_SECONDS,
+                timeout=_timeout(),
                 stream=True,
                 allow_redirects=False,       # a redirect could bounce the request (and its API key) to an internal address
             )
@@ -714,7 +714,7 @@ class MCPIntegrationProvider(IntegrationProvider):
                 raise MCPError(f"MCP HTTP error: {code}{hint}", e)
             except requests.Timeout:
                 raise MCPError(
-                    f"MCP server did not respond within {MCP_CALL_TIMEOUT_SECONDS}s"
+                    f"MCP server did not respond within {_timeout()}s"
                 )
             except ValueError:
                 raise MCPError("The MCP server's answer was not valid JSON.")
