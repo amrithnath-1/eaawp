@@ -279,7 +279,10 @@ def test_connection_status_question_still_gets_the_status_card(world, model):
     _connect_github(world)
     r = ask(world, "a_admin", "Is eaawp connected to github?", "DIGITAL_MARKETING_MANAGER")
     body = r.json()
-    assert body["step_summaries"] and body["step_summaries"][0].startswith("[INTEGRATION]")
+    # Answered from the connection record (no tool runs), with the chat's status card.
+    assert body["step_summaries"][0] == "[ROUTE] connection_status → CONNECTION_STATUS"
+    assert any(s.startswith("__integration_action__:") and '"SHOW_STATUS"' in s for s in body["sources"])
+    assert body["tool_calls"] == [] and "CONNECTED" in body["message"]
 
 
 def test_ordinary_question_makes_no_intent_model_call(world, model):

@@ -258,25 +258,24 @@ async def execution_check(db: AsyncSession, tenant_id: str, role_key: str,
         return None, []
     usable, problems = [], []
     for r in rows:
+        if r.provider_type != "mcp":
+            # Other providers: the readiness gate after this check handles "not connected" / "not granted" by saving
+            # the request as a pending task with the setup card, so it resumes once setup is done.
+            continue
         if r.status != "connected" or not r.is_enabled:
             problems.append(f"**{r.display_name}** is not connected (status: {r.status}"
                             f"{', switched off' if r.status == 'connected' and not r.is_enabled else ''}). "
                             "An administrator can reconnect it in Integrations (TEST NOW).")
             continue
         mine = _role_grants(await _grants(db, tenant_id, r.id), role_key)
-        if r.provider_type == "mcp":
-            tools = sorted(c[len(MCP_TOOL_PREFIX):] for c in mine if c.startswith(MCP_TOOL_PREFIX))
-            if "call_tool" not in mine or not tools:
-                problems.append(f"**{r.display_name}** is connected, but this AI employee has not been granted any of "
-                                "its tools, so nothing was run. An administrator can grant the tools it needs "
-                                "(Integrations → the server → grants, or by asking me in chat).")
-                continue
-        else:
-            # Other providers: the readiness gate after this check saves the request as a pending task and shows the
-            # setup card for a missing grant, so the request is resumable once access is granted.
+        tools = sorted(c[len(MCP_TOOL_PREFIX):] for c in mine if c.startswith(MCP_TOOL_PREFIX))
+        if "call_tool" not in mine or not tools:
+            problems.append(f"**{r.display_name}** is connected, but this AI employee has not been granted any of "
+                            "its tools, so nothing was run. An administrator can grant the tools it needs "
+                            "(Integrations → the server → grants, or by asking me in chat).")
             continue
         usable.append(r)
-    if usable:
+    if usable or not problems:
         return None, usable
     return Answer("\n\n".join(problems), "blocked before execution: " + "; ".join(
         "not connected" if "not connected" in p else "not granted" for p in problems)), []
