@@ -221,6 +221,29 @@ export interface ToolAuditEvent {
   detail: string;
 }
 
+/** A long-running MCP operation (job). See backend GET /api/v1/toolhub/tasks. */
+export interface McpTaskFE {
+  id: string;
+  integration_id: string;
+  role_key: string;
+  start_tool: string;
+  status_tool: string | null;
+  mechanism: string;
+  remote_id: string;
+  remote_id_field: string;
+  state: "CREATED" | "QUEUED" | "RUNNING" | "COMPLETED" | "FAILED" | "CANCELLED" | "TIMED_OUT" | "EXPIRED";
+  remote_status: string | null;
+  poll_count: number;
+  poll_failures: number;
+  last_poll_error: string | null;
+  error: string | null;
+  has_result: boolean;
+  can_cancel: boolean;
+  created_at: string | null;
+  completed_at: string | null;
+  deadline_at: string | null;
+}
+
 // ── Queries ──────────────────────────────────────────────────────────────────
 
 const BASE = "/api/v1/toolhub";
@@ -232,7 +255,18 @@ export const toolhubKeys = {
   builder: () => ["toolhub", "builder"] as const,
   health: () => ["toolhub", "health"] as const,
   audit: () => ["toolhub", "audit"] as const,
+  tasks: () => ["toolhub", "tasks"] as const,
 };
+
+export function useMcpTasks(enabled = true) {
+  return useQuery({
+    queryKey: toolhubKeys.tasks(),
+    enabled: USE_REAL_API && enabled,
+    queryFn: ({ signal }) => apiClient.get<{ tasks: McpTaskFE[] }>(`${BASE}/tasks?limit=100`, signal),
+    staleTime: 10_000,
+    refetchInterval: 15_000,
+  });
+}
 
 export function useToolRegistry(enabled = true) {
   return useQuery({
@@ -329,4 +363,12 @@ export function useRefreshMcp() {
       {},
     ),
   );
+}
+
+export function useCheckMcpTask() {
+  return useToolhubMutation((id: string) => apiClient.post<McpTaskFE>(`${BASE}/tasks/${id}/check`, {}));
+}
+
+export function useCancelMcpTask() {
+  return useToolhubMutation((id: string) => apiClient.post<McpTaskFE>(`${BASE}/tasks/${id}/cancel`, {}));
 }

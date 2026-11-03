@@ -239,7 +239,22 @@ async def run_chat_agent(
     except Exception as exc:  # noqa: BLE001 - a registry problem must not stop the chat
         logger.warning("Generated tools unavailable this turn: %s", exc)
     custom.update(orch.meta_tools(db, tenant_id, role_key, plan_id, state, actor=f"{role_key} (chat)"))
+    # MCP: every granted tool as its own native function with its real schema (mcp_tools). The old single
+    # "call_tool" adapter of a server (a JSON string holding tool_name + arguments) is kept only for a server whose
+    # tools are not in the registry yet.
+    from app.toolhub import mcp_engine, mcp_tools
+    try:
+        mcp_native = await mcp_tools.native_tools(db, tenant_id, role_key, plan_id)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("MCP tools unavailable this turn: %s", exc)
+        mcp_native = {}
+    covered = {(getattr(t, "metadata", None) or {}).get("integration_id") for t in mcp_native.values()}
+    for k in [k for k, t in read_tools.items() if k.endswith("_call_tool")
+              and (getattr(t, "metadata", None) or {}).get("integration_id") in covered]:
+        read_tools.pop(k)
+    custom.update(mcp_native)
     read_tools.update(custom)
+    corrections: dict[str, int] = {}
     try:
         notes = {k: v for k, v in (await hub_metrics.hints(db, tenant_id)).items() if k in read_tools}
     except Exception:  # noqa: BLE001
@@ -322,13 +337,13 @@ async def run_chat_agent(
             runner = lambda: custom[name].ainvoke(args)  # noqa: E731
         else:
             runner = lambda: _execute_tool(name, args, read_tools)  # noqa: E731
-        meta = getattr(dyn_map.get(name), "metadata", None) or {}
+        meta = getattr(dyn_map.get(name) or custom.get(name), "metadata", None) or {}
         mcp_id = meta.get("integration_id") if meta.get("provider_type") == "mcp" else None
         result, cat = await orch.execute(
             name, args, runner, db=db if record else None, tenant_id=tenant_id, role_key=role_key, plan_id=plan_id,
             label=_label(name, dyn_map), source=orch.source_of(name, dyn_map),
             record=record and not name.startswith("gen_"),        # generated tools record their own runs
-            mcp_integration=mcp_id if record else None)
+            mcp_integration=mcp_id if record else None, idempotent=meta.get("idempotent", True))
         return result, cat, int((time.monotonic() - t0) * 1000)
 
     final = ""
@@ -354,6 +369,7 @@ async def run_chat_agent(
                 final = _text(response.content)
                 break
             round_notes: list[str] = []
+            refreshed_mcp = False
 
             def note(tool: str, args: Any, text: str, failed: bool = False) -> None:
                 shown = json.dumps(args, ensure_ascii=False)[:300] if args else "{}"
@@ -366,10 +382,28 @@ async def run_chat_agent(
             ready: dict[int, Any] = {}
             safe = [(i, tc) for i, tc in enumerate(tool_calls)
                     if tc.get("name") in read_tools and orch.parallel_safe(tc.get("name", ""))]
-            if len(safe) > 1:
-                outs = await asyncio.gather(*(_run_read(tc.get("name", ""), tc.get("args") or {}, record=False)
-                                              for _, tc in safe))
-                ready = {i: o for (i, _), o in zip(safe, outs)}
+            mcp_round = [(i, tc) for i, tc in enumerate(tool_calls) if tc.get("name") in mcp_native
+                         and corrections.get(tc.get("name"), 0) < mcp_engine.MAX_CORRECTIONS]
+            if len(mcp_round) < 2:
+                mcp_round = []
+
+            async def _mcp_parallel() -> list[tuple[str, str | None, int]]:
+                # Checks one by one on the shared DB session, network calls at the same time, records in order.
+                t_mcp = time.monotonic()
+                texts = await mcp_engine.run_many(db, tenant_id, role_key, plan_id, [
+                    (mcp_native[tc["name"]].metadata["integration_id"], mcp_native[tc["name"]].metadata["mcp_tool"],
+                     tc.get("args") or {}) for _, tc in mcp_round])
+                ms = int((time.monotonic() - t_mcp) * 1000)
+                from app.toolhub import diagnostics as _diag
+                return [(t, _diag.classify_error(t) if is_tool_failure(t) else None, ms) for t in texts]
+
+            if len(safe) > 1 or mcp_round:
+                web_part = (asyncio.gather(*(_run_read(tc.get("name", ""), tc.get("args") or {}, record=False)
+                                             for _, tc in safe)) if len(safe) > 1 else asyncio.sleep(0, result=[]))
+                mcp_part = _mcp_parallel() if mcp_round else asyncio.sleep(0, result=[])
+                outs, mcp_outs = await asyncio.gather(web_part, mcp_part)
+                ready = {i: o for (i, _), o in zip(safe if len(safe) > 1 else [], outs)}
+                ready.update({i: o for (i, _), o in zip(mcp_round, mcp_outs)})
             for call_no, tc in enumerate(tool_calls):
                 name, raw_args = tc.get("name", ""), tc.get("args") or {}
                 if len(calls_made) >= MAX_TOOL_CALLS_PER_PLAN:
@@ -421,6 +455,11 @@ async def run_chat_agent(
                     note(name, args, reply, failed=outcome.status != "executed")
                     continue
 
+                if name in mcp_native and call_no not in ready and corrections.get(name, 0) >= mcp_engine.MAX_CORRECTIONS:
+                    note(name, raw_args, f"[VALIDATION ERROR] {name}: the arguments were rejected "
+                         f"{mcp_engine.MAX_CORRECTIONS} times; it is not called again in this answer. Tell the person "
+                         "which inputs are needed.", failed=True)
+                    continue
                 if name in read_tools:
                     row = add_step("read", _label(name, dyn_map), name, raw_args)
                     await db.flush()
@@ -435,6 +474,10 @@ async def run_chat_agent(
                                                  recovery="ran in parallel")
                     else:
                         result, cat, _ms = await _run_read(name, raw_args)
+                    if name in mcp_native and cat == "invalid_args":
+                        corrections[name] = corrections.get(name, 0) + 1
+                    if name in mcp_native and cat in ("not_found", "schema_mismatch"):
+                        refreshed_mcp = True
                     failed = is_tool_failure(result)
                     if failed:
                         finish(row, "failed", result)
@@ -450,6 +493,13 @@ async def run_chat_agent(
             # messages (Gemini 3 rejects replayed calls without hidden signatures) and not as an invented AI turn
             # (the model would copy it as its answer).
             work.extend(round_notes)
+            if refreshed_mcp:
+                # The server's tool list changed: offer exactly what it has now (new schemas, removed tools gone).
+                for k in [k for k in read_tools if k in mcp_native]:
+                    read_tools.pop(k, None)
+                    custom.pop(k, None)
+                mcp_native = await mcp_tools.native_tools(db, tenant_id, role_key, plan_id)
+                state.new_tools.update(mcp_native)
             if state.new_tools:
                 read_tools.update(state.new_tools)
                 custom.update(state.new_tools)
@@ -470,6 +520,12 @@ async def run_chat_agent(
     if _not_an_answer(final):
         return await fail("The AI model returned an empty answer. Nothing further was done. Please try again.")
 
+    # A chart the model wrote into its text (instead of calling make_chart) is validated the same way and shown as a
+    # chart — or as a readable table / a reason — never as raw JSON.
+    from app.toolhub import charts as hub_charts
+    final, text_charts, _chart_problems = hub_charts.extract_from_text(
+        final, "\n".join(state.evidence), limit=max(0, 6 - len(state.charts)))
+    state.charts.extend(text_charts)
     reply_row = add_step("response", "Answer the person")
     final, grounding = _verify_against_evidence(final, AgentPlan(objective=user_prompt[:500], steps=planned),
                                                 steps, results, user_prompt)

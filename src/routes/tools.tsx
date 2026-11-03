@@ -26,6 +26,9 @@ import {
   useRollbackTool,
   useSetToolActive,
   useToolAudit,
+  useMcpTasks,
+  useCheckMcpTask,
+  useCancelMcpTask,
   useToolBuilder,
   useToolExecutions,
   useToolHealth,
@@ -43,7 +46,7 @@ export const Route = createFileRoute("/tools")({
   component: ToolCenterPage,
 });
 
-const TABS = ["registry", "executions", "builder", "health", "audit"] as const;
+const TABS = ["registry", "executions", "jobs", "builder", "health", "audit"] as const;
 type Tab = (typeof TABS)[number];
 
 // ── Small shared pieces ──────────────────────────────────────────────────────
@@ -101,9 +104,10 @@ function Chip({
 }
 
 function statusTone(s: string): Tone {
-  if (["active", "success", "connected", "validated"].includes(s)) return "ok";
-  if (["failed", "rejected", "removed", "blocked", "error"].includes(s)) return "bad";
-  if (["deactivated", "superseded", "rolled_back", "discovered"].includes(s)) return "warn";
+  if (["active", "success", "connected", "validated", "completed"].includes(s)) return "ok";
+  if (["failed", "rejected", "removed", "blocked", "error", "expired"].includes(s)) return "bad";
+  if (["deactivated", "superseded", "rolled_back", "discovered", "timed_out", "cancelled"].includes(s))
+    return "warn";
   return "neutral";
 }
 
@@ -1116,6 +1120,72 @@ function AuditTab() {
   );
 }
 
+// ── Jobs (long-running MCP operations) ───────────────────────────────────────
+
+function JobsTab() {
+  const q = useMcpTasks();
+  const check = useCheckMcpTask();
+  const cancel = useCancelMcpTask();
+  const tasks = q.data?.tasks ?? [];
+  return (
+    <Section
+      title={`Long-running jobs${q.data ? ` · ${tasks.length}` : ""}`}
+      hint="Jobs AI employees started on MCP servers. Finished, timed-out and expired jobs are never checked again."
+    >
+      <QueryState
+        isLoading={q.isLoading}
+        error={q.error}
+        empty={tasks.length === 0}
+        emptyText="No long-running jobs yet."
+      >
+        <ul className="border border-border">
+          {tasks.map((t) => (
+            <li key={t.id} className="border-b border-border px-3 py-2 last:border-0">
+              <div className="flex flex-wrap items-center gap-1.5">
+                <Chip tone={statusTone(t.state.toLowerCase())}>{t.state}</Chip>
+                <span className="break-all font-mono text-[11px]">{t.start_tool}</span>
+                <span className="font-mono text-[10px] text-muted-foreground">
+                  {when(t.created_at ?? "")} · checked {t.poll_count}×
+                  {t.poll_failures ? ` · ${t.poll_failures} failed check(s)` : ""}
+                </span>
+              </div>
+              <p className="mt-0.5 break-all text-[11px] text-muted-foreground">
+                job {t.remote_id_field} {t.remote_id}
+                {t.status_tool ? ` · status via ${t.status_tool}` : ` · ${t.mechanism}`}
+              </p>
+              {(t.error || t.last_poll_error) && (
+                <p className="mt-0.5 break-words text-[12px]">{t.error ?? `Last check: ${t.last_poll_error}`}</p>
+              )}
+              {["CREATED", "QUEUED", "RUNNING"].includes(t.state) && (
+                <div className="mt-1.5 flex gap-1.5">
+                  <button
+                    type="button"
+                    className="border border-border px-2 py-1 font-mono text-[10px] hover:text-foreground"
+                    disabled={check.isPending}
+                    onClick={() => check.mutate(t.id)}
+                  >
+                    CHECK NOW
+                  </button>
+                  {t.can_cancel && (
+                    <button
+                      type="button"
+                      className="border border-border px-2 py-1 font-mono text-[10px] hover:text-foreground"
+                      disabled={cancel.isPending}
+                      onClick={() => cancel.mutate(t.id)}
+                    >
+                      CANCEL
+                    </button>
+                  )}
+                </div>
+              )}
+            </li>
+          ))}
+        </ul>
+      </QueryState>
+    </Section>
+  );
+}
+
 // ── Page ─────────────────────────────────────────────────────────────────────
 
 function ToolCenterPage() {
@@ -1169,6 +1239,7 @@ function ToolCenterPage() {
             <div role="tabpanel">
               {tab === "registry" && <RegistryTab />}
               {tab === "executions" && <ExecutionsTab />}
+              {tab === "jobs" && <JobsTab />}
               {tab === "builder" && <BuilderTab />}
               {tab === "health" && <HealthTab />}
               {tab === "audit" && <AuditTab />}

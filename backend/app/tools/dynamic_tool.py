@@ -639,6 +639,7 @@ async def _write_dynamic_tool_audit(
 TOOL_FAILURE_PREFIXES: tuple[str, ...] = (
     "[TOOL ERROR]", "[ERROR]", "[INTEGRATION ERROR]", "[VALIDATION ERROR]",
     "[GOVERNANCE REQUIRED]", "[PERMISSION DENIED]", "[TIMEOUT]",
+    "[TASK FAILED]", "[TASK CANCELLED]", "[TASK TIMED_OUT]", "[TASK EXPIRED]",
 )
 
 

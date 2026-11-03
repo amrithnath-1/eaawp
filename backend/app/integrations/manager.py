@@ -403,11 +403,13 @@ async def test_integration(
         result_error = provider._sanitise_error(str(exc))
     else:
         result_success = result.success
-        result_account_info = result.account_info
+        result_account_info = dict(result.account_info or {})
         result_error = result.error_message
     finally:
         # Explicitly discard decrypted credentials from local scope
         credentials.clear()
+    # MCP: the complete tool schemas go to the registry only — never into the stored record or the response.
+    full_tools = result_account_info.pop("_full_tools", None)
 
     now = datetime.now(timezone.utc)
     row.status = "connected" if result_success else "failed"
@@ -424,7 +426,7 @@ async def test_integration(
         # Keep the tool registry in line with what the server offers now (added / changed / removed tools).
         from app.toolhub import mcp_sync
         await mcp_sync.sync(db, tenant_id, integration_id,
-                            result_account_info.get("mcp_tools") if result_success else None,
+                            (full_tools or result_account_info.get("mcp_tools")) if result_success else None,
                             duration_ms=int((now - t_start).total_seconds() * 1000),
                             error=None if result_success else (result_error or "connection test failed"),
                             actor="connection test")

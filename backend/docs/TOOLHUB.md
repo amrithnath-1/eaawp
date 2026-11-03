@@ -112,3 +112,52 @@ An attack phrase is blocked when the person commands it (imperative, "you must�
 the subject of a test ("whether", "that … cannot", "such as"), a question, or inside quoted / pasted content. Asking for
 secrets is allowed only as "verify they cannot be revealed". External content (pages, MCP descriptions and outputs)
 is never classified as the user's words: it stays untrusted data.
+
+## MCP execution engine (`toolhub/mcp_schema.py`, `mcp_engine.py`, `mcp_tools.py`)
+
+- Each granted MCP tool is offered to the model as its own native function `mcp_<server id8>_<tool>` whose parameters
+  are the tool's real input schema (made model-safe: `$ref` resolved, `anyOf` reduced, Gemini subset). The tool name
+  is fixed in code — it can never be null, `undefined` or invented. The old single `…_call_tool` adapter (a JSON
+  string holding `tool_name` + `arguments`) remains only for a server whose tools are not in the registry yet.
+- TEST NOW / refresh stores the **complete** input schemas in the registry (not the compact catalogue).
+- Before dispatch (`prepare`): tool name valid → company owns the server → connected + enabled → `call_tool` and
+  `mcp_tool:<name>` grants → tool in the registry → risk policy → arguments validated against the full schema
+  (required, unexpected, types incl. nested, enum, ranges, lengths, anyOf/oneOf/allOf). The dispatcher validates
+  again against the server's live schema. Failures say exactly what to fix; at most 2 corrections per tool and answer.
+- Parallel: several MCP calls in one model turn run their checks one by one and their network calls concurrently
+  (`run_many`); results are recorded in order ("ran in parallel").
+- Tools that start jobs (they have a sibling status tool) are never retried automatically.
+
+## Long-running MCP jobs (`toolhub/mcp_tasks.py`, table `toolhub_mcp_tasks`, migration `a7c3e91d2b58`)
+
+| State | Meaning |
+|---|---|
+| CREATED / QUEUED / RUNNING | started; followed by status checks |
+| COMPLETED | final result stored (`result_text`) |
+| FAILED / CANCELLED | the job itself failed / was cancelled |
+| TIMED_OUT | our deadline passed (`MCP_TASK_MAX_DURATION_S`); no more checks, nothing restarted |
+| EXPIRED | the server no longer knows the id (404 / not found); never checked again |
+
+- A job is recognised from the result (job id + non-terminal status, an MCP-native `task`, or a small acknowledgement
+  with an id when the server has a matching `<tool>_status` tool). The status tool and the id parameter it takes come
+  from the server's schemas; the value sent is the result field of that name or the job id — never a thread id.
+- A failed status *check* (timeout, 5xx) counts as a polling failure on the task; it is not a job failure.
+- The same tool with the same inputs while a job is active (or completed within the dedupe window) returns the
+  existing job: `[DUPLICATE PREVENTED]`.
+- One chat answer waits up to `MCP_TASK_TURN_WAIT_S`; the background poller (started with the app) continues and
+  resumes RUNNING jobs after a restart. `check_task` (chat) and `GET/POST /api/v1/toolhub/tasks…` (Tool Center → JOBS)
+  read, check or cancel jobs. The status tool must be granted too (no bypass).
+
+Settings (environment variables): `MCP_CALL_TIMEOUT_S` (30), `MCP_TASK_POLL_INITIAL_S` (5), `MCP_TASK_POLL_MAX_S`
+(30), `MCP_TASK_TURN_WAIT_S` (60), `MCP_TASK_MAX_DURATION_S` (1800), `MCP_TASK_DEDUPE_WINDOW_S` (600),
+`MCP_TASK_POLLER_ENABLED` (true), `MCP_TASK_POLLER_INTERVAL_S` (15).
+
+## Universal visualization engine (`toolhub/charts.py` + `src/components/eaawp/ChatChart.tsx`)
+
+One ChartSpec for every AI employee: bar (grouped / stacked / comparison), hbar, line, area, pie, donut, scatter,
+histogram (bins counted server-side from returned values), KPI cards, table; `description`, `stacked`. `make_chart`
+takes structured fields (the older `chart_json` string still works). Every value is verified against the tool results
+of the same answer. A chart the model writes into its text is pulled out and validated the same way (agent, planner,
+workflows, meetings): valid → a real chart; not drawable → a readable table and the reason; unverifiable numbers →
+not shown at all; cut-off JSON → a short notice. The frontend renders saved legacy chart blocks the same way (marked
+"not verified"), and DataAnalystPanel draws through the same ChatChart.

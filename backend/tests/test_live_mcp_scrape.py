@@ -40,8 +40,20 @@ def test_live_reported_request_scrapes_through_eaawps_dispatcher(world, agent):
     agent["m"] = Model("hi")
     send(world, "a_admin", "hello there friend")
     key = call_tool_key(agent["m"])
-    agent["m"] = Model(calls((key, {"tool_name": scrape, "arguments": {"url": TARGET, "formats": ["markdown"]}})),
-                       "Reported.")
+    # Arguments from the tool's real schema: url, plus every other REQUIRED string input (e.g. Firecrawl's objective).
+    from app.toolhub import mcp_tools as _mt
+    from tests.conftest import _run as _r
+
+    async def schema():
+        async with world.maker() as db:
+            return (await _mt.native_tools(db, world.tenant_a, DMM, "p"))[key + scrape].args_schema
+    sch = _r(schema())
+    print("[schema] required:", sch.get("required"))
+    args = {"url": TARGET}
+    for name in sch.get("required") or []:
+        if name != "url" and (sch["properties"].get(name) or {}).get("type") == "string":
+            args[name] = "Verify the website content for an EAAWP routing test"
+    agent["m"] = Model(calls((key + scrape, args)), "Reported.")
     body = send(world, "a_admin", REPORTED.replace("https://gecservices.in", TARGET))
     print("[plan]", json.dumps(body["step_summaries"], indent=1))
     assert "[ROUTE] tool_execution → agent with real tool dispatch" in " ".join(body["step_summaries"])

@@ -11,6 +11,17 @@ unless stated.
   then `alembic upgrade head`; then `pip install -r requirements.txt` and `npm install` (react-markdown, remark-gfm).
 - Testing guide for the owner: `docs/testing/EAAWP_GEC_DMM_Complete_Testing_Guide.pdf` (+ `.md`, `build_guide_pdf.py`).
 
+## Phase S3: MCP reliability (schema-aware native tools, parallel, long-running jobs) + universal charts (2026-11-03)
+Status: IMPLEMENTED; VERIFIED with real local MCP servers through the real API (tests/test_mcp_engine_and_tasks.py,
+30) and in a real browser (light, dark, 390 px; scripted model). Live Firecrawl NOT verified from the build sandbox
+(network blocks it); run tests/test_live_mcp_scrape.py with EAAWP_LIVE_MCP_URL where Firecrawl is reachable.
+- New: toolhub/mcp_schema.py, mcp_engine.py, mcp_tools.py, mcp_tasks.py; table toolhub_mcp_tasks (migration
+  a7c3e91d2b58, additive); /api/v1/toolhub/tasks…; Tool Center JOBS tab. Plan + root causes:
+  docs/PLAN_MCP_RELIABILITY_AND_VISUALIZATION.md. Details: docs/TOOLHUB.md.
+- Deploy: run `alembic upgrade head`; then press TEST NOW once on each MCP connection so the registry holds the full
+  input schemas (before that it holds the compact ones: tools still work, and the dispatcher always validates against
+  the server's full live schema).
+
 ## Phase S2: MCP request routing and contextual security classification (2026-11-03)
 Status: IMPLEMENTED; VERIFIED through the real API against a real local MCP server (tests/test_mcp_routing_and_security.py,
 66 tests). Live EAAWP → Firecrawl execution NOT verified from the build sandbox (its network blocks Firecrawl and

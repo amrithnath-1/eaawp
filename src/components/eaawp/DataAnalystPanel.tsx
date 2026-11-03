@@ -7,7 +7,8 @@
 import { useRef, useState } from "react";
 import { toast } from "sonner";
 import { Loader2, Upload, Trash2, Lock, Unlock, Save, Download, Database, SendHorizonal } from "lucide-react";
-import { Bar, BarChart, CartesianGrid, Line, LineChart, Pie, PieChart, ResponsiveContainer, Scatter, ScatterChart, Tooltip, XAxis, YAxis, Cell } from "recharts";
+import { ChatChart } from "@/components/eaawp/ChatChart";
+import { toNumber, type ChartSpec } from "@/lib/charts";
 import { cn } from "@/lib/utils";
 import { useSession } from "@/state/session";
 import {
@@ -15,8 +16,6 @@ import {
   useAnalysisReports, useSaveAnalysisReport, useDeleteAnalysisReport, downloadReportCsv,
   type AnalysisResultFE, type AnalysisFE,
 } from "@/hooks/use-api";
-
-const PALETTE = ["#6aa7ff", "#7bd88f", "#ffb454", "#ff7b72", "#c297ff", "#5fd3d3"];
 
 function ResultTable({ r }: { r: AnalysisResultFE }) {
   return (
@@ -37,41 +36,63 @@ function ResultTable({ r }: { r: AnalysisResultFE }) {
   );
 }
 
-function ResultChart({ r }: { r: AnalysisResultFE }) {
+/**
+ * Convert a deterministic analysis result into the shared ChartSpec so it is drawn by the same engine as
+ * every chat answer. Values are only converted (numeric strings to numbers); unreadable cells become null.
+ */
+export function analysisToChartSpec(r: AnalysisResultFE, title?: string): ChartSpec | null {
   const type = r.chart?.type ?? "none";
-  if (type === "none" || r.rows.length === 0) return null;
-  const xi = Math.max(0, r.columns.indexOf(r.chart.x ?? r.columns[0]!));
-  const yi = Math.max(0, r.columns.indexOf(r.chart.y ?? r.columns[1] ?? r.columns[0]!));
-  const data = r.rows.map((row) => ({ x: row[xi] ?? "", y: typeof row[yi] === "number" ? row[yi] : Number(row[yi]) || 0 }));
-  const axis = { stroke: "currentColor", fontSize: 11, tickLine: false } as const;
-  return (
-    <div className="h-64 w-full text-muted-foreground" role="img" aria-label={`${type} chart of ${r.columns[yi]} by ${r.columns[xi]}`}>
-      <ResponsiveContainer>
-        {type === "line" ? (
-          <LineChart data={data}><CartesianGrid strokeOpacity={0.15} /><XAxis dataKey="x" {...axis} /><YAxis {...axis} /><Tooltip />
-            <Line isAnimationActive={false} dataKey="y" stroke={PALETTE[0]} dot={false} strokeWidth={2} /></LineChart>
-        ) : type === "pie" ? (
-          <PieChart><Tooltip /><Pie isAnimationActive={false} data={data} dataKey="y" nameKey="x" outerRadius={90}>{data.map((_, i) => <Cell key={i} fill={PALETTE[i % PALETTE.length]} />)}</Pie></PieChart>
-        ) : type === "scatter" ? (
-          <ScatterChart><CartesianGrid strokeOpacity={0.15} /><XAxis dataKey="x" type="number" {...axis} /><YAxis dataKey="y" {...axis} /><Tooltip />
-            <Scatter isAnimationActive={false} data={data.map((d) => ({ x: Number(d.x), y: d.y }))} fill={PALETTE[0]} /></ScatterChart>
-        ) : (
-          <BarChart data={data}><CartesianGrid strokeOpacity={0.15} /><XAxis dataKey="x" {...axis} /><YAxis {...axis} /><Tooltip />
-            <Bar isAnimationActive={false} dataKey="y" fill={PALETTE[0]} /></BarChart>
-        )}
-      </ResponsiveContainer>
-    </div>
-  );
+  if (type === "none" || r.rows.length === 0 || r.columns.length === 0) return null;
+  const col = (name: string | undefined, fallback: number) => {
+    const i = name !== undefined ? r.columns.indexOf(name) : -1;
+    return i >= 0 ? i : Math.min(fallback, r.columns.length - 1);
+  };
+  const xi = col(r.chart.x, 0);
+  const yi = col(r.chart.y, 1);
+  const xName = r.columns[xi] ?? "x";
+  const yName = r.columns[yi] ?? "y";
+  const base = {
+    id: `analysis-${type}-${xName}-${yName}`,
+    title: title?.trim() || `${yName} by ${xName}`,
+    unit: null,
+    x_label: xName,
+    y_label: yName,
+    kpis: [],
+    source: r.source ?? "",
+    note: null,
+  };
+  if (type === "scatter") {
+    return {
+      ...base,
+      type: "scatter",
+      labels: [],
+      series: [
+        { name: xName, values: r.rows.map((row) => toNumber(row[xi])) },
+        { name: yName, values: r.rows.map((row) => toNumber(row[yi])) },
+      ],
+    };
+  }
+  return {
+    ...base,
+    type,
+    labels: r.rows.map((row) => (row[xi] === null || row[xi] === undefined ? "" : String(row[xi]))),
+    series: [{ name: yName, values: r.rows.map((row) => toNumber(row[yi])) }],
+  };
 }
 
-function AnalysisView({ a }: { a: AnalysisFE }) {
+function ResultChart({ r, title }: { r: AnalysisResultFE; title?: string | undefined }) {
+  const spec = analysisToChartSpec(r, title);
+  return spec ? <ChatChart spec={spec} /> : null;
+}
+
+function AnalysisView({ a, title }: { a: AnalysisFE; title?: string | undefined }) {
   return (
     <div className="space-y-3">
       <p className="whitespace-pre-line text-[13px] leading-relaxed">{a.narrative}</p>
       <p className="font-mono text-[10px] text-muted-foreground">
         {a.narrative_source === "llm" ? "SUMMARY WRITTEN BY AI, NUMBERS CHECKED AGAINST THE RESULT" : "SUMMARY GENERATED FROM THE RESULT"}
       </p>
-      <ResultChart r={a} />
+      <ResultChart r={a} title={title} />
       <ResultTable r={a} />
       {a.notes.map((n) => <p key={n} className="text-[11px] text-muted-foreground">{n}</p>)}
     </div>
@@ -200,7 +221,7 @@ export function DataAnalystPanel() {
                 </form>
                 {result && (
                   <div className="space-y-3 border border-border bg-surface p-4" data-testid="analysis-result">
-                    <AnalysisView a={result} />
+                    <AnalysisView a={result} title={asked} />
                     <div className="flex flex-wrap items-center gap-2 border-t border-border pt-3">
                       <input value={title} onChange={(e) => setTitle(e.target.value)} maxLength={200} aria-label="Report title" className="min-w-0 flex-1 border border-border bg-background px-2 py-1 text-[12px]" />
                       <button type="button" disabled={save.isPending || !title.trim()} className="inline-flex items-center gap-1 border border-border px-2 py-1 text-[12px] hover:bg-accent disabled:opacity-50"
@@ -224,7 +245,7 @@ export function DataAnalystPanel() {
                   <span className="text-[11px] text-muted-foreground">{new Date(rep.created_at).toLocaleString()}</span>
                 </summary>
                 <div className="space-y-3 border-t border-border p-3">
-                  <AnalysisView a={{ ...rep.result, narrative: rep.narrative, narrative_source: rep.narrative_source as "llm" | "template" }} />
+                  <AnalysisView a={{ ...rep.result, narrative: rep.narrative, narrative_source: rep.narrative_source as "llm" | "template" }} title={rep.title} />
                   <div className="flex gap-2">
                     <button type="button" className="inline-flex items-center gap-1 border border-border px-2 py-1 text-[11px] hover:bg-accent"
                       onClick={() => void downloadReportCsv(rep.id).catch((e: Error) => toast.error(e.message))}><Download className="h-3 w-3" /> Export CSV</button>
