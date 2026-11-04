@@ -270,6 +270,58 @@ const STEP_STATUS_COLOUR: Record<string, string> = {
   approved: "text-success",
 };
 
+/** "GEC_Services_Marketing_Knowledge_Base_v1.1.pdf" → "GEC Services Marketing Knowledge Base (document)". */
+function friendlySource(s: string): string {
+  const m = s.match(/^(.*?)(?:[_ -]v\d+(?:\.\d+)*)?\.(pdf|docx?|txt|md|csv|xlsx?)$/i);
+  if (!m) return s;
+  return `${(m[1] ?? s).replace(/[_]+/g, " ").trim()} (document)`;
+}
+
+interface PlainStep {
+  kind: string;
+  text: string;
+  status: string;
+  statusText: string;
+}
+
+const STEP_KIND: Record<string, string> = {
+  READ: "Looked up",
+  ACTION: "Action",
+  RESPONSE: "Answer",
+  INTEGRATION: "Connection",
+  SETUP: "Setup needed",
+  SECURITY: "Safety check",
+};
+const STEP_STATUS_TEXT: Record<string, string> = {
+  completed: "done",
+  failed: "did not work",
+  running: "in progress",
+  pending: "waiting",
+  awaiting_approval: "waiting for approval",
+  approved: "approved",
+  rejected: "rejected",
+};
+
+/** A step summary from the server ("[READ] Google Search Console: search performance → completed") in plain words.
+ *  Internal routing / evidence notes are not shown to the person. */
+function plainStep(s: string): PlainStep | null {
+  const parts = s.match(/^\[(\w+)\] (.*?)(?: → (\w+))?$/);
+  const type = parts?.[1] ?? "";
+  if (["ROUTE", "EVIDENCE", "SIGNALS"].includes(type)) return null;
+  let text = (parts?.[2] ?? s).trim();
+  if (type === "RESPONSE" && /^(answer the person|final response)/i.test(text)) text = "Wrote the answer";
+  if (type === "SECURITY") text = text.replace(/^\w+ → /, "").replace(/_/g, " ");
+  const status = parts?.[3] ?? "";
+  // "Made a chart", "Read a web page", "Wrote the answer" already say what happened.
+  const selfDescribing = /^(Made|Built|Searched|Read|Checked|Looked|Wrote|Connected tool)\b/.test(text);
+  return {
+    kind: selfDescribing ? "" : (STEP_KIND[type] ?? (type ? type.charAt(0) + type.slice(1).toLowerCase() : "Step")),
+    text,
+    status,
+    statusText: STEP_STATUS_TEXT[status] ?? status.replace(/_/g, " "),
+  };
+}
+
 function PlanProgress({
   planId,
   planStatus,
@@ -289,44 +341,41 @@ function PlanProgress({
 
   const statusIcon = planStatus ? (PLAN_STATUS_ICON[planStatus] ?? null) : null;
 
+  const steps = stepSummaries.map(plainStep).filter((x): x is PlainStep => x !== null);
+  const openByDefault = planStatus === "awaiting_approval" || planStatus === "failed";
+
   return (
     <div className="mt-2 w-full border border-border bg-surface px-3 py-2 text-left">
-      <div className="mb-1.5 flex items-center gap-1.5">
-        {statusIcon}
-        <span className="font-mono text-[10px] tracking-[0.12em] text-muted-foreground">
-          {planStatus
-            ? (PLAN_STATUS_TEXT[planStatus] ?? planStatus.replace(/_/g, " ").toUpperCase())
-            : "PLAN"}
-        </span>
-        {planId && USE_REAL_API && (
-          <span className="ml-auto font-mono text-[9px] text-muted-foreground opacity-60">
-            {planId.slice(0, 8)}
+      <details open={openByDefault} className="group">
+        <summary
+          className="flex cursor-pointer list-none items-center gap-1.5 [&::-webkit-details-marker]:hidden"
+          title={planId ? `Reference ${planId.slice(0, 8)}` : undefined}
+        >
+          {statusIcon}
+          <span className="font-mono text-[10px] tracking-[0.12em] text-muted-foreground">
+            {planStatus
+              ? (PLAN_STATUS_TEXT[planStatus] ?? planStatus.replace(/_/g, " ").toUpperCase())
+              : "PLAN"}
           </span>
-        )}
-      </div>
-      <ul className="space-y-0.5">
-        {stepSummaries.map((s, i) => {
-          const parts = s.match(/^\[(\w+)\] (.*?) → (\w+)$/);
-          const type = parts?.[1] ?? "";
-          const desc = parts?.[2] ?? s;
-          const status = parts?.[3] ?? "";
-          return (
+          <span className="text-[11px] text-muted-foreground">
+            · How I got this answer ({steps.length} step{steps.length === 1 ? "" : "s"})
+          </span>
+          <span className="ml-auto text-[10px] text-muted-foreground group-open:hidden">Show</span>
+          <span className="ml-auto hidden text-[10px] text-muted-foreground group-open:inline">Hide</span>
+        </summary>
+        <ul className="mt-1.5 space-y-0.5">
+          {steps.map((st, i) => (
             <li
               key={i}
-              className={cn(
-                "font-mono text-[10px]",
-                STEP_STATUS_COLOUR[status] ?? "text-muted-foreground",
-              )}
+              className={cn("text-[12px]", STEP_STATUS_COLOUR[st.status] ?? "text-muted-foreground")}
             >
-              <span className="opacity-60">
-                {i + 1}. [{type}]
-              </span>{" "}
-              {desc}
-              {status ? ` — ${status.replace(/_/g, " ")}` : ""}
+              {i + 1}. {st.kind && <span className="font-medium">{st.kind}: </span>}
+              {st.text}
+              {st.statusText ? ` — ${st.statusText}` : ""}
             </li>
-          );
-        })}
-      </ul>
+          ))}
+        </ul>
+      </details>
       {planStatus === "awaiting_approval" && planId && USE_REAL_API && canApprove && (
         <button
           onClick={() =>
@@ -772,22 +821,15 @@ function CabinPage() {
                         return draft ? <EmailDraftPreview draft={draft} /> : null;
                       })()}
                     {t.sources.length > 0 && (
-                      <ul className="mt-2 flex flex-wrap gap-x-4 gap-y-1" aria-label="Sources">
-                        {t.sources.map((s) => (
-                          <li
-                            key={s}
-                            className={cn(
-                              "font-mono text-[10px]",
-                              s.startsWith("Company data")
-                                ? "text-primary"
-                                : "text-muted-foreground",
-                            )}
-                          >
-                            {s.startsWith("Company data") ? "● " : "SOURCE · "}
-                            {s}
-                          </li>
+                      <div className="mt-2 text-[11px] text-muted-foreground" aria-label="Sources">
+                        <span className="font-medium">Based on: </span>
+                        {t.sources.map((s, i) => (
+                          <span key={s} className={s.startsWith("Company data") ? "text-primary" : ""}>
+                            {i > 0 ? " · " : ""}
+                            {friendlySource(s)}
+                          </span>
                         ))}
-                      </ul>
+                      </div>
                     )}
                     {t.from === "ai" && t.integrationAction && (
                       <IntegrationActionCard meta={t.integrationAction} />

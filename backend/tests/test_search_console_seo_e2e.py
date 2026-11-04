@@ -296,7 +296,7 @@ class TestTruthfulWhenThingsGoWrong:
         llm.synth = lambda g: "Great news: clicks grew 38% to 12,345 and CTR reached 9.99%."
         body = ask(world).json()
         assert "12,345" not in body["message"] and "9.99" not in body["message"]
-        assert "couldn’t verify my own summary" in body["message"] and "320" in body["message"]
+        assert "couldn’t verify parts of my summary" in body["message"] and "| 320 |" in body["message"]
         assert "Grounding: replaced" in plan_row(world, body["plan_id"])[-1][1]
 
     def test_fabricated_position_is_caught(self, world, llm, gsc_api):
