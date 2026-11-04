@@ -345,7 +345,9 @@ async def create_and_execute_plan(
                     system_persona=system_persona,
                 )
                 final_msg, grounding = _verify_against_evidence(
-                    final_msg, plan, db_steps, step_results, user_prompt
+                    final_msg, plan, db_steps, step_results, user_prompt,
+                    extra_evidence="\n".join([*map(str, step_results.values()), rag_context[:8000],
+                                               data_context_block[:6000]]),
                 )
             except Exception as exc:
                 logger.error("Final response generation failed (%s)", type(exc).__name__, exc_info=True)
@@ -1001,6 +1003,8 @@ async def _synthesise_response(
     )
     if "[AUDIT" not in system and "AUDIT LOG" not in system:
         system = system + _no_audit_suffix
+    from app.services.answer_style import WRITING_RULES
+    system = f"{system}\n\n{WRITING_RULES}"
 
     from app.services.conversations import turn_history
     earlier = (turn_history.get() + "\n\n") if turn_history.get() else ""
@@ -1010,9 +1014,9 @@ async def _synthesise_response(
             f"Information gathered:\n{results_text}\n\n"
             "The information above was retrieved by tools you are authorised to use for this person, so presenting "
             "it is part of your job: never say it is outside your responsibilities or send the person to another AI "
-            "employee for it. Using the information above, provide a clear and concise answer "
-            "to the user's question. Cite sources where applicable. "
-            "Do not expose internal IDs or credentials."
+            "employee for it. Using the information above, answer the person's question following the writing "
+            "rules (plain words, human numbers, prioritised actions for advice questions, next steps). Say where "
+            "the data came from. Do not expose internal IDs or credentials."
         )
     else:
         # No tool data — answer the question directly from knowledge.
@@ -1055,11 +1059,14 @@ def _verify_against_evidence(
     db_steps: list[PlanStep],
     step_results: dict[int, str],
     user_prompt: str,
+    extra_evidence: str = "",
 ) -> tuple[str, str]:
     """
-    For answers built on integration data: check every figure against what the
-    integration returned; if the prose states anything it cannot support, show
-    the returned data instead.  Always append where the data came from.
+    For answers built on integration data: check every figure, sentence by sentence, against what the integration
+    returned and the company documents used for this answer (``extra_evidence``). Supported analysis is kept,
+    targets/estimates are kept and marked, unsupported factual statements are left out (and the answer says so).
+    Only when most of it is unsupported is the data itself shown — as readable tables. Always says where the data
+    came from.
     """
     from app.services.grounding import ungrounded_figures
     from app.tools.dynamic_tool import is_dynamic_tool_key
@@ -1075,25 +1082,43 @@ def _verify_against_evidence(
         return final_msg, "No integration data used."
 
     evidence = "\n".join(evidence_parts)
+    from app.services.grounding import verify_answer
     from app.services.platform_requests import is_refusal
-    if is_refusal(final_msg):
-        # The tool ran and returned data, but the model declined to present it: show the data itself.
-        logger.warning("Response declined to present data its own tool returned; showing the data instead")
-        final_msg = "Here is what the connected service returned:\n\n" + evidence
+    from app.services.readable import tables_from_evidence
+    tables = tables_from_evidence(evidence)
     sources = list(dict.fromkeys(
         line.split("Source:", 1)[1].strip()
         for line in evidence.splitlines() if line.strip().startswith("Source:")
     ))
-    bad = ungrounded_figures(final_msg, f"{evidence}\n{plan.objective}\n{user_prompt}")
-    if bad:
-        logger.warning("Response stated %d figure(s) not found in tool data; showing data instead", len(bad))
-        final_msg = (
-            "I couldn’t verify my own summary against the data, so here are the figures exactly as "
-            "the integration returned them:\n\n" + evidence
-        )
-        verdict = f"Grounding: replaced (unsupported figures: {', '.join(bad[:5])})."
+    if is_refusal(final_msg):
+        # The tool ran and returned data, but the model declined to present it: show the data itself.
+        logger.warning("Response declined to present data its own tool returned; showing the data instead")
+        final_msg = "Here is what the connected service returned:\n\n" + (tables or evidence)
+        verdict = "Grounding: data shown (the model declined to present it)."
     else:
-        verdict = "Grounding: all figures traced to integration data."
+        checked = verify_answer(final_msg, f"{evidence}\n{extra_evidence}\n{plan.objective}\n{user_prompt}")
+        if checked.replaced:
+            logger.warning("Most figures in the response were not in the data (%d left out); showing the data",
+                           len(checked.removed))
+            keep = checked.text if len(re.sub(r"[#*_`|>\-\s]", "", checked.text)) >= 80 else ""
+            final_msg = ((keep + "\n\n") if keep else "") + (
+                "I couldn’t verify parts of my summary against the data, so I left them out. "
+                "Here is the data itself:\n\n" + (tables or evidence))
+            verdict = f"Grounding: replaced (unsupported figures in {len(checked.removed)} statement(s))."
+        else:
+            final_msg = checked.text
+            notes = []
+            if checked.removed:
+                notes.append(f"I left out {len(checked.removed)} statement(s) whose figures I could not confirm "
+                             "in the data.")
+            if checked.estimates:
+                notes.append("Figures marked *(estimate)* are targets or projections, not measured results.")
+            if notes:
+                final_msg += "\n\n_" + " ".join(notes) + "_"
+            verdict = ("Grounding: all figures traced to integration data." if not checked.removed else
+                       f"Grounding: {len(checked.removed)} unsupported statement(s) left out.")
+            if checked.estimates:
+                verdict += f" {checked.estimates} estimate(s) marked."
     if sources:
         final_msg = f"{final_msg}\n\nData source: {'; '.join(sources)}"
     return final_msg, verdict

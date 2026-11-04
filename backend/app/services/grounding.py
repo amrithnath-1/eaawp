@@ -33,6 +33,16 @@ def evidence_values(text: str) -> list[float]:
 
 _ROW = re.compile(r"\{[^{}]*\}")
 _FIELD = re.compile(r'"(\w+)"\s*:\s*(-?\d+(?:\.\d+)?)')
+# Integration rows as the tools print them: "  3. query: x | clicks: 2 | impressions: 1156 | ctr: 0.0017"
+_PIPE_ROW = re.compile(r"^\s*\d+\.\s+(.*\|.*)$", re.M)
+_PIPE_FIELD = re.compile(r"(?:^|\|)\s*(\w+):\s*(-?\d+(?:\.\d+)?)\s*(?=\||$)")
+
+
+def _rows(evidence: str) -> list[list[tuple[str, str]]]:
+    """Every data row in the evidence, JSON objects and pipe rows alike, as (field, number) pairs."""
+    rows = [_FIELD.findall(obj) for obj in _ROW.findall(evidence or "")[:500]]
+    rows += [_PIPE_FIELD.findall(m.group(1)) for m in _PIPE_ROW.finditer(evidence or "")][:500]
+    return [r for r in rows if r]
 
 
 def _derived(evidence: str) -> tuple[list[float], list[float]]:
@@ -41,8 +51,9 @@ def _derived(evidence: str) -> tuple[list[float], list[float]]:
     ratios between measure totals (overall CTR = total clicks / total impressions). Never arbitrary pairs, which would
     let almost any small number pass."""
     cols: dict[str, list[float]] = {}
-    for key, num in _FIELD.findall(evidence or ""):
-        cols.setdefault(key, []).append(float(num))
+    for row in _rows(evidence):
+        for key, num in row:
+            cols.setdefault(key, []).append(float(num))
     plain: list[float] = []
     pct: list[float] = []
     totals = {k: sum(v) for k, v in cols.items() if len(v) > 1}
@@ -64,8 +75,8 @@ def _derived(evidence: str) -> tuple[list[float], list[float]]:
                 pct.append(ta / tb * 100)
                 plain.append(ta / tb)
     # Ratios between two measures of the SAME row (e.g. one page's clicks / impressions = that page's CTR).
-    for obj in _ROW.findall(evidence or "")[:500]:
-        nums = [float(n) for _, n in _FIELD.findall(obj)][:12]
+    for row in _rows(evidence):
+        nums = [float(n) for _, n in row][:12]
         for a in nums:
             for b in nums:
                 if a != b and b:
@@ -92,3 +103,124 @@ def ungrounded_figures(answer: str, evidence: str) -> list[str]:
             continue
         bad.append(raw + pct)
     return bad
+
+
+# ── Checking an answer sentence by sentence ──────────────────────────────────
+#
+# The old rule replaced the WHOLE answer when one figure could not be traced, so an analysis with one target in it
+# ("aim for 50 clicks") came back as a raw data dump. Now each sentence (or table row / bullet) is checked on its own:
+#   * figures traced to the data (or computed from it), or to the company's own documents → kept;
+#   * targets, estimates and projections (worded as such: "aim for", "could", "estimate", "up to"…) → kept and
+#     marked "(estimate)" so they are never mistaken for measured results;
+#   * general guidance with a unit ("titles under 60 characters", "within 2 weeks") and years → kept;
+#   * a sentence stating an untraceable figure as fact → left out, and the answer says how many were left out.
+# Only when most of the factual content is unsupported is the answer replaced by the data itself, as readable tables.
+
+from dataclasses import dataclass, field as _field
+
+_ESTIMATE = re.compile(
+    r"\b(target|targets|aim|aiming|goal|goals|estimate[sd]?|estimated|estimation|could|might|may|potential(?:ly)?|"
+    r"project(?:ed|ion)s?|forecast|expect(?:ed)?|would|up to|approximately|roughly|around|about|if you|if the|"
+    r"by improving|by raising|possible|opportunity to|plan to|should reach|can reach|benchmark|typical(?:ly)?|"
+    r"industry average|best practice)\b", re.I)
+_GUIDANCE_UNIT = re.compile(
+    r"^\s*(?:-\s*\d+\s*)?(characters?|chars?|words?|days?|weeks?|months?|years?|hours?|minutes?|seconds?|steps?|"
+    r"times?|kb|mb|px|pixels?|links?|headings?|images?|questions?|faqs?|sections?|paragraphs?|sentences?|lines?)\b",
+    re.I)
+_SPLIT = re.compile(r"(?<=[.!?])\s+(?=[\"'(*\[A-Z0-9])")
+_TABLE_SEP = re.compile(r"^\s*\|?\s*:?-{2,}")
+
+
+@dataclass
+class Verified:
+    text: str
+    removed: list[str] = _field(default_factory=list)       # sentences left out (their unsupported figures)
+    estimates: int = 0                                       # sentences kept as marked estimates
+    replaced: bool = False                                   # True: the data is shown instead of the prose
+    factual_units: int = 0
+
+
+_DATE = re.compile(r"\b(\d{4}-\d{2}-\d{2})\b")
+
+
+def _bad_in(unit: str, evidence: str) -> list[str]:
+    # A specific date must be one the data covers (a wrong period makes every figure next to it wrong).
+    bad = [d for d in _DATE.findall(unit) if d not in (evidence or "")]
+    for fig in ungrounded_figures(unit, evidence):
+        # where is it in the sentence?
+        i = unit.find(fig)
+        after = unit[i + len(fig):] if i >= 0 else ""
+        num = fig.rstrip("%").replace(",", "")
+        try:
+            v = float(num)
+        except ValueError:
+            v = -1
+        if not fig.endswith("%") and 1900 <= v <= 2100 and "." not in num:
+            continue                                         # a year
+        if not fig.endswith("%") and _GUIDANCE_UNIT.match(after):
+            continue                                         # guidance, not reported data
+        bad.append(fig)
+    return bad
+
+
+def _mark_estimate(unit: str) -> str:
+    if re.search(r"estimate", unit, re.I):
+        return unit
+    stripped = unit.rstrip()
+    m = re.search(r"([.!?]*)$", stripped)
+    end = m.group(1) if m else ""
+    return stripped[:len(stripped) - len(end)] + " *(estimate)*" + end
+
+
+def verify_answer(answer: str, evidence: str) -> Verified:
+    """Keep what the data supports, mark estimates, leave out unsupported factual statements (see above)."""
+    out_lines: list[str] = []
+    v = Verified(text=answer)
+    if not answer:
+        return v
+    for line in answer.splitlines():
+        stripped = line.strip()
+        if not stripped or _TABLE_SEP.match(stripped) or stripped.startswith(("#", "```")):
+            out_lines.append(line)
+            continue
+        if stripped.startswith("|"):                          # a table row is one unit
+            bad = _bad_in(stripped, evidence)
+            if bad:
+                v.factual_units += 1
+                v.removed.append(stripped)
+                continue
+            if _NUM.search(stripped):
+                v.factual_units += 1
+            out_lines.append(line)
+            continue
+        prefix = line[:len(line) - len(line.lstrip())]
+        m = re.match(r"^(\s*(?:[-*+]|\d+[.)])\s+)", line)
+        if m:
+            prefix, body = m.group(1), line[m.end():]
+        else:
+            body = line.strip()
+        kept = []
+        for sent in _SPLIT.split(body):
+            if not sent.strip():
+                continue
+            bad = _bad_in(sent, evidence)
+            if _NUM.search(sent):
+                v.factual_units += 1
+            if not bad:
+                kept.append(sent)
+            elif _ESTIMATE.search(sent):
+                kept.append(_mark_estimate(sent))
+                v.estimates += 1
+            else:
+                v.removed.append(sent.strip())
+        if kept:
+            out_lines.append(prefix + " ".join(kept))
+    text = "\n".join(out_lines)
+    text = re.sub(r"\n{3,}", "\n\n", text).strip()
+    # Headings left with nothing under them are dropped.
+    text = re.sub(r"(?m)^#{1,6} [^\n]*\n+(?=#{1,6} |\Z)", "", text).strip()
+    v.text = text
+    prose = re.sub(r"[#*_`|>\-\s]", "", text)
+    if v.removed and (len(prose) < 80 or len(v.removed) > max(2, v.factual_units * 0.5)):
+        v.replaced = True
+    return v

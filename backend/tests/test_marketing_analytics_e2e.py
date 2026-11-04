@@ -326,8 +326,8 @@ class TestTruthfulWhenThingsGoWrong:
         llm.synth = lambda gathered: "Great news: sessions grew 38% to 12,345 last week."
         body = ask(world).json()
         assert "12,345" not in body["message"] and "38%" not in body["message"]
-        assert "couldn’t verify my own summary" in body["message"]
-        assert "1842" in body["message"]
+        assert "couldn’t verify parts of my summary" in body["message"]
+        assert "1,842" in body["message"] and "| Sessions |" in body["message"]   # readable table
         steps = plan_row(world, body["plan_id"])
         assert "Grounding: replaced" in steps[-1][1]
 
