@@ -21,6 +21,7 @@ from app.actions.customize_actions import CustomizeEaawpAction
 from app.actions.draft_email import DraftEmailAction
 from app.actions.send_email import SendEmailAction
 from app.actions.strategy_actions import CreateMarketingObjectiveAction, UpdateMarketingObjectiveAction
+from app.actions.pm_actions import PmAssignTaskAction, PmCreateProjectAction, PmReportLeaveAction, PmRunAllocationAction
 
 # Registry maps tool_name → BaseActionTool instance
 ACTION_REGISTRY: dict[str, BaseActionTool] = {
@@ -35,6 +36,10 @@ ACTION_REGISTRY: dict[str, BaseActionTool] = {
     "update_service_request": UpdateServiceRequestAction(),
     "update_appointment_status": UpdateAppointmentStatusAction(),
     "customize_eaawp": CustomizeEaawpAction(),
+    "pm_create_project": PmCreateProjectAction(),
+    "pm_run_allocation": PmRunAllocationAction(),
+    "pm_assign_task": PmAssignTaskAction(),
+    "pm_report_leave": PmReportLeaveAction(),
 }
 
 

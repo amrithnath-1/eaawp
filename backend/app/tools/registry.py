@@ -1906,6 +1906,11 @@ MASTER_TOOL_REGISTRY: dict[str, object] = {
     "get_appointment": get_appointment,
 }
 
+# Project Manager AI employee (ported from Vyuham): read-only project, allocation and team tools.
+from app.tools.pm_tools import PM_READ_TOOLS  # noqa: E402
+
+MASTER_TOOL_REGISTRY.update(PM_READ_TOOLS)
+
 
 def resolve_tools(
     tool_names: list[str],

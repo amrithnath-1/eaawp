@@ -15,7 +15,7 @@ import pytest
 
 BACKEND = pathlib.Path(__file__).resolve().parents[2]
 PREVIOUS = "u8v2w37x9y15"
-HEAD = "a7c3e91d2b58"
+HEAD = "b8d4f02e6c17"
 
 
 def alembic(db: pathlib.Path, *args: str) -> str:

@@ -40,6 +40,7 @@ import app.db.message_models  # noqa: E402, F401  ← Internal messaging
 import app.db.workspace_models  # noqa: E402, F401  ← selected AI employee workspace per user
 import app.db.conversation_models  # noqa: E402, F401  ← conversations (History) + company profile
 import app.db.toolhub_models  # noqa: E402, F401  ← tool hub (registry, versions, grants, executions)
+import app.db.pm_models  # noqa: E402, F401  ← Project Manager AI employee (state, documents, chunks)
 # Phase H/I — new tables for employee builder and workflow engine
 # (These are defined in models.py so Base already knows them — no extra import needed)
 config = context.config

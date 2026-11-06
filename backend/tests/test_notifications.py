@@ -273,7 +273,8 @@ def test_authorization_and_preferences_are_audited(world, monkeypatch):
 
 def test_employees_cannot_subscribe_to_admin_events(world):
     prefs = world.client.get(f"{N}/preferences", headers=world.auth("a_employee")).json()
-    assert prefs["categories"] == []
+    member_ok = [k for k, (_label, admin_only, _email) in ns.CATEGORIES.items() if not admin_only]   # e.g. their own project tasks
+    assert [c["category"] for c in prefs["categories"]] == member_ok
     assert opt(world, "a_employee").status_code == 404
     assert len(world.client.get(f"{N}/preferences", headers=world.auth("a_admin")).json()["categories"]) == len(ns.CATEGORIES)
 

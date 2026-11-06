@@ -39,7 +39,7 @@ CATALOG: tuple[ModuleDef, ...] = (
     ModuleDef("HR_MANAGER", "HR Manager", "Hiring, onboarding and policy questions.", "People", "coming_soon", False),
     ModuleDef("CYBERSECURITY_ANALYST", "Cybersecurity Analyst", "Monitors alerts and reviews access.", "Security", "coming_soon", False),
     ModuleDef("FINANCIAL_ADVISOR", "Financial Advisor", "Budget tracking and financial summaries.", "Finance", "coming_soon", False),
-    ModuleDef("PROJECT_MANAGER", "Project Manager", "Plans projects, tracks tasks and reports status.", "Operations", "coming_soon", False),
+    ModuleDef("PROJECT_MANAGER", "Project Manager", "Turns project documents into approved plans, allocates tasks fairly by skill and workload, and tracks verified progress.", "Operations"),
 )
 _BY_KEY = {m.key: m for m in CATALOG}
 

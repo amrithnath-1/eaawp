@@ -36,6 +36,7 @@ CATEGORIES: dict[str, tuple[str, bool, bool]] = {
     "workflow_failed": ("A workflow run failed", True, True),
     "monitoring_alert": ("A monitoring rule was triggered", True, True),
     "member_joined": ("A new member joined the company", True, True),
+    "project_update": ("Project tasks, approvals and reviews (Project Manager)", False, True),
 }
 ADMIN_ROLES = frozenset({"admin", "superadmin", "company admin", "ai administrator"})
 SEVERITIES = ("info", "warning", "critical")
