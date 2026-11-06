@@ -4312,7 +4312,7 @@ export function useSetModule() {
 
 
 // ── AI employee workspace: the role the signed-in person works with ───────────────
-export type WorkspaceRoleKey = "DIGITAL_MARKETING_MANAGER" | "INSTITUTIONAL_CLERK" | "MEDICAL_ASSISTANT" | "DATA_INTELLIGENCE_ANALYST";
+export type WorkspaceRoleKey = "DIGITAL_MARKETING_MANAGER" | "INSTITUTIONAL_CLERK" | "MEDICAL_ASSISTANT" | "DATA_INTELLIGENCE_ANALYST" | "PROJECT_MANAGER";
 export interface WorkspaceRoleCardFE {
   key: WorkspaceRoleKey; name: string; purpose: string; capabilities: string[]; knowledge_domain: string;
   main_tools: Array<{ name: string; requires_approval: boolean }>; available: boolean; unavailable_reason: string | null;
@@ -4341,10 +4341,14 @@ const MOCK_ROLE_CARDS: WorkspaceRoleCardFE[] = [
   { key: "DATA_INTELLIGENCE_ANALYST", name: "Data Analyst", purpose: "Explores company data: dataset uploads, database connections, analysis, charts and reports.",
     capabilities: ["Dataset exploration", "Analysis", "Charts and reports"], knowledge_domain: "Uploaded datasets and authorized databases.",
     main_tools: [{ name: "Analyse Dataset", requires_approval: false }], available: true, unavailable_reason: null },
+  { key: "PROJECT_MANAGER", name: "Project Manager", purpose: "Coordinates project work: plans from project documents, fair task allocation, approvals and verified progress.",
+    capabilities: ["Plans from documents", "Task allocation", "Approvals", "Verified progress"], knowledge_domain: "Each project's own documents and room.",
+    main_tools: [{ name: "Project Status", requires_approval: false }, { name: "Run Task Allocation", requires_approval: true }], available: true, unavailable_reason: null },
 ];
 const MOCK_ROLE_NAV: Record<WorkspaceRoleKey, string[]> = {
   DIGITAL_MARKETING_MANAGER: ["customize", "integrations", "scheduled", "meeting"],
   INSTITUTIONAL_CLERK: ["clerk", "scheduled"], MEDICAL_ASSISTANT: ["clinic"], DATA_INTELLIGENCE_ANALYST: ["data", "scheduled"],
+  PROJECT_MANAGER: ["projects"],
 };
 
 /** Demo mode only: a local stand-in for GET /api/v1/workspace (no server, so nothing here is a permission). */

@@ -15,7 +15,7 @@ import {
 
 const ROLES = [
   ["DIGITAL_MARKETING_MANAGER", "Digital Marketing Manager"], ["DATA_INTELLIGENCE_ANALYST", "Data Analyst"],
-  ["INSTITUTIONAL_CLERK", "Institutional Clerk"], ["MEDICAL_ASSISTANT", "Medical Assistant"],
+  ["INSTITUTIONAL_CLERK", "Institutional Clerk"], ["MEDICAL_ASSISTANT", "Medical Assistant"], ["PROJECT_MANAGER", "Project Manager"],
 ] as const;
 const RISK_CLASS: Record<string, string> = { low: "border-success/40 text-success", medium: "border-warning/40 text-warning", high: "border-destructive/40 text-destructive" };
 

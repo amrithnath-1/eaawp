@@ -14,6 +14,7 @@ import {
   CheckSquare,
   ClipboardList,
   Database,
+  FolderKanban,
   Home,
   LayoutGrid,
   Library,
@@ -46,6 +47,7 @@ const BASE: Record<string, Omit<NavItem, "key">> = {
   clerk: { to: "/clerk", label: "Service Requests", icon: ClipboardList },
   clinic: { to: "/clinic", label: "Clinic Desk", icon: Stethoscope },
   data: { to: "/data", label: "Datasets & Analysis", icon: Database },
+  projects: { to: "/projects", label: "Projects", icon: FolderKanban },
   approvals: { to: "/approvals", label: "Approvals", icon: CheckSquare },
   messages: { to: "/messages", label: "Messages", icon: MessageSquare },
   library: { to: "/library", label: "Knowledge Library", icon: Library },
@@ -65,6 +67,7 @@ const ROLE_LABELS: Partial<Record<WorkspaceRoleKey, Partial<Record<string, strin
   INSTITUTIONAL_CLERK: { workspace: "Clerk Dashboard", library: "Policies & Templates" },
   MEDICAL_ASSISTANT: { workspace: "Clinic Dashboard", library: "Clinic Information" },
   DATA_INTELLIGENCE_ANALYST: { workspace: "Analytics Dashboard", library: "Data Documentation" },
+  PROJECT_MANAGER: { workspace: "Projects Dashboard", library: "Project Knowledge" },
 };
 
 export function navItems(keys: string[], role: WorkspaceRoleKey | undefined): NavItem[] {
@@ -102,6 +105,7 @@ export const PAGE_OWNER: Partial<Record<string, WorkspaceRoleKey>> = {
   "/clerk": "INSTITUTIONAL_CLERK",
   "/clinic": "MEDICAL_ASSISTANT",
   "/data": "DATA_INTELLIGENCE_ANALYST",
+  "/projects": "PROJECT_MANAGER",
 };
 
 export interface RoleMeta { icon: LucideIcon; short: string; dashboardTitle: string; dashboardSubtitle: string }
@@ -126,6 +130,11 @@ export const ROLE_META: Record<WorkspaceRoleKey, RoleMeta> = {
     icon: BarChart3, short: "Analytics",
     dashboardTitle: "Data analysis workspace",
     dashboardSubtitle: "Datasets, database connections, deterministic analysis, charts and reports.",
+  },
+  PROJECT_MANAGER: {
+    icon: FolderKanban, short: "Projects",
+    dashboardTitle: "Project coordination workspace",
+    dashboardSubtitle: "Plans from project documents, fair task allocation, approvals for critical work and verified progress.",
   },
 };
 

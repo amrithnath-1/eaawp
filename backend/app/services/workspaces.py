@@ -87,6 +87,18 @@ WORKSPACES: tuple[WorkspaceDef, ...] = (
         ("Reports only numbers the analysis engine computed and always names the dataset.",
          "Database access is read only, through admin-defined mappings and entity permissions, and audited."),
     ),
+    WorkspaceDef(
+        "PROJECT_MANAGER", "Project Manager",
+        "Coordinates project work: plans from project documents, fair task allocation, approvals and verified progress.",
+        ("Project documents → specification → plan, approved by a person", "Task allocation by skill, availability and workload",
+         "Approvals for critical work and heavy workloads", "Verified progress, risks, skill gaps and budgets",
+         "Project rooms: messages, minutes, decisions and action items"),
+        "Each project's own documents and room; team members see only projects where they own a task.",
+        ("projects",),
+        ("Allocation is deterministic and explained; the AI model only reads documents and drafts plans.",
+         "Critical tasks and assignments above 85% load always wait for a manager's approval.",
+         "Progress counts only accepted work; every change is in a tamper-evident audit ledger."),
+    ),
 )
 _BY_KEY = {w.key: w for w in WORKSPACES}
 WORKSPACE_KEYS = frozenset(_BY_KEY)

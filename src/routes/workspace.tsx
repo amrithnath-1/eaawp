@@ -8,7 +8,7 @@ import { ProactiveInsights } from "@/components/eaawp/ProactiveInsights";
 import { MailBox } from "@/components/eaawp/MailBox";
 import { KeyValue, Panel } from "@/components/eaawp/Panel";
 import {
-  AnalystDashboard, ClerkDashboard, ClinicDashboard, MarketingStrip, ROLE_ACTIONS, RoleHeader,
+  AnalystDashboard, ClerkDashboard, ClinicDashboard, MarketingStrip, ProjectsDashboard, ROLE_ACTIONS, RoleHeader,
 } from "@/components/eaawp/RoleDashboards";
 import { knowledgeService } from "@/services";
 import { useAgentStatus } from "@/state/useAgentStatus";
@@ -97,6 +97,7 @@ function WorkspacePage() {
           {role === "INSTITUTIONAL_CLERK" && <ClerkDashboard />}
           {role === "MEDICAL_ASSISTANT" && <ClinicDashboard />}
           {role === "DATA_INTELLIGENCE_ANALYST" && <AnalystDashboard isAdmin={isAdmin} />}
+          {role === "PROJECT_MANAGER" && <ProjectsDashboard />}
         </>
       )}
     </AppShell>

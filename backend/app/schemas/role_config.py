@@ -29,10 +29,12 @@ RoleKey = Literal[
     "DATA_INTELLIGENCE_ANALYST",
     "INSTITUTIONAL_CLERK",
     "MEDICAL_ASSISTANT",
+    "PROJECT_MANAGER",
 ]
 
 # Roles that are active; all others return 404/coming-soon.
-IMPLEMENTED_ROLES: set[str] = {"DIGITAL_MARKETING_MANAGER", "DATA_INTELLIGENCE_ANALYST", "INSTITUTIONAL_CLERK", "MEDICAL_ASSISTANT"}
+IMPLEMENTED_ROLES: set[str] = {"DIGITAL_MARKETING_MANAGER", "DATA_INTELLIGENCE_ANALYST", "INSTITUTIONAL_CLERK", "MEDICAL_ASSISTANT",
+                                "PROJECT_MANAGER"}
 
 
 # ── Sub-models ────────────────────────────────────────────────────────────────

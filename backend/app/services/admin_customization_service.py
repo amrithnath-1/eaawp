@@ -79,7 +79,7 @@ processing times, guarantees or results. Lists are ADDED to what exists unless "
   A service with the same name as an existing one updates it; empty strings never erase existing values.
 
 UPDATE_ROLE_SETTINGS params (a built-in AI employee: DIGITAL_MARKETING_MANAGER, DATA_INTELLIGENCE_ANALYST,
-INSTITUTIONAL_CLERK, MEDICAL_ASSISTANT). Include only what was asked:
+INSTITUTIONAL_CLERK, MEDICAL_ASSISTANT, PROJECT_MANAGER). Include only what was asked:
   {"role_key": str, "agent_name": str, "communication_style": str, "add_instructions": str,
    "quick_prompts": [str], "add_responsibilities": [str]}
 
@@ -278,7 +278,7 @@ async def _gather_tenant_context(tenant_id: str, db: AsyncSession) -> str:
     except Exception as exc:
         logger.debug("Could not load tool registry for context: %s", exc)
     context_parts.append("BUILT-IN AI EMPLOYEES (for UPDATE_ROLE_SETTINGS / SET_AI_EMPLOYEE_PAUSED): DIGITAL_MARKETING_MANAGER, "
-                         "DATA_INTELLIGENCE_ANALYST, INSTITUTIONAL_CLERK, MEDICAL_ASSISTANT")
+                         "DATA_INTELLIGENCE_ANALYST, INSTITUTIONAL_CLERK, MEDICAL_ASSISTANT, PROJECT_MANAGER")
 
     # People (name, email, role, status only) and Marketplace modules
     try:

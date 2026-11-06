@@ -423,6 +423,7 @@ def _accessible_scopes(role_scope: str) -> list[str]:
         "INSTITUTIONAL_CLERK": "Clerk Agent Only",
         "MEDICAL_ASSISTANT": "Clinic Agent Only",
         "DATA_INTELLIGENCE_ANALYST": "Data Analyst Only",
+        "PROJECT_MANAGER": "Project Manager Only",
     }
     for specific in (scope_map.get(role_scope), workspace_scopes.get(role_scope)):
         if specific:

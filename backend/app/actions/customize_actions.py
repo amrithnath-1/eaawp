@@ -48,7 +48,7 @@ class CustomizeEaawpAction(BaseActionTool):
             risk_level="medium", requires_approval=True,
             target_integration="internal",
             allowed_roles=["DIGITAL_MARKETING_MANAGER", "DATA_INTELLIGENCE_ANALYST", "INSTITUTIONAL_CLERK",
-                           "MEDICAL_ASSISTANT"],
+                           "MEDICAL_ASSISTANT", "PROJECT_MANAGER"],
         )
 
     async def prepare(self, arguments: dict[str, Any], tenant_id: str, db: Any) -> dict[str, Any]:

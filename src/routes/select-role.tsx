@@ -8,7 +8,7 @@ import { apiErrorMessage } from "@/lib/api-client";
 import { ROLE_META } from "@/lib/workspace";
 import { cn } from "@/lib/utils";
 
-const ROLE_KEYS: WorkspaceRoleKey[] = ["DIGITAL_MARKETING_MANAGER", "INSTITUTIONAL_CLERK", "MEDICAL_ASSISTANT", "DATA_INTELLIGENCE_ANALYST"];
+const ROLE_KEYS: WorkspaceRoleKey[] = ["DIGITAL_MARKETING_MANAGER", "INSTITUTIONAL_CLERK", "MEDICAL_ASSISTANT", "DATA_INTELLIGENCE_ANALYST", "PROJECT_MANAGER"];
 
 export const Route = createFileRoute("/select-role")({
   validateSearch: (s: Record<string, unknown>): { role?: WorkspaceRoleKey } =>

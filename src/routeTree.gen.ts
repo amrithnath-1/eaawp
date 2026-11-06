@@ -27,6 +27,7 @@ import { Route as LibraryRouteImport } from './routes/library'
 import { Route as MarketplaceRouteImport } from './routes/marketplace'
 import { Route as MeetingRouteImport } from './routes/meeting'
 import { Route as MessagesRouteImport } from './routes/messages'
+import { Route as ProjectsRouteImport } from './routes/projects'
 import { Route as RecentsRouteImport } from './routes/recents'
 import { Route as RolesRouteImport } from './routes/roles'
 import { Route as ScheduledRouteImport } from './routes/scheduled'
@@ -127,6 +128,11 @@ const MessagesRoute = MessagesRouteImport.update({
   path: '/messages',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ProjectsRoute = ProjectsRouteImport.update({
+  id: '/projects',
+  path: '/projects',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const RecentsRoute = RecentsRouteImport.update({
   id: '/recents',
   path: '/recents',
@@ -192,6 +198,7 @@ export interface FileRoutesByFullPath {
   '/marketplace': typeof MarketplaceRoute
   '/meeting': typeof MeetingRoute
   '/messages': typeof MessagesRoute
+  '/projects': typeof ProjectsRoute
   '/recents': typeof RecentsRoute
   '/roles': typeof RolesRoute
   '/scheduled': typeof ScheduledRoute
@@ -221,6 +228,7 @@ export interface FileRoutesByTo {
   '/marketplace': typeof MarketplaceRoute
   '/meeting': typeof MeetingRoute
   '/messages': typeof MessagesRoute
+  '/projects': typeof ProjectsRoute
   '/recents': typeof RecentsRoute
   '/roles': typeof RolesRoute
   '/scheduled': typeof ScheduledRoute
@@ -251,6 +259,7 @@ export interface FileRoutesById {
   '/marketplace': typeof MarketplaceRoute
   '/meeting': typeof MeetingRoute
   '/messages': typeof MessagesRoute
+  '/projects': typeof ProjectsRoute
   '/recents': typeof RecentsRoute
   '/roles': typeof RolesRoute
   '/scheduled': typeof ScheduledRoute
@@ -282,6 +291,7 @@ export interface FileRouteTypes {
     | '/marketplace'
     | '/meeting'
     | '/messages'
+    | '/projects'
     | '/recents'
     | '/roles'
     | '/scheduled'
@@ -311,6 +321,7 @@ export interface FileRouteTypes {
     | '/marketplace'
     | '/meeting'
     | '/messages'
+    | '/projects'
     | '/recents'
     | '/roles'
     | '/scheduled'
@@ -340,6 +351,7 @@ export interface FileRouteTypes {
     | '/marketplace'
     | '/meeting'
     | '/messages'
+    | '/projects'
     | '/recents'
     | '/roles'
     | '/scheduled'
@@ -370,6 +382,7 @@ export interface RootRouteChildren {
   MarketplaceRoute: typeof MarketplaceRoute
   MeetingRoute: typeof MeetingRoute
   MessagesRoute: typeof MessagesRoute
+  ProjectsRoute: typeof ProjectsRoute
   RecentsRoute: typeof RecentsRoute
   RolesRoute: typeof RolesRoute
   ScheduledRoute: typeof ScheduledRoute
@@ -509,6 +522,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof MessagesRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/projects': {
+      id: '/projects'
+      path: '/projects'
+      fullPath: '/projects'
+      preLoaderRoute: typeof ProjectsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/recents': {
       id: '/recents'
       path: '/recents'
@@ -594,6 +614,7 @@ const rootRouteChildren: RootRouteChildren = {
   MarketplaceRoute: MarketplaceRoute,
   MeetingRoute: MeetingRoute,
   MessagesRoute: MessagesRoute,
+  ProjectsRoute: ProjectsRoute,
   RecentsRoute: RecentsRoute,
   RolesRoute: RolesRoute,
   ScheduledRoute: ScheduledRoute,

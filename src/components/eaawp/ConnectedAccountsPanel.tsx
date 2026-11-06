@@ -30,6 +30,7 @@ const ROLES: { key: string; name: string }[] = [
   { key: "DATA_INTELLIGENCE_ANALYST", name: "Data Analyst" },
   { key: "INSTITUTIONAL_CLERK", name: "Institutional Clerk" },
   { key: "MEDICAL_ASSISTANT", name: "Medical Assistant" },
+  { key: "PROJECT_MANAGER", name: "Project Manager" },
 ];
 
 // Non-secret account fields providers return from a connection test, with display labels.

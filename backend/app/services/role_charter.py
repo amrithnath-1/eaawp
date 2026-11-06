@@ -30,6 +30,9 @@ ROLE_SCOPES: dict[str, tuple[str, str]] = {
                             "service requests, certificates, letters and other institutional paperwork"),
     "MEDICAL_ASSISTANT": ("Medical Assistant",
                           "clinic administration: appointment requests and clinic information (never medical advice)"),
+    "PROJECT_MANAGER": ("Project Manager",
+                        "projects: plans from project documents, task allocation by skill and workload, team approvals, "
+                        "verified progress, risks and budgets"),
 }
 
 _HONESTY_RULES = (

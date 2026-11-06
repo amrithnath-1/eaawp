@@ -7,6 +7,7 @@ analysis, plan and minutes run on Vyuham's labelled rule-based paths; one test f
 from __future__ import annotations
 
 import io
+import json
 
 import pytest
 
@@ -267,3 +268,43 @@ def test_ai_path_uses_gemini_and_is_labelled(world, monkeypatch):
     monkeypatch.setattr(llm, "structured", fake)
     m = post(world, "a_admin", "/projects/PRJ-CRM/room/minutes", {"title": "Review", "text": "We agreed to ship in March."}).json()
     assert calls == ["meeting_minutes"] and m["source"] == "ai:gemini:test" and m["status"] == "draft"
+
+
+# ── the AI employee in chat ──────────────────────────────────────────────────
+def test_project_manager_chat_reads_real_figures_and_actions_wait_for_approval(world, monkeypatch):
+    from types import SimpleNamespace
+    import app.config as cfg
+    from app.llm.gateway import LLMGateway
+    from tests.test_chat_agent import Script, call
+    from tests.test_role_intelligence import pick
+    seed(world)
+    cfg.settings.__dict__["chat_engine"] = "agent"
+    m = Script(call("pm_overview", {"params": "{}"}), "CRM is in progress.",
+               call("pm_run_allocation", {"project_id": "PRJ-CRM"}, "c2"), "Allocation is waiting for your approval.")
+    monkeypatch.setattr(LLMGateway, "get_chat_model", lambda self, *a, **k: m)
+    monkeypatch.setattr(LLMGateway, "get_chat_model_for_role", lambda self, *a, **k: m)
+    monkeypatch.setattr(LLMGateway, "health", lambda self: SimpleNamespace(is_ready=True))
+    pick(world, "a_admin", "PROJECT_MANAGER")
+
+    def say(prompt):
+        body = {"blueprint": {"agent_id": "cabin", "role_name": "Project Manager", "role_key": "PROJECT_MANAGER", "system_persona": "x",
+                              "allowed_tools": [], "guarded_tools": [], "tenant_id": world.tenant_a}, "user_prompt": prompt}
+        r = world.client.post("/api/v1/agent/execute", json=body, headers=world.auth("a_admin"))
+        assert r.status_code == 200, r.text
+        return r.json()
+
+    say("How are our projects doing?")
+    assert "pm_overview" in m.tools and "pm_run_allocation" in m.tools
+    tool_result = str(m.calls[1][-1].content)
+    assert "Enterprise CRM Platform (PRJ-CRM)" in tool_result and "verified complete: 0.0%" in tool_result
+    out = say("Allocate the CRM tasks")
+    assert "approval" in json.dumps(out).lower()
+    tasks = get(world, "a_admin", "/projects/PRJ-CRM").json()["tasks"]
+    assert all(t["assigned_to"] is None for t in tasks)                        # nothing changed before a person approves
+    pending = world.client.get("/api/v1/approvals", headers=world.auth("a_admin")).json()
+    a = next(x for x in (pending if isinstance(pending, list) else pending.get("items", [])) if x.get("tool_name") == "pm_run_allocation")
+    d = world.client.post(f"/api/v1/approvals/{a['id']}/decide", json={"decision": "approved"}, headers=world.auth("a_admin"))
+    assert d.status_code == 200, d.text
+    tasks = {t["id"]: t for t in get(world, "a_admin", "/projects/PRJ-CRM").json()["tasks"]}
+    assert tasks["TSK-101"]["owner_name"] == "Sneha Patel"                     # as the engine decided
+    assert tasks["TSK-102"]["status"] == "PENDING_HITL_APPROVAL"             # critical work still waits for a manager

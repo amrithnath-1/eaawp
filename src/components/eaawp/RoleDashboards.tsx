@@ -12,6 +12,7 @@ import {
   type WorkspaceAiFE, type WorkspaceRoleKey,
 } from "@/hooks/use-api";
 import { apiErrorMessage } from "@/lib/api-client";
+import { usePm, type PmMe, type PmProgress } from "@/hooks/use-pm";
 import { ROLE_META } from "@/lib/workspace";
 import type { FileRoutesByTo } from "@/routeTree.gen";
 
@@ -243,4 +244,48 @@ export const ROLE_ACTIONS: Record<WorkspaceRoleKey, (isAdmin: boolean) => ReactN
     <Action to="/data">DATASETS & ANALYSIS</Action>
     {isAdmin && <Action to="/connections">DATABASE CONNECTIONS</Action>}
   </>),
+  PROJECT_MANAGER: () => (<>
+    <Action to="/cabin" primary>ASK THE AI</Action>
+    <Action to="/projects">PROJECTS</Action>
+  </>),
 };
+
+// ── Project Manager ───────────────────────────────────────────────────────────
+
+export function ProjectsDashboard() {
+  const q = usePm<PmProgress[]>("/projects");
+  const me = usePm<PmMe>("/me");
+  const items = q.data ?? [];
+  const atRisk = items.filter((p) => p.health === "At risk" || p.health === "Off track");
+  return (
+    <div data-testid="dashboard-projects" className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_320px]">
+      <div className="p-4">
+        <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
+          <Stat label="Projects" value={items.length} />
+          <Stat label="At risk" value={atRisk.length} tone={atRisk.length ? "warn" : undefined} />
+          <Stat label="On track" value={items.filter((p) => p.health === "On track").length} />
+          <Stat label="Complete" value={items.filter((p) => p.health === "Complete").length} />
+        </div>
+        <Panel title="Projects" dense className="mt-4 border border-border">
+          <LoadState loading={q.isLoading} error={q.error} />
+          {!q.isLoading && !q.error && items.length === 0 && <p className="px-3 py-3 text-[12px] text-muted-foreground">{me.data?.is_admin ? "No projects yet. Open Projects to create one from its brief." : "You are not on any project yet."}</p>}
+          <ul>
+            {items.slice(0, 8).map((p) => (
+              <li key={p.project_id} className="flex items-center justify-between gap-3 border-b border-border px-3 py-2 text-[12px] last:border-0">
+                <span className="min-w-0 truncate">{p.name} <span className="text-muted-foreground">· {p.stage_label}</span></span>
+                <span className="shrink-0 font-mono text-[10px] uppercase text-muted-foreground">{p.completion_pct}% verified · {p.health}</span>
+              </li>
+            ))}
+          </ul>
+        </Panel>
+      </div>
+      <Panel title="How it decides" dense className="border-l border-border">
+        <div className="space-y-2 px-3 py-3 text-[12px] text-muted-foreground">
+          <p>Allocation is computed, not guessed: skill, availability, workload balance, priority, performance and growth.</p>
+          <p>Critical tasks and assignments above 85% load wait for a manager’s approval.</p>
+          <p>Progress counts only work a manager accepted. Every change is in a tamper-evident ledger.</p>
+        </div>
+      </Panel>
+    </div>
+  );
+}

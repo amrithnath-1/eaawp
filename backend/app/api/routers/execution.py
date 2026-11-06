@@ -138,7 +138,7 @@ async def _resolve_role_key(request: AgentExecutionRequest, tenant_id: str, db: 
 
 
 _BUILT_IN_ROLE_KEYS = frozenset({"DIGITAL_MARKETING_MANAGER", "DATA_INTELLIGENCE_ANALYST", "INSTITUTIONAL_CLERK",
-                                 "MEDICAL_ASSISTANT"})
+                                 "MEDICAL_ASSISTANT", "PROJECT_MANAGER"})
 
 
 @router.post(
@@ -880,7 +880,7 @@ async def _close_answered_pending_tasks(db, tenant_id: str, user_id: str, role_k
 
 # Roles that work with individual people's records. Their conversations must never be written to, or read from, the
 # company-wide agent memory (it is shared by every user of the company), or one person's data could surface for another.
-PERSONAL_DATA_ROLES = frozenset({"INSTITUTIONAL_CLERK", "MEDICAL_ASSISTANT"})
+PERSONAL_DATA_ROLES = frozenset({"INSTITUTIONAL_CLERK", "MEDICAL_ASSISTANT", "PROJECT_MANAGER"})  # PM: people's skill and performance records
 
 
 async def _remember(db, tenant_id: str, role_key: str, user_id: str, prompt: str, answer: str) -> None:
@@ -947,5 +947,6 @@ def _blueprint_role_key(role_name: str) -> str:
         "Data Intelligence Analyst": "DATA_INTELLIGENCE_ANALYST",
         "Institutional Clerk": "INSTITUTIONAL_CLERK",
         "Medical Assistant": "MEDICAL_ASSISTANT",
+        "Project Manager": "PROJECT_MANAGER",
     }
     return mapping.get(role_name, "DIGITAL_MARKETING_MANAGER")
