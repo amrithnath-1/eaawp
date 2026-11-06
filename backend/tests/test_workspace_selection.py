@@ -10,8 +10,8 @@ from app.db.workspace_models import UserWorkspace
 from tests.conftest import PASSWORD, _run
 
 W = "/api/v1/workspace"
-ROLES = {"DIGITAL_MARKETING_MANAGER", "INSTITUTIONAL_CLERK", "MEDICAL_ASSISTANT", "DATA_INTELLIGENCE_ANALYST"}
-ROLE_ONLY_NAV = {"customize", "clerk", "clinic", "data"}
+ROLES = {"DIGITAL_MARKETING_MANAGER", "INSTITUTIONAL_CLERK", "MEDICAL_ASSISTANT", "DATA_INTELLIGENCE_ANALYST", "PROJECT_MANAGER"}
+ROLE_ONLY_NAV = {"customize", "clerk", "clinic", "data", "projects"}
 
 
 def state(w, who):
