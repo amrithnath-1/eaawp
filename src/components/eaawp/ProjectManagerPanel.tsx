@@ -441,7 +441,7 @@ function ProjectTasks({ d, isAdmin }: { d: PmProjectDetail; isAdmin: boolean }) 
               <span className="flex items-center gap-1"><Tag>{t.priority}</Tag><Tag tone={statusTone(t.status)}>{STATUS_LABEL[t.status] ?? t.status}</Tag></span>
             </div>
             <div className="mt-0.5 flex flex-wrap items-center justify-between gap-2 text-[11px] text-muted-foreground">
-              <span>{t.owner_name ?? "Not assigned"} · {t.estimated_hours} h · reported {t.progress_pct}%{t.blocked ? " · blocked" : ""}</span>
+              <span>{t.status === "PENDING_HITL_APPROVAL" && t.owner_name ? `Proposed: ${t.owner_name} (needs approval)` : (t.owner_name ?? "Not assigned")} · {t.estimated_hours} h · reported {t.progress_pct}%{t.blocked ? " · blocked" : ""}</span>
               {d.can_manage && (
                 <span className="flex gap-1">
                   {isAdmin && t.status !== "COMPLETED_AND_AUDITED" && <button type="button" className={btn} onClick={() => setPick(pick === t.id ? null : t.id)}><UserPlus className="size-3" /> Who fits?</button>}
