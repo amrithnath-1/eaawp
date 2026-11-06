@@ -113,10 +113,10 @@ class TestRegistryStubsFixed:
             "generate_report does not call campaign_service"
 
     def test_master_tool_registry_count(self):
-        """MASTER_TOOL_REGISTRY has 34 tools (28 + 2 Data Analyst + 2 Institutional Clerk + 2 Medical Assistant read tools)."""
+        """MASTER_TOOL_REGISTRY has 45 tools (28 + 2 Data Analyst + 2 Institutional Clerk + 2 Medical Assistant + 11 Project Manager read tools)."""
         from app.tools.registry import MASTER_TOOL_REGISTRY
         count = len(MASTER_TOOL_REGISTRY)
-        assert count == 34, f"Expected 34 tools, got {count}: {sorted(MASTER_TOOL_REGISTRY.keys())}"
+        assert count == 45, f"Expected 45 tools, got {count}: {sorted(MASTER_TOOL_REGISTRY.keys())}"
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
